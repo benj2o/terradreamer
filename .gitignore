@@ -1,0 +1,21 @@
+# environments
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ipynb_checkpoints/
+
+# macOS
+.DS_Store
+
+# data: cubes are large and reproducible from data/download_minicubes.py.
+# Commit their checksums (data/raw.sha256), never the cubes themselves.
+data/raw/
+data/cache/
+data/greenearthnet/
+*.nc
+*.nc.partial
+*.zarr/
+
+# build artifact: rebuild with ./make_zip.sh
+phase1_1_repo.zip

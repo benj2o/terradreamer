@@ -1,0 +1,17 @@
+# Phase 1.1 - data toy-load
+earthnet
+earthnet-minicuber
+# imported by earthnet_minicuber/provider/s2/nbar.py but MISSING from that
+# package's install_requires, so pip will not pull it in for you.
+sen2nbar
+torch
+torchvision
+rasterio
+xarray
+zarr
+netCDF4
+dask
+numpy
+pandas
+matplotlib
+pytest
