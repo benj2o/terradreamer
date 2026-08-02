@@ -4,7 +4,11 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 rm -f phase1_1_repo.zip
-zip -q -r phase1_1_repo.zip \
-    data tests notebooks requirements.txt pytest.ini README.md RUNBOOK.md \
-    -x "*__pycache__*" "*.pytest_cache*" "data/raw/*"
+# Everything git tracks, minus the cubes. Deriving the list from git means a
+# new top-level package cannot be forgotten here again, which is how probes/
+# shipped missing and broke test collection in Colab.
+git ls-files -z \
+  | grep -zv '^phase1_1_repo\.zip$' \
+  | grep -zv '^data/raw/' \
+  | xargs -0 zip -q phase1_1_repo.zip
 echo "built phase1_1_repo.zip ($(du -h phase1_1_repo.zip | cut -f1))"
