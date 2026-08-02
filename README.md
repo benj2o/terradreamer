@@ -1,7 +1,8 @@
 # Probing frozen EO foundation-model representations for dynamics and forecastability
 
-GreenEarthNet / EarthNet2021 minicubes. Munich first: everything is prototyped on
-a small Bavarian / Alpine-foreland subset before any scale-up.
+GreenEarthNet / EarthNet2021 minicubes. Tile 32UNU first (Allgäu / Upper Swabia):
+everything is prototyped on a small Alpine-foreland subset before any scale-up.
+Scale-up generalises by land-cover strata, not by city.
 
 ## Standing constraints
 
@@ -51,9 +52,9 @@ python -m data.download_greenearthnet --out data/raw --n 20 --tile 32UNU
 
 ## Data
 
-Pre-processed GreenEarthNet minicubes, tile `32UNU` (Allgaeu and Upper Swabia),
-the closest Alpine-foreland tile the dataset contains. `32UPU`, which holds
-Munich itself, is not in GreenEarthNet.
+Pre-processed GreenEarthNet minicubes, tile `32UNU` (Allgäu / Upper Swabia),
+the closest Alpine-foreland tile the dataset contains. There are no Munich cubes
+to find: `32UPU`, which holds Munich, is not in GreenEarthNet.
 
 Each cube is 128 x 128 px at 20 m over a 150-day window in 2018, about 29
 Sentinel-2 acquisitions after empty days are dropped. All cubes in the tile are

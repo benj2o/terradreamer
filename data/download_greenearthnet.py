@@ -1,5 +1,7 @@
 """Fetch <=20 pre-processed GreenEarthNet minicubes for one MGRS tile.
 
+Project subset: tile 32UNU, Allgäu / Upper Swabia.
+
     python -m data.download_greenearthnet --out data/raw --n 20 --tile 32UNU
 
 Why this instead of live Sentinel-2 extraction:
@@ -15,10 +17,13 @@ Note on `earthnet.download(..., limit=N)`: `limit` slices a lexicographic
 listing of every file in the split, so it returns N cubes from whichever tile
 sorts first, not from the tile you want. Hence this module.
 
-Tile choice: 32UPU, which contains Munich itself, is NOT in the dataset. The
-closest true Alpine-foreland tile is 32UNU (9.00-10.49 E, 47.76-48.75 N,
-Allgaeu and Upper Swabia), same latitude band as Munich and about 135 km west.
+Tile choice: 32UNU (9.00-10.49 E, 47.76-48.75 N, Allgäu / Upper Swabia).
+There are no Munich cubes to find: 32UPU, which contains Munich, is NOT in the
+dataset. 32UNU is the same latitude band, about 135 km west, same landscape.
 32TPT is nearer in km but is high Alps, a different biome.
+
+Scale-up generalises by land-cover strata, not by city, so the tile is a label,
+not a constraint on the science.
 """
 
 from __future__ import annotations
@@ -35,8 +40,8 @@ BUCKET = "earthnet/earthnet2021x"
 DEFAULT_TILE = "32UNU"
 DEFAULT_SPLIT = "train"
 
-# Alpine-foreland / Bavaria MGRS tiles that exist in the dataset, nearest first.
-# 32UPU (Munich) is absent upstream.
+# Alpine-foreland MGRS tiles that exist in the dataset, nearest first.
+# 32UPU is absent upstream, so there is no Munich tile to select.
 BAVARIA_TILES = ("32UNU", "32TPT", "33TUN")
 
 __all__ = ["list_cubes", "parse_footprint", "select_non_overlapping", "s3fs_client"]
@@ -134,7 +139,7 @@ def main() -> None:
     ap.add_argument("--split", default=DEFAULT_SPLIT)
     ap.add_argument("--overwrite", action="store_true")
     args = ap.parse_args()
-    assert 1 <= args.n <= 20, "Munich-first: keep this <= 20 cubes"
+    assert 1 <= args.n <= 20, "toy-load: keep this <= 20 cubes"
 
     os.makedirs(args.out, exist_ok=True)
     s3 = s3fs_client()

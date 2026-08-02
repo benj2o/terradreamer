@@ -1,6 +1,12 @@
-"""Download <=20 Sentinel-2 minicubes over the Bavarian / Alpine foreland.
+"""Download <=20 Sentinel-2 minicubes by live extraction. LEGACY PATH.
 
-Tile centre (lon, lat) = (11.55, 48.15), Alpine foreland south of Munich
+The project subset is tile 32UNU (Allgäu / Upper Swabia), fetched by
+data/download_greenearthnet.py. This module builds cubes anywhere, at 14.7 h
+per 20 cubes, and its masks are self-derived so its numbers are NOT comparable
+with published GreenEarthNet baselines. Use it only for a location the dataset
+does not cover.
+
+Default centre (lon, lat) = (11.55, 48.15), Alpine foreland south of Munich
 (Starnberg / Wolfratshausen: mixed grassland, arable, forest, some wetland).
 
     python -m data.download_minicubes --out data/raw --n 20
@@ -23,7 +29,7 @@ import traceback
 
 import numpy as np
 
-# Grid tile centre, Alpine foreland south of Munich.
+# Default grid centre. Not the project subset, see the module docstring.
 LON0, LAT0 = 11.55, 48.15
 TIME_INTERVAL = "2019-01-01/2021-12-31"
 BANDS = ["B02", "B03", "B04", "B8A"]
@@ -188,7 +194,7 @@ def main() -> None:
                          "Use a short window ONLY for timing probes, and send the "
                          "output to a scratch dir, never to data/raw.")
     args = ap.parse_args()
-    assert 1 <= args.n <= 20, "Munich-first: keep this <= 20 cubes"
+    assert 1 <= args.n <= 20, "toy-load: keep this <= 20 cubes"
 
     n_months = _month_count(args.time_interval)
     if args.time_interval != TIME_INTERVAL:

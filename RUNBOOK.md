@@ -68,10 +68,10 @@ so roughly 70 MB for 20.
 
 ## The data
 
-Tile `32UNU`, 9.00 to 10.49 E, 47.76 to 48.75 N: Allgaeu and Upper Swabia. It is
-the closest Alpine-foreland tile GreenEarthNet contains. `32UPU`, which holds
-Munich itself, is not in the dataset. Same latitude band as Munich, about 135 km
-west, same landscape.
+Tile `32UNU`, 9.00 to 10.49 E, 47.76 to 48.75 N: Allgäu / Upper Swabia. It is
+the closest Alpine-foreland tile GreenEarthNet contains. Do not go looking for
+Munich cubes: `32UPU`, which holds Munich, is not in the dataset. 32UNU is the
+same latitude band, about 135 km west, same landscape.
 
 Each cube is 128 x 128 px at 20 m over a 150-day window in 2018, on a daily grid
 where roughly 29 days carry a Sentinel-2 acquisition. The loader drops the empty
