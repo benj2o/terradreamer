@@ -201,30 +201,34 @@ def assert_no_overlap(root: str, pattern: str = "*.nc", verbose: bool = True) ->
         paths = sorted(glob.glob(os.path.join(root, "**", pattern), recursive=True))
     assert paths, f"no cubes matching {pattern!r} under {root}"
 
-    boxes = []
+    cubes = []
     for p in paths:
         with xr.open_dataset(p) as ds:
             ydim, xdim = ("lat", "lon") if "lat" in ds.coords else ("y", "x")
-            y, x = ds[ydim].values, ds[xdim].values
-            boxes.append((os.path.basename(p),
-                          float(min(x)), float(max(x)),
-                          float(min(y)), float(max(y))))
+            cubes.append((os.path.basename(p), ds[xdim].values, ds[ydim].values))
 
+    # Exact test, not bounding boxes. Cubes are gridded in UTM but carry lat/lon
+    # coordinates, so the grid is slightly skewed relative to lat/lon and two
+    # merely ADJACENT cubes have lat/lon bounding boxes that overlap by a pixel
+    # or two while sharing no pixel at all. Comparing coordinate values settles
+    # it: a shared pixel means a shared coordinate on both axes.
     overlaps = []
-    for i in range(len(boxes)):
-        for j in range(i + 1, len(boxes)):
-            ni, x0i, x1i, y0i, y1i = boxes[i]
-            nj, x0j, x1j, y0j, y1j = boxes[j]
-            if x0i < x1j and x0j < x1i and y0i < y1j and y0j < y1i:
-                overlaps.append((ni, nj))
+    for i in range(len(cubes)):
+        for j in range(i + 1, len(cubes)):
+            ni, xi, yi = cubes[i]
+            nj, xj, yj = cubes[j]
+            nx = np.intersect1d(xi, xj).size
+            ny = np.intersect1d(yi, yj).size
+            if nx and ny:
+                overlaps.append((ni, nj, nx * ny))
 
     if verbose:
-        print(f"[loader] overlap check: {len(boxes)} cubes, "
-              f"{len(overlaps)} overlapping pair(s)")
+        print(f"[loader] overlap check: {len(cubes)} cubes, "
+              f"{len(overlaps)} sharing pixels")
     assert not overlaps, (
         f"{len(overlaps)} overlapping cube pair(s). Identical pixels would end "
         f"up on both sides of a split:\n" +
-        "\n".join(f"  {a}  <->  {b}" for a, b in overlaps[:10]) +
+        "\n".join(f"  {a}  <->  {b}  ({n} shared pixels)" for a, b, n in overlaps[:10]) +
         "\nDelete the stray cube(s) and re-run. A cube downloaded with an older "
         "--n is the usual cause."
     )

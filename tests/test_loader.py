@@ -102,17 +102,35 @@ def test_assert_no_overlap_passes_for_disjoint_cubes(tmp_path):
     assert len(assert_no_overlap(str(tmp_path))) == 2
 
 
-def test_assert_no_overlap_catches_the_stray_preflight_cube(tmp_path):
-    """The exact --n 1 bug: a cube at 48.1500 sits 1.92 km from the grid row at
-    48.1328, and the cubes are 2.56 km tall -- so they share pixels."""
+def test_assert_no_overlap_catches_cubes_sharing_pixels(tmp_path):
+    """Two windows cut from one grid, offset by half a cube, share real rows."""
     from conftest import make_synthetic_cube
     from data.loader import assert_no_overlap
     import xarray as xr
 
-    for i, lat0 in enumerate([48.1328, 48.1500]):
+    full = np.linspace(48.16, 48.10, 16)   # one grid both cubes are cut from
+    for i, off in enumerate([0, 4]):       # 8-wide windows, so they share 4 rows
         p = make_synthetic_cube(str(tmp_path / f"mc_{i:02d}.nc"), seed=i)
         ds = xr.load_dataset(p)
-        ds = ds.assign_coords(lat=np.linspace(lat0 + 0.0115, lat0 - 0.0115, ds.sizes["lat"]))
+        ds = ds.assign_coords(lat=full[off:off + ds.sizes["lat"]])
         ds.to_netcdf(p)
     with pytest.raises(AssertionError, match="overlapping cube pair"):
         assert_no_overlap(str(tmp_path))
+
+
+def test_adjacent_cubes_sharing_no_pixel_are_allowed(tmp_path):
+    """Cubes are gridded in UTM but carry lat/lon coords, so two ADJACENT cubes
+    have overlapping lat/lon bounding boxes while sharing no pixel. That must
+    not be reported as overlap."""
+    from conftest import make_synthetic_cube
+    from data.loader import assert_no_overlap
+    import xarray as xr
+
+    for i, lat0 in enumerate([48.16, 48.14]):
+        p = make_synthetic_cube(str(tmp_path / f"mc_{i:02d}.nc"), seed=i)
+        ds = xr.load_dataset(p)
+        # skewed by a fraction of a pixel, exactly like the real cubes
+        ds = ds.assign_coords(
+            lat=np.linspace(lat0, lat0 - 0.02, ds.sizes["lat"]) + i * 0.0003)
+        ds.to_netcdf(p)
+    assert len(assert_no_overlap(str(tmp_path))) == 2

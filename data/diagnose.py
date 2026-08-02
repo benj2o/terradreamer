@@ -1,28 +1,30 @@
-"""Find out why the download failed, in ~90 seconds, with the real traceback.
+"""Find out why the data step failed, in under a minute, with the real traceback.
 
     python -m data.diagnose
 
-Runs four escalating checks and STOPS at the first hard failure, printing the
-full traceback instead of swallowing it:
+Four escalating checks against the GreenEarthNet download path, stopping at the
+first hard failure and printing the full traceback instead of swallowing it:
 
-    1. imports        - is the stack actually installed?
-    2. STAC query     - can we reach Planetary Computer and see scenes?
-    3. cloud mask     - can we fetch the U-Net checkpoint and run it?
-    4. one month cube - the whole pipeline on the smallest possible request
+    1. imports    is the stack actually installed?
+    2. s3         can we reach the MPG object store and list the tile?
+    3. one cube   does a real cube download and open?
+    4. loader     do ndvi() and the loader agree on it?
 
-Exit code is non-zero on failure, so `run()` in the notebook raises.
+Exit code is non-zero on failure, so sh() in the notebook raises.
+
+For the older live-extraction path (earthnet-minicuber, Planetary Computer) see
+data/download_minicubes.py. It works but measured 14.7 hours for 20 cubes.
 """
 
 from __future__ import annotations
 
+import os
 import sys
+import tempfile
 import traceback
 
-LON, LAT = 11.55, 48.15
-BBOX = [LON - 0.02, LAT - 0.02, LON + 0.02, LAT + 0.02]
-ONE_MONTH = "2020-07-01/2020-08-01"  # peak growing season: scenes must exist
-
-_FAILED: list = []
+TILE = "32UNU"
+SPLIT = "train"
 
 
 def _hdr(n: int, title: str) -> None:
@@ -32,124 +34,94 @@ def _hdr(n: int, title: str) -> None:
 def check_imports() -> bool:
     _hdr(1, "IMPORTS")
     print(f"python {sys.version.split()[0]}")
-    pkgs = ["numpy", "xarray", "rasterio", "zarr", "dask", "netCDF4", "pandas",
-            "torch", "segmentation_models_pytorch", "pystac_client",
-            "planetary_computer", "stackstac", "rioxarray", "pyproj", "shapely",
-            "sen2nbar", "earthnet_minicuber", "earthnet"]
+    pkgs = ["numpy", "xarray", "netCDF4", "pandas", "zarr", "s3fs", "torch", "earthnet"]
     ok = True
     for p in pkgs:
         try:
             m = __import__(p)
-            print(f"  [ok]   {p:<32} {getattr(m, '__version__', '?')}")
+            print(f"  [ok]   {p:<12} {getattr(m, '__version__', '?')}")
         except Exception as e:
             ok = False
-            print(f"  [FAIL] {p:<32} {type(e).__name__}: {e}")
+            print(f"  [FAIL] {p:<12} {type(e).__name__}: {e}")
     if not ok:
-        print("\n>>> A package above is missing or broken. This is the cause.")
-        print(">>> Re-run the install cell WITHOUT -q and read the pip output:")
-        print("      !pip install earthnet earthnet-minicuber sen2nbar rasterio "
-              "xarray zarr netCDF4 dask")
-        print(">>> NOTE: sen2nbar is imported by earthnet-minicuber but missing "
-              "from its install_requires, so pip will not pull it for you.")
+        print("\n>>> A package above is missing. Re-run the install cell WITHOUT -q:")
+        print("      !pip install earthnet s3fs xarray zarr netCDF4")
     return ok
 
 
-def check_stac() -> bool:
-    _hdr(2, "STAC QUERY (Microsoft Planetary Computer)")
+def check_s3() -> bool:
+    _hdr(2, "OBJECT STORE (s3.bgc-jena.mpg.de, anonymous)")
     try:
-        import planetary_computer as pc
-        import pystac_client
+        from data.download_greenearthnet import BUCKET, list_cubes
 
-        cat = pystac_client.Client.open("https://planetarycomputer.microsoft.com/api/stac/v1")
-        search = cat.search(bbox=BBOX, collections=["sentinel-2-l2a"], datetime=ONE_MONTH)
-        items = pc.sign(search)
-        feats = items.to_dict()["features"]
-        print(f"  bbox {BBOX}")
-        print(f"  window {ONE_MONTH}")
-        print(f"  scenes found: {len(feats)}")
-        if not feats:
-            print("\n>>> Zero scenes. Either the bbox/date is wrong or the catalog changed.")
-            return False
-        p = feats[0]["properties"]
-        print(f"  first scene: {p.get('datetime')} epsg={p.get('proj:epsg')} "
-              f"cloud={p.get('eo:cloud_cover')}")
-        print(f"  assets: {sorted(feats[0]['assets'])[:8]} ...")
+        keys = list_cubes(TILE, SPLIT)
+        print(f"  {BUCKET}/{SPLIT}/{TILE}")
+        print(f"  cubes in tile: {len(keys)}")
+        print(f"  first: {os.path.basename(keys[0])}")
         return True
     except Exception:
         traceback.print_exc()
-        print("\n>>> Could not query Planetary Computer. Network/firewall, or a "
-              "pystac-client / planetary-computer version mismatch.")
+        print("\n>>> Could not list the store. Network, or the bucket layout changed.")
         return False
 
 
-def check_cloudmask() -> bool:
-    _hdr(3, "CLOUD-MASK CHECKPOINT (nextcloud.bgc-jena.mpg.de)")
+def check_one_cube() -> bool:
+    _hdr(3, "ONE REAL CUBE")
     try:
-        import numpy as np
-        import torch
         import xarray as xr
-        from earthnet_minicuber.provider.s2.cloudmask import CloudMask
 
-        cm = CloudMask(bands=["B02", "B03", "B04", "B8A"])
-        print(f"  checkpoint loaded, ckpt_bands={cm.ckpt_bands}")
-        print(f"  model training mode: {cm.model.training} (must be False)")
+        from data.download_greenearthnet import list_cubes, s3fs_client
 
-        stack = xr.DataArray(
-            np.random.default_rng(0).uniform(0, 3000, (1, 4, 64, 64)).astype("float32"),
-            dims=("time", "band", "y", "x"),
-            coords={"time": [np.datetime64("2020-07-01")],
-                    "band": ["B02", "B03", "B04", "B8A"],
-                    "y": np.arange(64), "x": np.arange(64)},
-        )
-        out = cm(stack)
-        m = out.sel(band="mask").values
-        print(f"  ran on dummy (1, 4, 64, 64) -> mask {m.shape} "
-              f"codes {sorted(np.unique(m).tolist())}")
-        print(f"  torch device: cpu (expected - the mask is not GPU-accelerated)")
+        s3 = s3fs_client()
+        key = list_cubes(TILE, SPLIT, s3)[0]
+        tmp = os.path.join(tempfile.gettempdir(), os.path.basename(key))
+        s3.download(key, tmp)
+        print(f"  downloaded {os.path.basename(key)} ({os.path.getsize(tmp) / 1e6:.1f} MB)")
+        with xr.open_dataset(tmp) as ds:
+            print(f"  dims {dict(ds.sizes)}")
+            need = ["s2_B02", "s2_B03", "s2_B04", "s2_B8A", "s2_mask"]
+            missing = [v for v in need if v not in ds.variables]
+            assert not missing, f"missing {missing}"
+            print(f"  all of {need} present")
+        globals()["_CUBE"] = tmp
         return True
     except Exception:
         traceback.print_exc()
-        print("\n>>> Cloud mask failed. Common causes: nextcloud.bgc-jena.mpg.de "
-              "unreachable, or a segmentation-models-pytorch / torch mismatch.")
+        print("\n>>> The download or the file itself is broken.")
         return False
 
 
-def check_one_month_cube() -> bool:
-    _hdr(4, "ONE-MONTH MINICUBE (the real pipeline, smallest request)")
+def check_loader() -> bool:
+    _hdr(4, "LOADER AND CANONICAL NDVI")
     try:
-        from data.download_minicubes import _load_minicube, specs_for
-
-        specs = specs_for(LON, LAT)
-        specs["time_interval"] = ONE_MONTH
-        specs["xy_shape"] = (64, 64)
-        print(f"  specs: {specs['lon_lat']} {specs['xy_shape']} @ {specs['resolution']} m, "
-              f"{specs['time_interval']}")
-        cube = _load_minicube(specs)
-        print(f"  dims {dict(cube.sizes)}")
-        print(f"  vars {sorted(map(str, cube.data_vars))}")
-        assert cube.sizes.get("time", 0) > 0, "empty time axis"
         import numpy as np
 
-        b04 = cube["s2_B04"].values
-        print(f"  s2_B04 min {np.nanmin(b04):.4f} max {np.nanmax(b04):.4f}")
-        if "s2_mask" in cube:
-            m = cube["s2_mask"].values
-            print(f"  s2_mask clear(=0) fraction {float(np.mean(m == 0)):.3f}")
+        from data.loader import cube_ndvi, load_cube
+
+        s = load_cube(globals()["_CUBE"])
+        nd = cube_ndvi(s)
+        print(f"  values {s.values.shape} | mask {s.mask.shape} | ndvi {nd.shape}")
+        dt = np.diff(s.timestamps) / np.timedelta64(1, "D")
+        print(f"  dt/days min {dt.min():.0f} median {np.median(dt):.0f} max {dt.max():.0f}")
+        assert dt.min() != dt.max(), "time grid is perfectly regular, gaps were filled"
+        assert np.isnan(nd[~s.mask]).all(), "masked pixels leaked into NDVI"
+        v = nd[np.isfinite(nd)]
+        print(f"  valid NDVI fraction {v.size / nd.size:.3f} | median {np.median(v):.3f}")
+        assert np.median(v) > 0.0, "negative median NDVI, B04 and B8A may be swapped"
         print("\n>>> Pipeline works. The batch download should work too.")
         return True
     except Exception:
         traceback.print_exc()
-        print("\n>>> THIS IS THE TRACEBACK THAT THE BATCH DOWNLOAD WAS SWALLOWING.")
+        print("\n>>> THIS IS THE TRACEBACK THAT MATTERS.")
         return False
 
 
 def main() -> None:
-    steps = [("imports", check_imports), ("stac", check_stac),
-             ("cloudmask", check_cloudmask), ("cube", check_one_month_cube)]
+    steps = [("imports", check_imports), ("s3", check_s3),
+             ("cube", check_one_cube), ("loader", check_loader)]
     for name, fn in steps:
         if not fn():
-            print(f"\n{'=' * 70}\nDIAGNOSIS: first failure at step '{name}'.\n"
-                  f"{'=' * 70}")
+            print(f"\n{'=' * 70}\nDIAGNOSIS: first failure at step '{name}'.\n{'=' * 70}")
             sys.exit(1)
     print(f"\n{'=' * 70}\nAll four checks passed.\n{'=' * 70}")
 

@@ -18,12 +18,13 @@ a small Bavarian / Alpine-foreland subset before any scale-up.
 ## Layout
 
 ```
-data/ndvi.py               canonical NDVI. Exactly one function. Never copy it.
-data/loader.py             (values, timestamps, mask) per cube. Mask polarity is
-                           decided here, once, in valid_mask_from_codes.
-data/download_minicubes.py up to 20 non-overlapping S2 minicubes at (11.55, 48.15)
-data/stackstac_compat.py   shim for stackstac >= 0.5 vs earthnet-minicuber 0.1.3
-data/diagnose.py           four escalating checks, stops at the first failure
+data/ndvi.py                 canonical NDVI. Exactly one function. Never copy it.
+data/loader.py               (values, timestamps, mask) per cube. Mask polarity is
+                             decided here, once, in valid_mask_from_codes.
+data/download_greenearthnet.py  PRIMARY: 20 pre-processed cubes, tile 32UNU, ~15 s
+data/download_minicubes.py   live Sentinel-2 extraction. Any location, 14.7 h/20 cubes
+data/stackstac_compat.py     shim for stackstac >= 0.5 vs earthnet-minicuber 0.1.3
+data/diagnose.py             four escalating checks, stops at the first failure
 tests/                     test_ndvi.py was written before data/ndvi.py existed
 notebooks/phase1_1_data_toy_load.ipynb
 RUNBOOK.md                 Colab walkthrough: folders, restarts, expected output
@@ -45,8 +46,19 @@ RUNBOOK.md                 Colab walkthrough: folders, restarts, expected output
 pip install -r requirements.txt
 python -m pytest tests -q
 python -m data.diagnose
-python -m data.download_minicubes --out data/raw --n 20
+python -m data.download_greenearthnet --out data/raw --n 20 --tile 32UNU
 ```
+
+## Data
+
+Pre-processed GreenEarthNet minicubes, tile `32UNU` (Allgaeu and Upper Swabia),
+the closest Alpine-foreland tile the dataset contains. `32UPU`, which holds
+Munich itself, is not in GreenEarthNet.
+
+Each cube is 128 x 128 px at 20 m over a 150-day window in 2018, about 29
+Sentinel-2 acquisitions after empty days are dropped. All cubes in the tile are
+from 2018, so there is no interannual signal to probe. That bounds Phase 1.2 to
+within-season dynamics, which is the EarthNet benchmark's own setup.
 
 `NDVI_VERBOSE=1` makes `ndvi()` print the shapes of every call.
 

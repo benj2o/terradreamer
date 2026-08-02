@@ -1,6 +1,7 @@
 # Phase 1.1 - data toy-load
 earthnet
-earthnet-minicuber
+s3fs          # fetches pre-processed GreenEarthNet cubes (primary path)
+earthnet-minicuber   # live-extraction path only, see data/download_minicubes.py
 # imported by earthnet_minicuber/provider/s2/nbar.py but MISSING from that
 # package's install_requires, so pip will not pull it in for you.
 sen2nbar
