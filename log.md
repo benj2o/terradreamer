@@ -72,3 +72,26 @@ Two notes on our implementation in `data/climatology.py`:
 the manifest contains one year, which is the case for the whole 32UNU subset.
 The year-leakage check is therefore **deferred to scale-up**. Spatial grouping
 is unaffected and remains the operative split for Phase 1.3.
+
+The error message explicitly warns against falling back to a random split,
+which would put the same season on both sides and produce exactly the inflated
+number the year grouping exists to prevent.
+
+## 2026-08-02: probe scope under the single-year subset
+
+Recorded in the `probes` package docstring so it is read where it binds:
+
+- **P2 (5-day deltas): unaffected.** The step is the S2 revisit, well inside a
+  150-day cube.
+- **P3 (horizons to ~100 days): unaffected.** A 150-day window holds a 100-day
+  horizon with context to spare.
+- **Ceiling claim: narrowed to "within-season".** No interannual or multi-year
+  seasonality on this subset. Conventional for the benchmark, but it has to be
+  written down rather than assumed.
+
+**PCA latent clock.** Not computable from one cube: ~29 frames over ~150 days is
+a fragment of an annual cycle, so the "clock" would be a line rather than a
+loop. Adopted instead: pool embeddings across cubes spanning the tile's 16
+distinct time windows (starts 2018-03-09 through 2018-07-07, aggregate coverage
+2018-03 to 2018-12) and colour by month or season. The spread across windows is
+the only seasonal axis available.
