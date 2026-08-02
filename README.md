@@ -31,6 +31,8 @@ probes/cv.py                 THE split definition. Year mode raises on one year
 tests/                     test_ndvi.py was written before data/ndvi.py existed
 notebooks/phase1_1_data_toy_load.ipynb
 RUNBOOK.md                 Colab walkthrough: folders, restarts, expected output
+docs/DECISIONS.md          why the project is shaped this way. Append-only
+log.md                     measurements and adopted definitions
 ```
 
 ## Conventions
