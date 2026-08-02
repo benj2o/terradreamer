@@ -26,8 +26,11 @@ from data.ndvi import ndvi
 
 __all__ = [
     "S2_BANDS",
+    "DLMASK_CLEAR_CODES",
     "S2_MASK_CLEAR_CODES",
+    "GEN_SCL_ALLOWED",
     "SCL_CLEAR_CODES",
+    "greenearthnet_valid_mask",
     "CubeSample",
     "valid_mask_from_codes",
     "load_cube",
@@ -40,16 +43,33 @@ __all__ = [
 # Channel order. Fixed project-wide: index 2 is B04 (red), index 3 is B8A (NIR).
 S2_BANDS: tuple = ("B02", "B03", "B04", "B8A")
 
-# earthnet-minicuber / GreenEarthNet `s2_mask`:
-#   0 = clear, 1 = cloud, 2 = cloud shadow, 3 = snow, 4 = masked other / no-data
+# `s2_dlmask`, the CloudSEN12-trained MobileNetV2/UNet mask that is
+# GreenEarthNet's stated contribution (Benson et al., CVPR 2024). From the
+# variable's own attrs: 0 clear sky, 1 thick cloud, 2 thin cloud, 3 cloud shadow.
+# THIS IS THE PROJECT'S MASK.
+DLMASK_CLEAR_CODES: tuple = (0,)
+
+# `s2_mask`, attrs: "sen2flux Cloud Mask". 0 free sky, 1 cloud, 2 cloud shadows,
+# 3 snow, 4 masked by SCL. Sen2Cor lineage, the EarthNet2021 mask GreenEarthNet
+# supersedes. Fallback only, and loudly.
 S2_MASK_CLEAR_CODES: tuple = (0,)
+
+# GreenEarthNet's published clear-sky definition is a CONJUNCTION, not the
+# dlmask alone: model_pixelwise/climatology.py keeps pixels where
+# (s2_dlmask < 1) AND s2_SCL is in this allow-list. Dropping the SCL half would
+# leave numbers that are not comparable with published baselines, which is the
+# whole reason for preferring s2_dlmask. SCL 3 (shadow), 8/9/10 (cloud) and
+# 11 (snow) are excluded, which is also how snow gets masked: s2_dlmask has no
+# snow class of its own.
+GEN_SCL_ALLOWED: tuple = (1, 2, 4, 5, 6, 7)
 
 # Raw Sentinel-2 L2A scene classification, if that is all a cube carries.
 #   4 = vegetation, 5 = bare soil, 6 = water.  (3 shadow, 8/9/10 cloud, 11 snow)
 SCL_CLEAR_CODES: tuple = (4, 5, 6)
 
 _BAND_NAME_CANDIDATES = ("{b}", "s2_{b}", "S2_{b}", "{b}_20m", "sen2{b}")
-_MASK_NAME_CANDIDATES = ("s2_mask", "mask", "cloudmask_en", "s2_cloudmask")
+# Preference order matters: s2_dlmask first.
+_MASK_NAME_CANDIDATES = ("s2_dlmask", "s2_mask", "mask", "cloudmask_en", "s2_cloudmask")
 _SCL_NAME_CANDIDATES = ("s2_SCL", "SCL", "scl")
 
 
@@ -80,6 +100,24 @@ def valid_mask_from_codes(codes, clear_codes: Sequence[int] = S2_MASK_CLEAR_CODE
     return valid
 
 
+def greenearthnet_valid_mask(dlmask, scl=None) -> np.ndarray:
+    """GreenEarthNet's published clear-sky definition, as a boolean valid-mask.
+
+    (s2_dlmask == 0) AND (s2_SCL in GEN_SCL_ALLOWED), after
+    vitusbenson/greenearthnet model_pixelwise/climatology.py, which keeps
+    pixels where `(s2_dlmask < 1)` and `s2_SCL` is in `[1, 2, 4, 5, 6, 7]`.
+
+    Polarity is still decided only in valid_mask_from_codes; this composes two
+    of its results. Passing scl=None gives the dlmask alone, which is NOT the
+    published definition and is only for ablation.
+    """
+    valid = valid_mask_from_codes(dlmask, DLMASK_CLEAR_CODES)
+    if scl is not None:
+        valid &= valid_mask_from_codes(scl, GEN_SCL_ALLOWED)
+    assert valid.dtype == np.bool_
+    return valid
+
+
 def _resolve(ds: xr.Dataset, candidates: Sequence[str], band: str = "") -> str:
     for pattern in candidates:
         name = pattern.format(b=band)
@@ -103,20 +141,36 @@ def load_cube(
     bands: Sequence[str] = S2_BANDS,
     drop_empty_timesteps: bool = True,
     verbose: bool = True,
+    scl_conjunction: bool = True,
 ) -> CubeSample:
-    """Load one minicube from disk into (values, timestamps, mask)."""
+    """Load one minicube from disk into (values, timestamps, mask).
+
+    The mask is `s2_dlmask` AND the `s2_SCL` allow-list, which is
+    GreenEarthNet's published clear-sky definition. Set `scl_conjunction=False`
+    to ablate the SCL half; the result is then not comparable with published
+    baselines.
+    """
     engine = "zarr" if path.endswith(".zarr") else None
     ds = xr.open_dataset(path, engine=engine) if engine is None else xr.open_zarr(path)
 
     band_vars = [_resolve(ds, _BAND_NAME_CANDIDATES, b) for b in bands]
     try:
         mask_var = _resolve(ds, _MASK_NAME_CANDIDATES)
-        clear_codes = S2_MASK_CLEAR_CODES
+        clear_codes = DLMASK_CLEAR_CODES if mask_var == "s2_dlmask" else S2_MASK_CLEAR_CODES
     except KeyError:
         mask_var = _resolve(ds, _SCL_NAME_CANDIDATES)
         clear_codes = SCL_CLEAR_CODES
-        print(f"[loader] WARNING: no s2_mask in {os.path.basename(path)}, "
+        print(f"[loader] WARNING: no cloud mask in {os.path.basename(path)}, "
               f"falling back to {mask_var} with clear codes {clear_codes}")
+
+    if mask_var != "s2_dlmask":
+        print(f"[loader] " + "!" * 62)
+        print(f"[loader] ! WARNING: using {mask_var!r}, NOT s2_dlmask.")
+        print(f"[loader] ! s2_mask is the sen2flux/Sen2Cor-lineage mask that")
+        print(f"[loader] ! GreenEarthNet supersedes (Benson et al., CVPR 2024).")
+        print(f"[loader] ! Numbers from this cube are NOT comparable with")
+        print(f"[loader] ! published benchmark results.")
+        print(f"[loader] " + "!" * 62)
 
     ydim, xdim = _spatial_dims(ds[band_vars[0]])
 
@@ -132,9 +186,21 @@ def load_cube(
     values = np.stack(stack, axis=1)  # (T, C, H, W)
     codes = ds[mask_var].transpose("time", ydim, xdim).values
     timestamps = ds["time"].values.astype("datetime64[ns]")
+
+    scl = None
+    if mask_var == "s2_dlmask" and scl_conjunction:
+        try:
+            scl_var = _resolve(ds, _SCL_NAME_CANDIDATES)
+            scl = ds[scl_var].transpose("time", ydim, xdim).values
+        except KeyError:
+            print(f"[loader] WARNING: {os.path.basename(path)} has s2_dlmask but no "
+                  "s2_SCL, so the published conjunction cannot be applied.")
     ds.close()
 
-    mask = valid_mask_from_codes(codes, clear_codes)
+    if mask_var == "s2_dlmask":
+        mask = greenearthnet_valid_mask(codes, scl)
+    else:
+        mask = valid_mask_from_codes(codes, clear_codes)
 
     assert values.ndim == 4, f"values must be (T, C, H, W), got {values.shape}"
     assert values.shape[1] == len(bands), f"band axis {values.shape[1]} != {len(bands)}"

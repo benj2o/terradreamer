@@ -7,7 +7,9 @@ import numpy as np
 import pytest
 
 from data.loader import (
+    GEN_SCL_ALLOWED,
     S2_BANDS,
+    greenearthnet_valid_mask,
     cube_ndvi,
     describe_cube,
     iter_cubes,
@@ -134,3 +136,59 @@ def test_adjacent_cubes_sharing_no_pixel_are_allowed(tmp_path):
             lat=np.linspace(lat0, lat0 - 0.02, ds.sizes["lat"]) + i * 0.0003)
         ds.to_netcdf(p)
     assert len(assert_no_overlap(str(tmp_path))) == 2
+
+
+
+def test_greenearthnet_mask_is_the_published_conjunction():
+    """(s2_dlmask == 0) AND (s2_SCL in allow-list). Either half can veto."""
+    dl = np.array([[0, 0], [1, 0]], dtype=np.uint8)     # clear except (1,0)
+    scl = np.array([[4, 9], [4, 11]], dtype=np.uint8)   # 9 cloud, 11 snow
+    got = greenearthnet_valid_mask(dl, scl)
+    assert got.tolist() == [[True, False], [False, False]], (
+        "expected only (0,0) clear: (0,1) vetoed by SCL, (1,0) by dlmask, "
+        "(1,1) by SCL snow"
+    )
+
+
+def test_dlmask_alone_is_more_permissive_than_the_conjunction():
+    dl = np.zeros((4, 4), dtype=np.uint8)
+    scl = np.full((4, 4), 11, dtype=np.uint8)          # all snow
+    assert greenearthnet_valid_mask(dl, None).all(), "dlmask has no snow class"
+    assert not greenearthnet_valid_mask(dl, scl).any(), "SCL must veto snow"
+
+
+def test_scl_allow_list_matches_greenearthnet():
+    assert GEN_SCL_ALLOWED == (1, 2, 4, 5, 6, 7)
+
+
+def test_loader_prefers_dlmask_over_s2_mask(synthetic_cube, capsys):
+    """s2_mask is present in the synthetic cube and must NOT be chosen."""
+    from data.loader import load_cube
+
+    load_cube(synthetic_cube)
+    out = capsys.readouterr().out
+    assert "WARNING" not in out, f"dlmask path should not warn, got:\n{out}"
+
+
+def test_loader_warns_loudly_when_falling_back_to_s2_mask(tmp_path, capsys):
+    from conftest import make_synthetic_cube
+    from data.loader import load_cube
+    import xarray as xr
+
+    p = make_synthetic_cube(str(tmp_path / "legacy.nc"))
+    ds = xr.load_dataset(p).drop_vars("s2_dlmask")
+    ds.to_netcdf(p)
+    load_cube(p)
+    out = capsys.readouterr().out
+    assert "NOT s2_dlmask" in out
+    assert "not comparable" in out.lower()
+
+
+def test_scl_conjunction_can_be_ablated(synthetic_cube):
+    from data.loader import load_cube
+
+    strict = load_cube(synthetic_cube, verbose=False)
+    loose = load_cube(synthetic_cube, verbose=False, scl_conjunction=False)
+    assert loose.mask.sum() > strict.mask.sum(), (
+        "dropping the SCL half must admit more pixels"
+    )

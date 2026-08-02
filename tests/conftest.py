@@ -38,8 +38,15 @@ def make_synthetic_cube(path, T_acquired=8, H=8, W=8, seed=0):
         arr[-2:] = np.nan  # last two timesteps: no acquisition
         data[f"s2_{b}"] = (("time", "lat", "lon"), arr)
 
-    codes = rng.choice([0, 0, 0, 1, 2, 4], size=(T, H, W)).astype(np.uint8)
-    data["s2_mask"] = (("time", "lat", "lon"), codes)
+    # s2_dlmask: 0 clear, 1 thick cloud, 2 thin cloud, 3 cloud shadow
+    data["s2_dlmask"] = (("time", "lat", "lon"),
+                         rng.choice([0, 0, 0, 1, 2, 3], size=(T, H, W)).astype(np.uint8))
+    # s2_SCL: the allow-list is (1, 2, 4, 5, 6, 7); 8/9 are cloud, 11 snow
+    data["s2_SCL"] = (("time", "lat", "lon"),
+                      rng.choice([4, 4, 5, 6, 8, 9, 11], size=(T, H, W)).astype(np.uint8))
+    # legacy sen2flux mask, present in real cubes, must not be preferred
+    data["s2_mask"] = (("time", "lat", "lon"),
+                       rng.choice([0, 0, 0, 1, 2, 4], size=(T, H, W)).astype(np.uint8))
 
     ds = xr.Dataset(
         data,
