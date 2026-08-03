@@ -1,4 +1,4 @@
-# Phase 1.1 - data toy-load
+# Phase 1.1 - data toy-load / Phase 1.2 - Tier A frozen encoders
 earthnet
 s3fs          # fetches pre-processed GreenEarthNet cubes (primary path)
 earthnet-minicuber   # live-extraction path only, see data/download_minicubes.py
@@ -7,6 +7,7 @@ earthnet-minicuber   # live-extraction path only, see data/download_minicubes.py
 sen2nbar
 torch
 torchvision
+satlaspretrain-models   # Phase 1.2: SatlasPretrain Sentinel-2 backbone
 rasterio
 xarray
 zarr
