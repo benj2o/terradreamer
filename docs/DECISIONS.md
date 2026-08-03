@@ -335,7 +335,7 @@ CLS equivalent**. Its docstring says so explicitly, and it has no `cls_*`
 variant to ablate against, unlike the two ViTs. That asymmetry is a property of
 the architecture, not an oversight.
 
-**Commit.** (this change)
+**Commit.** `b84c484`
 
 ---
 
@@ -370,7 +370,7 @@ reproduce `patch_mean_last` exactly (max abs diff ~9e-2). Where the lattice
 does divide evenly (DINOv2's 16x16, Satlas's 4x4 final map) the round-trip is
 exact to 6e-8. Both cases are pinned by tests so nobody "fixes" the first.
 
-**Commit.** (this change)
+**Commit.** `b84c484`
 
 ---
 
@@ -402,7 +402,7 @@ probe-side logic. This block only makes it possible. The Phase 1.2 demotion
 rule is unchanged and applies throughout — a pixel the mask calls valid but
 which carries no finite reflectance is not an observation.
 
-**Commit.** (this change)
+**Commit.** `b84c484`
 
 ---
 
@@ -437,7 +437,7 @@ constraint is now explicit rather than implied. When Clay lands it must wire
 lat/lon, timestamp, GSD and band wavelengths through explicitly and assert none
 of them silently defaulted; the loader already carries all four.
 
-**Commit.** (this change)
+**Commit.** `b84c484`
 
 ---
 
@@ -467,4 +467,4 @@ precipitation is a weather feature — so a frame-defined horizon leaks weather
 into the horizon and degrades persistence differently than it degrades the
 probe, contaminating exactly the comparison the paper rests on.
 
-**Commit.** (this change)
+**Commit.** `b84c484`
