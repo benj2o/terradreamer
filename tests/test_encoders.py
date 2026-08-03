@@ -572,3 +572,37 @@ def test_multi_image_encoder_is_batch_invariant_and_uses_context():
     si = build_encoder("satlas_s2_swinb_rgb", device="cpu", verbose=False)
     sif = si.encode_bundle(frames, batch_size=11, verbose=False)["pooled"]
     assert float((sif - full).abs().max()) > 1e-3, "MI ignores its temporal context"
+
+
+def test_window_span_days_is_cached_and_varies_with_cloud():
+    """The MI lookback is a variable number of DAYS and the variation is
+    weather-correlated: a cloudier stretch drops more frames, so the same 8
+    retained frames reach further back. Probes must be able to control for it,
+    which means it has to be cached at encode time."""
+    from encoders.pipeline import window_span_days
+
+    # 8 frames, then a cloud gap, then 8 more: irregular by construction.
+    t = np.array([0, 5, 10, 15, 20, 25, 30, 35, 75, 80], dtype="timedelta64[D]")
+    ts = (np.datetime64("2018-04-01") + t).astype("datetime64[ns]")
+
+    single = window_span_days(ts, window_len=1)
+    assert (single == 0).all(), "a single-image lookback is one frame, span 0"
+
+    multi = window_span_days(ts, window_len=8)
+    assert multi.shape == ts.shape
+    assert (multi >= 0).all() and np.isfinite(multi).all()
+    assert multi[0] == 0                      # nothing to look back on yet
+    assert multi[7] == 35                     # 8 clear frames, 5 d apart
+    assert multi[9] == 70                     # same 8 frames, spanning a cloud gap
+    print(f"[test] window_span_days: {multi.tolist()}")
+    assert multi.max() > multi[7], (
+        "span must widen across a cloud gap, or the confound is not being measured"
+    )
+
+
+def test_encoded_cube_roundtrips_window_span_days(tmp_path, dummy):
+    ec = encode_cube(_sample(H=16, W=16), dummy, verbose=False)
+    assert ec.window_span_days is not None
+    assert (ec.window_span_days == 0).all(), "dummy is single-image"
+    back = load_encoded(save_encoded(str(tmp_path), ec, verbose=False))
+    np.testing.assert_array_equal(back.window_span_days, ec.window_span_days)

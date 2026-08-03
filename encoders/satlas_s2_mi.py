@@ -45,6 +45,7 @@ class SatlasS2SwinBMI(FrozenEncoder):
     variant_dims: dict = {}
     model_identifier = "Sentinel2_SwinB_MI_RGB"
     n_images = 8          # AggregationBackbone.groups == [[0..7]]
+    window_len = 8        # makes the pipeline cache window_span_days
     size_multiple = 32
     FEATURE_RECIPE = (
         "multi-image Swin-B, 8 retained frames stacked channel-wise (24 ch), "

@@ -53,6 +53,7 @@ class EncodedCube(NamedTuple):
     grid: np.ndarray = None        # (T_kept, 16, D_grid) FLOAT16 on disk
     grid_clear_frac: np.ndarray = None  # (T_kept, 16) float32, per-cell valid fraction
     variants: dict = {}            # {name: (T_kept, dim) float32} extraction ablation
+    window_span_days: np.ndarray = None  # (T_kept,) float32, see window_span_days()
 
 
 class CubeMasks(NamedTuple):
@@ -106,6 +107,7 @@ def encode_cube(
     # standardised anyway, so fp16 precision is ample. Pooled stays float32.
     grid = bundle["grid"].numpy().astype(np.float16)
     gcf = grid_clear_fraction(sel.mask).astype(np.float32)
+    wsd = window_span_days(sel.timestamps, encoder.window_len)
     variants = {k: v.numpy() for k, v in bundle.items() if k not in ("pooled", "grid")}
 
     assert emb.shape == (T_kept, encoder.embed_dim), (
@@ -135,11 +137,17 @@ def encode_cube(
         grid=grid,
         grid_clear_frac=gcf,
         variants=variants,
+        window_span_days=wsd,
     )
     if verbose:
         print(f"[pipeline] {cube_name} x {encoder.name}: pooled {emb.shape} | "
               f"grid {grid.shape} fp16 | grid_clear_frac {gcf.shape} | "
               f"variants {sorted(variants)}")
+        if encoder.window_len > 1:
+            print(f"[pipeline] {cube_name} x {encoder.name}: window_span_days "
+                  f"(lookback of {encoder.window_len} retained frames) "
+                  f"min={wsd.min():.0f} median={np.median(wsd):.0f} max={wsd.max():.0f} "
+                  "-- weather-correlated, pass it as a covariate")
     return out
 
 
@@ -181,6 +189,38 @@ def load_masks(path: str) -> CubeMasks:
     return cm
 
 
+def window_span_days(timestamps: np.ndarray, window_len: int) -> np.ndarray:
+    """(T_kept,) calendar days each embedding's input window actually spans.
+
+    A multi-image encoder consumes ``window_len`` RETAINED frames, and retained
+    frames are irregularly spaced, so the embedding's effective lookback is a
+    variable number of days -- and the variation is WEATHER-CORRELATED, because
+    a cloudier stretch drops more frames and therefore reaches further back in
+    time for the same 8 frames. That is the same confound as the horizon issue,
+    living inside the encoder rather than beside it.
+
+    A docstring warning is not enough: a probe cannot control for a quantity
+    that was never cached. This is computable only at encode time, so it is
+    cached here for probes to pass as a covariate.
+
+    Single-image encoders (``window_len == 1``) get exactly 0.0 -- their
+    lookback is one frame by construction, so the covariate is constant and
+    carries no information, which is the honest value rather than a NaN.
+    """
+    timestamps = np.asarray(timestamps)
+    assert window_len >= 1, f"window_len must be >= 1, got {window_len}"
+    T = timestamps.shape[0]
+    idx = np.arange(T)
+    first = np.maximum(0, idx - (window_len - 1))   # earliest frame in the window
+    days = (timestamps - timestamps[first]) / np.timedelta64(1, "D")
+    out = np.asarray(days, dtype=np.float32)
+    assert out.shape == (T,)
+    assert np.isfinite(out).all() and (out >= 0).all(), "negative or non-finite span"
+    if window_len == 1:
+        assert (out == 0).all()
+    return out
+
+
 def _npz_path(out_dir: str, cube: str, encoder: str) -> str:
     stem = os.path.splitext(cube)[0]
     return os.path.join(out_dir, f"{stem}__{encoder}.npz")
@@ -202,6 +242,8 @@ def save_encoded(out_dir: str, ec: EncodedCube, verbose: bool = True) -> str:
         payload["grid"] = ec.grid
     if ec.grid_clear_frac is not None:
         payload["grid_clear_frac"] = ec.grid_clear_frac
+    if ec.window_span_days is not None:
+        payload["window_span_days"] = ec.window_span_days
     for k, v in (ec.variants or {}).items():
         payload[f"variant__{k}"] = v
     np.savez_compressed(path, **payload)
@@ -224,6 +266,7 @@ def load_encoded(path: str) -> EncodedCube:
             grid_clear_frac=z["grid_clear_frac"] if "grid_clear_frac" in z else None,
             variants={k[len("variant__"):]: z[k] for k in z.files
                       if k.startswith("variant__")},
+            window_span_days=z["window_span_days"] if "window_span_days" in z else None,
         )
     T_kept, _D = ec.embeddings.shape
     if ec.grid is not None:
@@ -235,6 +278,10 @@ def load_encoded(path: str) -> EncodedCube:
         g = ec.grid_clear_frac
         assert (g >= 0).all() and (g <= 1).all(), "grid_clear_frac outside [0, 1]"
         np.testing.assert_allclose(g.mean(axis=1), ec.clear_frac, rtol=0, atol=1e-6)
+    if ec.window_span_days is not None:
+        assert ec.window_span_days.shape == (T_kept,)
+        assert np.isfinite(ec.window_span_days).all()
+        assert (ec.window_span_days >= 0).all()
     assert ec.timestamps.shape == ec.clear_frac.shape == ec.kept_idx.shape == (T_kept,)
     assert ec.embeddings.dtype == np.float32
     assert np.isfinite(ec.embeddings).all()

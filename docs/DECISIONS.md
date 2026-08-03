@@ -530,3 +530,61 @@ control property, so the n=1 objection is answered. Clay v1.5 stays deferred,
 not dropped -- this is alongside Clay, not instead of it.
 
 **Commit.** `d58e98e`
+
+---
+
+## 2026-08-03: MI lookback is weather-correlated, so cache window_span_days
+
+**Assumed.** That warning in the multi-image wrapper's docstring -- "the window
+spans IRREGULAR gaps, use original_axis_index for horizons" -- was enough to
+protect probes from the variable lookback.
+
+**Observed.** It is necessary but not sufficient, and the reason is the same
+confound the horizon rule exists for, now living INSIDE the encoder. The MI
+window is 8 RETAINED frames; retained frames are irregularly spaced; so each
+embedding's effective lookback is a variable number of DAYS. The variation is
+not random: a cloudier stretch drops more frames, so the same 8 retained frames
+reach further back in time. Lookback is therefore weather-correlated, exactly
+like a frame-defined horizon.
+
+A docstring cannot fix this. **A probe cannot control for a quantity that was
+never cached**, and the span is computable only at encode time, from the
+retained-frame timestamps that exist nowhere in the saved artefacts once
+encoding is done.
+
+**Changed.** `encoders.pipeline.window_span_days` computes, and every `.npz`
+now stores, `window_span_days [T_kept]`: the calendar days between the earliest
+and the current frame of each embedding's input window. Probes pass it as a
+covariate. `FrozenEncoder.window_len` declares the window (1 everywhere except
+the MI encoder's 8), and single-image encoders get exactly 0.0 -- an honest
+constant rather than a NaN, since their lookback is one frame by construction.
+
+**Commit.** (this change)
+
+---
+
+## 2026-08-03: two probe-time issues recorded now, deliberately not acted on
+
+Both are probe-side, so deferring them costs nothing and acting now would
+prejudge Phase 1.3. Recorded here so they are not rediscovered as surprises.
+
+**1. MI max-pooling is lossy in a specific direction.** The multi-image
+backbone aggregates its 8 images by MAX-POOLING features across the group
+(`AggregationBackbone`). Max-pool keeps extremes and discards trajectory: it
+can represent "something bright appeared in this window" but not "the scene
+greened monotonically". If MI later underperforms on P2's delta probe, the
+result is therefore **ambiguous between two very different conclusions** --
+"temporal context does not help" and "max-pool destroyed the change signal" --
+and those have opposite implications for the paper's headline. This needs one
+sentence in the methods either way, and if MI does underperform it needs an
+aggregation ablation before any conclusion is drawn from it.
+
+**2. The per-cell strata have a thin tail.** Over 320 cells: cropland 127,
+tree_cover 99, grassland 88, but **built_up 5 and bare_sparse 1**. Per-stratum
+replication claims must cover **cropland / tree_cover / grassland only**. The
+other two are to be reported for completeness and **explicitly excluded** from
+the replication argument -- a "replication" over 1 cell is not a replication,
+and quietly including them would let a reviewer read more coverage into the
+claim than the data supports.
+
+**Commit.** (this change)

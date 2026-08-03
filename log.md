@@ -3,6 +3,58 @@
 Running record of measurements and adopted definitions. Reverse chronological.
 Decisions and their rationale live in [docs/DECISIONS.md](docs/DECISIONS.md).
 
+## 2026-08-03: Phase 1.2c re-encode, and the MI lookback measured
+
+Local CPU run, all 20 cubes. Four of the five encoders: `dinov2_vitb14` runs on
+Colab only, because the `facebookresearch/dinov2` hub code evaluates PEP 604
+unions at import and needs Python >= 3.10 (this venv is 3.9.6).
+
+```
+build              52 s      3 network wrappers, weights already cached
+re-encode         150 s      CPU, 4 encoders x 20 cubes
+embeddings       27.3 MB     80 .npz  (pooled fp32 + grid fp16 + variants
+                             + grid_clear_frac + window_span_days)
+per-cube masks    0.074 MB   20 .npz
+manifest          264 rows   strata green
+```
+
+### window_span_days: the MI lookback is NOT a fixed window
+
+264 MI embeddings, calendar days spanned by each 8-retained-frame window:
+
+```
+min 0   p25 25   median 55   p75 80   max 105
+```
+
+If every frame sat at the 5-day Sentinel-2 revisit, 8 frames would span **35
+days**. The median is **55** and the maximum is **105**, three times nominal.
+The spread between quartiles alone is 25 to 80 days.
+
+This is the measurement that justifies caching it. The lookback is not a
+nuisance of a few days around a nominal value; it is a covariate varying over
+a 105-day range, and it varies **with cloud**, because a cloudier stretch drops
+more frames and the same 8 retained frames therefore reach further back. Any
+P2/P3 comparison involving the MI encoder that does not condition on
+`window_span_days` is comparing embeddings built from different amounts of
+history, with the difference correlated with weather. `min = 0` is the first
+frame of each cube, which has no history to look back on.
+
+Single-image encoders store `window_span_days = 0` exactly, an honest constant
+rather than a NaN.
+
+### Projection to seasonal scale, five encoders (~290 frames per cube)
+
+```
+  200 cubes    7.5 GB    ~689 min CPU
+  500 cubes   18.8 GB   ~1722 min CPU
+ 1000 cubes   37.6 GB   ~3443 min CPU
+```
+
+At 1000 cubes the store is ~38 GB, comfortably past a default Drive allowance.
+The grid is already fp16, so the lever remains cube count, not precision. GPU
+cuts the time roughly an order of magnitude; the disk figure is
+device-independent.
+
 ## 2026-08-03: Phase 1.2b dimensionalities, sizes and timings
 
 Local CPU run over all 20 cubes of tile 32UNU. Clay deferred (see DECISIONS),

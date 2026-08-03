@@ -146,6 +146,11 @@ class FrozenEncoder(abc.ABC):
     # Only the raw-feature baseline sets this: data.ndvi.ndvi requires the
     # cloud mask. Network wrappers get frames UNMODIFIED and never see it.
     requires_mask: bool = False
+    # How many RETAINED frames one embedding consumes. 1 for every
+    # single-image encoder; the multi-image encoder sets 8. Anything > 1 makes
+    # the embedding's effective lookback a variable number of DAYS, which the
+    # pipeline must cache as window_span_days -- see encoders.pipeline.
+    window_len: int = 1
 
     def __init__(self, device: str | None = None, verbose: bool = True):
         self._n_sanitised = 0
