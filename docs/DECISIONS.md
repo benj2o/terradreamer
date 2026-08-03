@@ -34,7 +34,7 @@ listing of the whole split, so it returns cubes from whichever tile sorts first.
 grid where about 29 days carry an acquisition, and the loader's existing
 drop-empty-timesteps logic produces the irregular axis the spec asks for.
 
-**Commit.** `436095a`
+**Commit.** `8e6285d`
 
 ---
 
@@ -56,7 +56,7 @@ not by city, so this is a label change and not a change to the science. Wording
 across code and docs now names 32UNU. Munich survives in three sentences, each
 stating the tile is absent, so nobody goes looking for cubes that do not exist.
 
-**Commit.** `96a0054` (wording), source switch in `436095a`
+**Commit.** `6e9d2f7` (wording), source switch in `8e6285d`
 
 ---
 
@@ -91,7 +91,7 @@ consequences are now enforced in code rather than left to memory:
 cubes and are unaffected. Only the ceiling claim narrows to **within-season**,
 which matches the benchmark's own design. Recorded in `probes/__init__.py`.
 
-**Commit.** `b4a996e`
+**Commit.** `ebfc5d0`
 
 ---
 
@@ -138,7 +138,7 @@ prints a six-line warning naming the comparability consequence.
 `scl_conjunction=False` ablates the SCL half for comparison only. Mask polarity
 is still decided in exactly one place, `valid_mask_from_codes`.
 
-**Commit.** `dc1cdf7`
+**Commit.** `d4d20e1`
 
 ---
 
@@ -179,7 +179,7 @@ Frame rule recorded with them: keep frames with clear-fraction STRICTLY above
 0.5 (same comparison as `describe_cube`), store the exact fraction with every
 embedding so later probes filter without re-encoding.
 
-**Commit.** `73704ce` (encoders), notebook and bundle in `8ddf508`
+**Commit.** `8bfca1e` (encoders), notebook and bundle in `5cb1bde`
 
 ---
 
@@ -216,7 +216,7 @@ printed every time, so nothing is silently tolerated.
 Rejected: raising the threshold to ~2.0, which would have kept a maximum-based
 test while blinding it exactly in the 1.2-2.0 band where real cloud sits.
 
-**Commit.** (this change)
+**Commit.** `a6dca0d`
 
 ---
 
@@ -263,5 +263,41 @@ every run.
    pixels (which have values) are still included. A plain `np.mean` over a
    frame holding one NaN returns NaN for the whole frame, which would have
    blanked 6 frames of the baseline row.
+
+**Commit.** `a6dca0d`
+
+---
+
+## 2026-08-03: commit references repaired after two history rewrites
+
+**Assumed.** That the commit hash recorded at the foot of each entry above
+would stay valid. This file's header promises the commit as part of the record,
+so a dead hash is a broken record, not a cosmetic problem.
+
+**Observed.** Six of the seven hashes cited here did not resolve on `main`.
+Two history rewrites had replaced them: an earlier cleanup (surviving locally
+as `backup-pre-rewrite`) and the 2026-08-03 pass that stripped
+`Co-Authored-By` trailers from the three Phase 1.2 commits (`backup-pre-attribution-strip`).
+Both rewrites preserved trees exactly and changed only commit objects, but every
+hash below them moved. Anyone cloning from GitHub would have found
+`436095a`, `dc1cdf7`, `96a0054`, `b4a996e`, `73704ce` and `8ddf508` missing.
+
+**Changed.** Each reference was remapped to the commit on `main` carrying a
+**byte-identical tree**, verified pairwise rather than matched by subject line:
+
+| cited before | now | subject |
+|---|---|---|
+| `436095a` | `8e6285d` | Phase 1.1: switch to pre-processed GreenEarthNet cubes |
+| `dc1cdf7` | `d4d20e1` | fix(mask): prefer s2_dlmask, with the SCL conjunction |
+| `96a0054` | `6e9d2f7` | docs(tile): name the subset 32UNU, not Munich |
+| `b4a996e` | `ebfc5d0` | feat(single-year): climatology, year-grouped CV guard |
+| `73704ce` | `8bfca1e` | feat(encoders): four Tier A frozen wrappers |
+| `8ddf508` | `5cb1bde` | feat(colab): phase 1.2 notebook, bundle rename |
+
+**Consequence for anyone reading this file.** Every hash here now resolves on
+`main`. If the history is ever rewritten again, re-run the check that found
+this: for each hash cited, `git merge-base --is-ancestor <hash> main`. A
+rewrite is cheap; a decision record pointing at commits nobody can retrieve is
+not.
 
 **Commit.** (this change)
