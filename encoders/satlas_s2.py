@@ -47,6 +47,8 @@ class SatlasS2SwinB(FrozenEncoder):
         return [
             "RGB from S2 bands: (B04, B03, B02) -> (R, G, B), indices resolved "
             "from S2_BANDS by name",
+            "non-finite (no-data) pixels -> NONFINITE_FILL, counted and reported; "
+            "not inpainting, and done before the clamp, which does not remove NaN",
             "SatlasPretrain S2-RGB input convention: x = clamp(2.5 * reflectance, 0, 1) "
             "(approximately TCI / 255, the model's trained input distribution; this "
             "clamp exists ONLY inside this wrapper)",
@@ -59,6 +61,7 @@ class SatlasS2SwinB(FrozenEncoder):
 
     def _encode_batch(self, frames: torch.Tensor, mask) -> torch.Tensor:
         x = rgb_from_s2(frames)
+        x = self._sanitise(x)  # NaN survives clamp(); substitute before it
         x = torch.clamp(2.5 * x, 0.0, 1.0)
         H, W = x.shape[-2:]
         if H % self.size_multiple or W % self.size_multiple:

@@ -208,7 +208,7 @@ Step 1, and run top to bottom. Exactly one restart, at the end of Step 1.
 | 1 | install (adds `satlaspretrain-models`), auto-restart | 2 min |
 | 2 | bootstrap, defines `sh()` | 1 min |
 | 3 | environment check | instant |
-| 4 | unit tests, expect `90 passed, 3 skipped` | 30 s |
+| 4 | unit tests, expect `95 passed, 3 skipped` | 30 s |
 | 5 | cubes (skips ones already on Drive) | 15 s |
 | 6 | build 4 encoders, first run downloads ~900 MB of weights | 3 min |
 | 7 | four asserted `[T_kept, D]` on one cube | 1 min |
@@ -255,9 +255,11 @@ after any change to the mask definition or the frame-selection rule.
 
 - Step 6 fails on `satlaspretrain_models`: re-run Step 1 without `-q` blinders,
   the pip conflict is printed there.
-- A `valid-pixel reflectance max ... exceeds 1.2` assertion in Step 8 means
-  bright cloud is leaking THROUGH the mask -- the s2_dlmask + SCL conjunction
-  is not being applied. Nothing downstream of it is trustworthy; go back to
-  `data/loader.py` and Phase 1.1's diagnostics.
+- An `implausible valid pixels ... above the 1e-4 tolerance` assertion in
+  Step 8 means bright cloud is leaking THROUGH the mask over real area -- the
+  s2_dlmask + SCL conjunction is not being applied. Nothing downstream of it is
+  trustworthy; go back to `data/loader.py` and Phase 1.1's diagnostics. A
+  printed prevalence at or below ~1.9e-5 is the expected, tolerated case
+  (isolated specular pixels, see `log.md` 2026-08-03) and does not stop the run.
 - `EMPTY BATCH` from an encoder means a fully-clouded cube reached `encode()`
   without going through `encoders.pipeline.encode_cube`. Use the pipeline.

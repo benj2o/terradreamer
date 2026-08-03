@@ -23,6 +23,7 @@ from encoders.base import FrozenEncoder
 from encoders.frames import (
     assert_valid_reflectance,
     clear_fraction,
+    finite_valid_mask,
     select_clear_frames,
 )
 from encoders.pipeline import encode_cube, load_encoded, save_encoded
@@ -155,19 +156,74 @@ def test_encode_cube_refuses_fully_masked_cube(dummy):
         encode_cube(s, dummy, verbose=False)
 
 
+# ------------------------------------------- mask / reflectance self-consistency
+def test_finite_valid_mask_demotes_valid_but_nodata_pixels():
+    """GreenEarthNet's conjunction reads only the mask bands, so it can call a
+    no-data pixel clear. 113 such pixels exist across tile 32UNU."""
+    values, ts, mask = _synthetic(T=3)
+    y, x = np.argwhere(mask[2])[0]
+    values[2, 1, y, x] = np.nan          # one band missing at a "clear" pixel
+    assert mask[2, y, x], "fixture precondition: the pixel starts out valid"
+
+    corrected, n = finite_valid_mask(values, mask)
+    print(f"[test] demoted {n} mask-valid but non-finite pixel(s)")
+    assert n == 1
+    assert not corrected[2, y, x], "a pixel with no reflectance is not an observation"
+    assert corrected.sum() == mask.sum() - 1, "only that pixel may change"
+    assert (corrected <= mask).all(), "the rule may only remove valid pixels"
+
+
+def test_selection_uses_the_corrected_mask():
+    values, ts, mask = _synthetic(T=6)
+    y, x = np.argwhere(mask[5])[0]
+    values[5, 0, y, x] = np.nan
+    sel = select_clear_frames(values, ts, mask, verbose=False)
+    i = int(np.flatnonzero(sel.kept_idx == 5)[0])
+    assert not sel.mask[i, y, x]
+    # clear-fraction must reflect the correction, not the raw mask
+    np.testing.assert_allclose(sel.clear_frac[i], sel.mask[i].mean())
+
+
+def test_nodata_pixel_does_not_poison_raw_baseline_band_stats(raw):
+    """Plain np.mean over a frame holding one NaN returns NaN for the whole
+    frame; NaN-aware reductions are what keep the baseline finite."""
+    values, ts, mask = _synthetic(T=6)
+    values[5, 0, 3, 3] = np.nan
+    sel = select_clear_frames(values, ts, mask, verbose=False)
+    z = raw.encode(torch.from_numpy(np.ascontiguousarray(sel.values)),
+                   mask=torch.from_numpy(sel.mask), verbose=False)
+    assert torch.isfinite(z).all(), "a single no-data pixel blanked the embedding"
+
+
 # --------------------------------------------------- valid-reflectance assertion
 def test_bright_cloud_under_the_mask_is_harmless():
     values, ts, mask = _synthetic(T=3)
     values[1, 0][~mask[1]] = 1.98  # Phase 1.1's global max, on MASKED pixels
-    vmax = assert_valid_reflectance(values, mask)
-    print(f"[test] valid-pixel max {vmax:.3f} with 1.98 hidden under the mask")
-    assert vmax <= 1.2
+    rep = assert_valid_reflectance(values, mask)
+    print(f"[test] valid max {rep.valid_max:.3f}, global max {rep.global_max:.3f} "
+          "with 1.98 hidden under the mask")
+    assert rep.valid_max <= 1.2 and rep.n_implausible == 0
+    assert rep.global_max > 1.2, "the masked bright pixel should still be reported"
 
 
-def test_bright_cloud_leaking_through_the_mask_fails_loudly():
-    values, ts, mask = _synthetic(T=3)
+def test_isolated_bright_pixel_is_tolerated_and_counted():
+    """The tile-32UNU case: a few specular pixels in a nearly-clear frame.
+    Measured prevalence there is 2.5e-6; this must not halt the phase, but it
+    must be counted rather than ignored."""
+    values, ts, mask = _synthetic(T=3, H=128, W=128)
     t, (y, x) = 2, np.argwhere(mask[2])[0]
-    values[t, 0, y, x] = 1.98  # the same pixel, now marked VALID
+    values[t, 0, y, x] = 1.78
+    rep = assert_valid_reflectance(values, mask, verbose=False)
+    print(f"[test] tolerated {rep.n_implausible} px at {rep.fraction:.2e}")
+    assert rep.n_implausible == 1
+    assert rep.fraction < 1e-4
+
+
+def test_systemic_cloud_leak_fails_loudly():
+    """A whole frame of cloud passing as clear -- the failure the check exists
+    for. Prevalence is ~1e-1, three orders of magnitude above the tolerance."""
+    values, ts, mask = _synthetic(T=3, H=64, W=64)
+    values[2][:, mask[2]] = 1.5  # every valid pixel of frame 2 is bright cloud
     with pytest.raises(AssertionError, match="leaking THROUGH the mask"):
         assert_valid_reflectance(values, mask, verbose=False)
 
@@ -221,11 +277,31 @@ def test_wrong_shaped_input_fails_loudly_not_silently(dummy, bad, why):
     print(f"[test] dummy refused {why}: {tuple(bad.shape)} {bad.dtype}")
 
 
-def test_nonfinite_input_fails_loudly(dummy):
+def test_entirely_nonfinite_frame_fails_loudly(dummy):
+    frames = torch.rand(3, len(S2_BANDS), 8, 8)
+    frames[1] = float("nan")  # a frame with nothing to look at
+    with pytest.raises(AssertionError, match="entirely"):
+        dummy.encode(frames, verbose=False)
+
+
+def test_scattered_nodata_pixels_are_substituted_not_rejected():
+    """GreenEarthNet marks some pixels no-data inside otherwise clear frames.
+    A network wrapper must survive them and report the substitution."""
+
+    class _Net(_DummyEncoder):
+        name = "sanitising_dummy"
+
+        def _encode_batch(self, frames, mask):
+            x = self._sanitise(frames)
+            return self._model(x.mean(dim=(2, 3)).to(self.device))
+
+    enc = _Net(device="cpu", verbose=False)
     frames = torch.rand(3, len(S2_BANDS), 8, 8)
     frames[1, 2, 4, 4] = float("nan")
-    with pytest.raises(AssertionError, match="non-finite"):
-        dummy.encode(frames, verbose=False)
+    z = enc.encode(frames, verbose=False)
+    assert z.shape == (3, enc.embed_dim)
+    assert torch.isfinite(z).all()
+    assert enc._n_sanitised == 1, "the substitution must be counted, not silent"
 
 
 # ------------------------------------------------------- raw-feature baseline

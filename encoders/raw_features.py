@@ -10,7 +10,10 @@ Per frame, D = 35 features in a fixed, named order:
   percentiles, computed over ALL pixels of the UNMODIFIED frame -- exactly the
   input the network encoders see, clouds included. Matching the input domain
   is the point: the baseline must summarise the same evidence, not cleaner
-  evidence.
+  evidence. The reductions are NaN-aware: cloudy pixels have values and are
+  kept, but no-data pixels have nothing to contribute and a plain mean over
+  them would return NaN for the whole frame. This baseline therefore needs no
+  fill sentinel, unlike the network wrappers -- it can simply skip them.
 * NDVI (7): the same seven statistics over VALID pixels only, computed via the
   canonical ``data.ndvi.ndvi`` (never re-implemented), which is masked by
   definition and returns NaN at masked pixels. NaN-aware reductions are used,
@@ -74,7 +77,8 @@ class RawFeatureBaseline(FrozenEncoder):
         i_nir, i_red = S2_BANDS.index("B8A"), S2_BANDS.index("B04")
         return [
             f"band stats over ALL pixels of the UNMODIFIED frame (clouds included, "
-            f"same input the network encoders see): per band in {S2_BANDS}, "
+            f"same input the network encoders see), NaN-aware so no-data pixels are "
+            f"skipped rather than filled: per band in {S2_BANDS}, "
             f"[{', '.join(_STAT_NAMES)}]",
             f"NDVI via the canonical data.ndvi.ndvi(B8A=ch{i_nir}, B04=ch{i_red}, mask): "
             f"masked pixels are NaN, stats are NaN-aware over VALID pixels only, "
@@ -89,7 +93,15 @@ class RawFeatureBaseline(FrozenEncoder):
         m = mask.cpu().numpy()
         B, C, H, W = v.shape
 
-        band_feats = _stats(v.reshape(B, C, H * W), nan_aware=False).reshape(B, -1)
+        flat = v.reshape(B, C, H * W)
+        n_finite = np.isfinite(flat).sum(axis=-1)
+        assert (n_finite > 0).all(), (
+            f"{self.name}: {int((n_finite == 0).sum())} (frame, band) pair(s) have no "
+            "finite pixel at all, so every band statistic would be a reduction over "
+            "nothing. Such a frame cannot pass the clear-fraction rule -- "
+            "encoders.frames.select_clear_frames was bypassed. Fix the caller."
+        )
+        band_feats = _stats(flat, nan_aware=True).reshape(B, -1)
         assert band_feats.shape == (B, C * len(_STAT_NAMES))
 
         i_nir, i_red = S2_BANDS.index("B8A"), S2_BANDS.index("B04")

@@ -5,8 +5,9 @@ is fixed and load-bearing:
 
 1. ``assert_valid_reflectance`` on the FULL cube -- the mask-leak check runs on
    everything, including the frames about to be dropped.
-2. ``select_clear_frames`` -- drop frames with clear-fraction <= 0.5, keep the
-   exact clear-fraction of every survivor.
+2. ``select_clear_frames`` -- make the mask self-consistent with the
+   reflectance, then drop frames with clear-fraction <= 0.5, keeping the exact
+   clear-fraction of every survivor.
 3. Refuse an empty selection HERE, with the cube's name in the message. The
    encoder's own empty-batch assertion is the second line of defence, not the
    first.

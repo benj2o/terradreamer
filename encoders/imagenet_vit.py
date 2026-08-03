@@ -40,6 +40,8 @@ class ImageNetViTB16(FrozenEncoder):
         return [
             "RGB from S2 bands: (B04, B03, B02) -> (R, G, B), indices resolved "
             "from S2_BANDS by name",
+            "non-finite (no-data) pixels -> NONFINITE_FILL, counted and reported; "
+            "not inpainting, and done before the resize so a NaN cannot smear",
             f"antialiased bilinear resize H x W -> {self.input_size} x {self.input_size} "
             "(torchvision ViT-B/16 accepts exactly 224)",
             f"normalise with ImageNet mean={IMAGENET_MEAN} std={IMAGENET_STD}",
@@ -50,6 +52,7 @@ class ImageNetViTB16(FrozenEncoder):
 
     def _encode_batch(self, frames: torch.Tensor, mask) -> torch.Tensor:
         x = rgb_from_s2(frames)
+        x = self._sanitise(x)  # before resize: a NaN would smear over its neighbours
         x = resize_bilinear(x, self.input_size)
         mean = torch.tensor(IMAGENET_MEAN, device=x.device).view(1, 3, 1, 1)
         std = torch.tensor(IMAGENET_STD, device=x.device).view(1, 3, 1, 1)

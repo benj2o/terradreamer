@@ -3,6 +3,72 @@
 Running record of measurements and adopted definitions. Reverse chronological.
 Decisions and their rationale live in [docs/DECISIONS.md](docs/DECISIONS.md).
 
+## 2026-08-03: two encoder-input data properties, tile 32UNU, 20 cubes
+
+Both found by Phase 1.2's own assertions firing on real cubes. Measured over
+all 20 cubes: 17,340,401 valid pixels, 264 retained frames.
+
+### Implausible reflectance among VALID pixels
+
+| quantity | value |
+|---|---|
+| valid pixels with reflectance > 1.2 | **44** (2.537e-06) |
+| worst single cube | 15 px, 1.89e-05 |
+| cubes affected | 8 of 20 |
+| max valid-pixel reflectance | 1.7839 |
+| per band (B02, B03, B04, B8A) | 7, 7, 12, 18 |
+
+They are **isolated singletons and 2-4 px clusters in 99.7-100% clear frames**,
+not contiguous regions. At the worst pixel `s2_dlmask=0`, `s2_SCL=5` (bare
+soil), while the legacy `s2_mask=1` (cloud). Bright across all visible bands
+(B02 1.78, B03 1.63, B04 1.55): the signature of a specular target such as a
+greenhouse or metal roof, of which the Allgau has many, or a sub-pixel bright
+fragment.
+
+Downstream impact, measured rather than assumed:
+
+- NDVI at those pixels stays in **[-0.19, 0.72]**; NDVI over all 20 cubes stays
+  inside [-1, 1]. A pixel bright in both B04 and B8A gives NDVI near 0, not a
+  wild value.
+- Recomputing the raw-feature baseline with those pixels masked moves no
+  feature by more than **3.9e-04 relative** (worst: `NDVI_p10`).
+
+**Adopted.** The check asserts on **prevalence, not the maximum**. A maximum
+over 17M pixels is the most outlier-sensitive statistic available; the failure
+worth halting for is cloud passing as clear over real area, which for even one
+fully-clouded frame of a 13-frame cube would be ~7.7e-02. Tolerance set at
+**1e-4**, about 5x the worst observed cube and ~770x below the smallest
+systemic leak worth the name. The threshold of 1.2 for "physically implausible"
+is unchanged.
+
+### Pixels that are both mask-valid and no-data
+
+| quantity | value |
+|---|---|
+| pixels mask-valid AND non-finite | **113** |
+| non-finite pixels in retained frames | 117 (6.762e-06) |
+| retained frames affected | 6 of 264 (2.3%) |
+| worst frame's non-finite fraction | 0.0014 |
+
+GreenEarthNet's clear-sky conjunction is computed from `s2_dlmask` and `s2_SCL`
+and never consults the reflectance bands, so it can mark a no-data pixel clear.
+`data.ndvi.ndvi` already guarded against this internally (`usable = mask &
+isfinite(...)`); the encoder path did not, and a single NaN returns an all-NaN
+ViT embedding.
+
+**Adopted.** `encoders.frames.finite_valid_mask` ANDs the mask with
+"every band finite", so the encoder path and the target path agree about which
+pixels exist. Pixels only ever leave the valid set; nothing is filled. Frame
+selection is unchanged in effect: `T_kept` is min 10, median 13, max 16, which
+reproduces Phase 1.1's `frames >50% clear` counts exactly, so no frame changed
+its keep/drop decision.
+
+For the three network wrappers, which have no concept of a mask and cannot
+consume NaN, non-finite pixels are replaced by a printed sentinel
+(`NONFINITE_FILL = 0.0`) inside each wrapper. 6.8e-06 of band-pixels, at most
+0.14% of any one frame. The raw-feature baseline needs no sentinel: its
+statistics are NaN-aware.
+
 ## 2026-08-02: mask switch, s2_mask to s2_dlmask
 
 Tile 32UNU, 20 cubes, 9,486,336 finite pixels.

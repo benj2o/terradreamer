@@ -41,10 +41,24 @@ from data.loader import S2_BANDS
 __all__ = [
     "IMAGENET_MEAN",
     "IMAGENET_STD",
+    "NONFINITE_FILL",
     "FrozenEncoder",
     "rgb_from_s2",
     "resize_bilinear",
 ]
+
+# Sentinel substituted for non-finite reflectance inside the NETWORK wrappers
+# only. A convolution or an attention layer has no concept of a mask: one NaN
+# pixel propagates through every matmul and returns an all-NaN embedding, so a
+# dense finite tensor is a hard requirement of those models, not a choice.
+#
+# This is NOT inpainting. It does not estimate what the surface looked like; it
+# writes one documented constant at pixels that carry no measurement, and every
+# wrapper prints how many pixels it touched. Measured on tile 32UNU: 117 pixels
+# in 6 of 264 retained frames, 6.8e-6 of all pixels, at most 0.14% of any one
+# frame. The raw-feature baseline never uses this -- it has the mask and uses
+# NaN-aware statistics instead.
+NONFINITE_FILL = 0.0
 
 # Shared by the two ImageNet-normalised wrappers (torchvision ViT, DINOv2).
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
@@ -94,6 +108,7 @@ class FrozenEncoder(abc.ABC):
     requires_mask: bool = False
 
     def __init__(self, device: str | None = None, verbose: bool = True):
+        self._n_sanitised = 0
         self.device = torch.device(
             device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu")
         )
@@ -171,13 +186,16 @@ class FrozenEncoder(abc.ABC):
             f"{self.name}: frames must be float reflectance, got dtype {frames.dtype}"
         )
         frames = frames.to(torch.float32)
-        assert torch.isfinite(frames).all(), (
-            f"{self.name}: non-finite reflectance in the input frames. A NaN pixel "
-            "would spread through attention/pooling and poison the whole embedding "
-            "silently. Frames are fed UNMODIFIED by design, so do not fill it here: "
-            "the frame must be excluded upstream, and its presence after "
-            "clear-fraction selection means the loader let a NaN through a "
-            "'valid' timestep -- investigate before encoding."
+        # Non-finite pixels are a real property of GreenEarthNet (no-data), not a
+        # bug, so they are not rejected here -- network wrappers substitute a
+        # printed sentinel via _sanitise, and the baseline uses the mask. What is
+        # never acceptable is a frame with NOTHING to look at.
+        finite_per_frame = torch.isfinite(frames).flatten(1).any(dim=1)
+        assert bool(finite_per_frame.all()), (
+            f"{self.name}: {int((~finite_per_frame).sum())} frame(s) are entirely "
+            "non-finite. Such a frame has no observation at all and cannot pass the "
+            "clear-fraction rule, so its presence here means "
+            "encoders.frames.select_clear_frames was bypassed. Fix the caller."
         )
         return frames
 
@@ -202,6 +220,23 @@ class FrozenEncoder(abc.ABC):
         )
         return mask
 
+    def _sanitise(self, x: torch.Tensor) -> torch.Tensor:
+        """Replace non-finite pixels with NONFINITE_FILL, counting them.
+
+        Called by NETWORK wrappers only, after band selection and before
+        normalisation. The count is reported at the end of ``encode`` so the
+        substitution is never silent.
+        """
+        bad = ~torch.isfinite(x)
+        n = int(bad.sum())
+        if n:
+            x = torch.where(bad, torch.full_like(x, NONFINITE_FILL), x)
+            self._n_sanitised += n
+        assert torch.isfinite(x).all(), (
+            f"{self.name}: non-finite values survived sanitisation"
+        )
+        return x
+
     # ------------------------------------------------------------------- API
     def encode(
         self,
@@ -219,6 +254,7 @@ class FrozenEncoder(abc.ABC):
         mask = self._check_mask(mask, frames)
         self._assert_frozen()
         assert batch_size >= 1, f"batch_size must be >= 1, got {batch_size}"
+        self._n_sanitised = 0
 
         T = frames.shape[0]
         chunks = []
@@ -247,4 +283,9 @@ class FrozenEncoder(abc.ABC):
             print(f"[{self.name}] encode: frames {tuple(frames.shape)} -> "
                   f"embeddings {tuple(out.shape)}  (D={self.embed_dim}, "
                   f"batch_size={batch_size}, {len(chunks)} batch(es))")
+            if self._n_sanitised:
+                total = int(frames.numel())
+                print(f"[{self.name}] substituted NONFINITE_FILL={NONFINITE_FILL} at "
+                      f"{self._n_sanitised}/{total} band-pixels ({self._n_sanitised / total:.2e}) "
+                      "that carried no measurement; no value was estimated or inpainted")
         return out

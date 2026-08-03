@@ -180,3 +180,88 @@ Frame rule recorded with them: keep frames with clear-fraction STRICTLY above
 embedding so later probes filter without re-encoding.
 
 **Commit.** `73704ce` (encoders), notebook and bundle in `8ddf508`
+
+---
+
+## 2026-08-03: the >1.2 check asserts prevalence, not the maximum
+
+**Assumed.** That any valid pixel above 1.2 reflectance means bright cloud is
+leaking through the mask, so a maximum over valid pixels was the right
+tripwire. Phase 1.2 shipped with `assert vmax <= 1.2`.
+
+**Observed.** It fired on the second real cube, at 1.7839. Measuring the whole
+population rather than the extreme value (numbers in [../log.md](../log.md)):
+**44 valid pixels out of 17,340,401** exceed 1.2, i.e. 2.5e-06, spread over 8
+of 20 cubes. They are isolated singletons and 2-4 px clusters sitting in
+**99.7-100% clear** frames, not contiguous regions in cloudy ones. At the worst
+pixel `s2_dlmask=0` and `s2_SCL=5` (bare soil) while the superseded `s2_mask`
+says cloud; it is bright across all three visible bands, the signature of a
+specular target rather than cloud. NDVI at those pixels stays within
+[-0.19, 0.72], and masking them moves no raw-baseline feature by more than
+3.9e-04 relative.
+
+A maximum over 17 million pixels is the most outlier-sensitive statistic
+available. Asserting on it does not test "the mask works"; it tests that no
+single pixel anywhere is anomalous, which no real sensor product satisfies.
+
+**Changed.** The threshold of 1.2 for "physically implausible for a surface
+pixel" stands. What is asserted is now the **fraction** of valid pixels above
+it, tolerance `MAX_IMPLAUSIBLE_FRACTION = 1e-4`. That is ~5x the worst observed
+cube (1.9e-05) and ~770x below the smallest systemic leak worth the name (one
+fully-clouded frame of a 13-frame cube passing as clear, ~7.7e-02), so the two
+cases are separated by roughly three orders of magnitude in both directions.
+The count, the fraction, the valid maximum and the global maximum are all
+printed every time, so nothing is silently tolerated.
+
+Rejected: raising the threshold to ~2.0, which would have kept a maximum-based
+test while blinding it exactly in the 1.2-2.0 band where real cloud sits.
+
+**Commit.** (this change)
+
+---
+
+## 2026-08-03: a pixel can be both mask-valid and no-data
+
+**Assumed.** That within a frame surviving the clear-fraction rule, every
+mask-valid pixel carries a reflectance value, so encoder input could be
+asserted finite everywhere.
+
+**Observed.** It cannot. **113 pixels across the 20 cubes are simultaneously
+mask-valid and non-finite**, in 6 of 264 retained frames (at most 0.14% of any
+one frame). GreenEarthNet's published clear-sky conjunction is computed from
+`s2_dlmask` and `s2_SCL` and never consults the reflectance bands, so nothing
+in it prevents marking a no-data pixel clear. `data.ndvi.ndvi` had already
+guarded against this internally (`usable = mask & isfinite(...)`) — the target
+path was safe and the encoder path was not.
+
+This was the more serious of the two: one NaN propagates through every matmul
+of a ViT and returns an all-NaN embedding, and it would have halted Step 11 on
+every run.
+
+**Changed.** Three consequences, each enforced in code:
+
+1. `encoders.frames.finite_valid_mask` ANDs the mask with "every band of this
+   pixel is finite", so the encoder path and the target path agree about which
+   pixels exist. This is the existing `data.ndvi.ndvi` convention applied
+   consistently, not a new policy, and it only ever REMOVES pixels from the
+   valid set — nothing is filled or invented. Frame selection is unchanged in
+   effect: `T_kept` min 10, median 13, max 16 reproduces Phase 1.1's clear-frame
+   counts exactly, so no frame changed its keep/drop decision.
+2. The three network wrappers substitute `NONFINITE_FILL = 0.0` at non-finite
+   pixels, inside each wrapper, before the resize (so a NaN cannot smear over
+   its neighbours) and before Satlas's clamp (which does not remove NaN). Each
+   wrapper prints the substitution in its preprocessing list and `encode`
+   reports the count. **This is a deliberate, narrow departure from the "feed
+   frames UNMODIFIED, do not fill masked pixels" rule**: a convolution has no
+   concept of a mask, so a dense finite tensor is a hard requirement of the
+   model rather than a modelling choice. It is not inpainting — no value is
+   estimated — and it touches 6.8e-06 of band-pixels. The alternative, dropping
+   the 6 affected frames, was rejected: it costs 2.3% of retained frames and
+   makes frame retention depend on sensor dropout, which is a bias.
+3. The raw-feature baseline takes no sentinel at all. Its band statistics are
+   NaN-aware, so no-data pixels are skipped rather than filled, and cloudy
+   pixels (which have values) are still included. A plain `np.mean` over a
+   frame holding one NaN returns NaN for the whole frame, which would have
+   blanked 6 frames of the baseline row.
+
+**Commit.** (this change)
