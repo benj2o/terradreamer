@@ -559,7 +559,7 @@ covariate. `FrozenEncoder.window_len` declares the window (1 everywhere except
 the MI encoder's 8), and single-image encoders get exactly 0.0 -- an honest
 constant rather than a NaN, since their lookback is one frame by construction.
 
-**Commit.** (this change)
+**Commit.** `a1a6a12`
 
 ---
 
@@ -587,4 +587,4 @@ the replication argument -- a "replication" over 1 cell is not a replication,
 and quietly including them would let a reviewer read more coverage into the
 claim than the data supports.
 
-**Commit.** (this change)
+**Commit.** `a1a6a12`
