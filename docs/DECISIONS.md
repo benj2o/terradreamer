@@ -300,4 +300,4 @@ this: for each hash cited, `git merge-base --is-ancestor <hash> main`. A
 rewrite is cheap; a decision record pointing at commits nobody can retrieve is
 not.
 
-**Commit.** (this change)
+**Commit.** `deec2b6`
