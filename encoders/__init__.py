@@ -49,7 +49,8 @@ __all__ = [
     "load_encoded",
 ]
 
-TIER_A = ("raw_features", "imagenet_vit_b16", "dinov2_vitb14", "satlas_s2_swinb_rgb")
+TIER_A = ("raw_features", "imagenet_vit_b16", "dinov2_vitb14",
+          "satlas_s2_swinb_rgb", "satlas_s2_swinb_mi_rgb")
 
 
 def build_encoder(name: str, device: str | None = None, verbose: bool = True) -> FrozenEncoder:
@@ -62,6 +63,8 @@ def build_encoder(name: str, device: str | None = None, verbose: bool = True) ->
         from encoders.dinov2_vit import DINOv2ViTB14 as cls
     elif name == "satlas_s2_swinb_rgb":
         from encoders.satlas_s2 import SatlasS2SwinB as cls
+    elif name == "satlas_s2_swinb_mi_rgb":
+        from encoders.satlas_s2_mi import SatlasS2SwinBMI as cls
     else:
         raise KeyError(f"unknown encoder {name!r}; Tier A is {TIER_A}")
     enc = cls(device=device, verbose=verbose)

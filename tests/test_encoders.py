@@ -412,7 +412,7 @@ _HEAVY = pytest.mark.skipif(
 
 
 @_HEAVY
-@pytest.mark.parametrize("name", ["imagenet_vit_b16", "dinov2_vitb14", "satlas_s2_swinb_rgb"])
+@pytest.mark.parametrize("name", ["imagenet_vit_b16", "dinov2_vitb14", "satlas_s2_swinb_rgb", "satlas_s2_swinb_mi_rgb"])
 def test_real_wrapper_loads_frozen_and_emits_asserted_shape(name):
     import sys
 
@@ -508,3 +508,67 @@ def test_cached_mask_roundtrips_and_reproduces_the_scalars(tmp_path, dummy):
     np.testing.assert_array_equal(back.kept_idx, cm.kept_idx)
     ec = encode_cube(s, dummy, verbose=False)
     np.testing.assert_allclose(back.mask.mean(axis=(1, 2)), ec.clear_frac, atol=1e-12)
+
+
+# ------------------------------------------- Phase 1.2c: strata, weather, MI
+def _real_cube():
+    import glob
+    p = sorted(glob.glob("data/raw/*.nc"))
+    if not p:
+        pytest.skip("no cubes on disk; run data.download_greenearthnet")
+    return p[0]
+
+
+def test_grid_landcover_aligns_with_the_embedding_grid():
+    from encoders.manifest import cube_grid_landcover
+    names, purity = cube_grid_landcover(_real_cube())
+    assert names.shape == purity.shape == (16,), "one label per emb_grid cell"
+    assert not any(n.startswith("ABSENT:") for n in names)
+    assert ((purity > 0) & (purity <= 1)).all()
+    print(f"[test] per-cell strata: {sorted(set(names.tolist()))}")
+
+
+def test_grid_landcover_is_finer_than_the_per_cube_label():
+    """A 640 m cell is homogeneous far more often than a 2.56 km cube, which
+    is the whole point: within-cube stratum contrast under ONE weather
+    realisation."""
+    from encoders.manifest import cube_grid_landcover, cube_landcover
+    names, purity = cube_grid_landcover(_real_cube())
+    dominant, _ = cube_landcover(_real_cube())
+    assert dominant in set(names.tolist())
+    cell_pure = float(np.mean(purity))
+    print(f"[test] mean per-cell purity {cell_pure:.3f}, cube label {dominant!r}")
+    assert cell_pure > 0.5
+
+
+def test_in_cube_eobs_is_present_and_finite():
+    """P4's entire input ships in-cube; no external weather table is needed."""
+    from encoders.manifest import cube_weather
+    w = cube_weather(_real_cube())
+    assert len(w) == 8, f"expected 8 E-OBS variables, got {sorted(w)}"
+    for k, a in w.items():
+        assert np.isfinite(a).all(), f"{k} has gaps"
+    print(f"[test] E-OBS in-cube: {sorted(w)}")
+
+
+def test_elevation_is_cached_per_cell():
+    from encoders.manifest import cube_grid_elevation
+    e = cube_grid_elevation(_real_cube())
+    assert e.shape == (16,) and np.isfinite(e).all()
+    print(f"[test] cell elevation {e.min():.0f}-{e.max():.0f} m")
+
+
+@_HEAVY
+def test_multi_image_encoder_is_batch_invariant_and_uses_context():
+    """The MI window crosses batch boundaries via a context buffer, so
+    batching MUST NOT change a single number -- and MI must actually differ
+    from SI, or it is not a positive control at all."""
+    enc = build_encoder("satlas_s2_swinb_mi_rgb", device="cpu", verbose=False)
+    frames = torch.rand(11, len(S2_BANDS), 128, 128) * 0.4
+    full = enc.encode_bundle(frames, batch_size=11, verbose=False)["pooled"]
+    for bs in (1, 4):
+        got = enc.encode_bundle(frames, batch_size=bs, verbose=False)["pooled"]
+        torch.testing.assert_close(got, full, atol=0, rtol=0)
+    si = build_encoder("satlas_s2_swinb_rgb", device="cpu", verbose=False)
+    sif = si.encode_bundle(frames, batch_size=11, verbose=False)["pooled"]
+    assert float((sif - full).abs().max()) > 1e-3, "MI ignores its temporal context"

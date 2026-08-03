@@ -286,6 +286,11 @@ class FrozenEncoder(abc.ABC):
         )
         return mask
 
+    def _reset_state(self) -> None:
+        """Clear any cross-batch state before an encode. No-op for the
+        stateless wrappers; the multi-image encoder carries a temporal
+        context buffer that must not leak between cubes."""
+
     def _sanitise(self, x: torch.Tensor) -> torch.Tensor:
         """Replace non-finite pixels with NONFINITE_FILL, counting them.
 
@@ -326,6 +331,7 @@ class FrozenEncoder(abc.ABC):
         self._assert_frozen()
         assert batch_size >= 1, f"batch_size must be >= 1, got {batch_size}"
         self._n_sanitised = 0
+        self._reset_state()
 
         T = frames.shape[0]
         acc: dict = {}

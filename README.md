@@ -99,7 +99,12 @@ For Colab, follow [RUNBOOK.md](RUNBOOK.md).
   `[T_kept, 16, D_grid]` alongside the pooled vector; per-pixel masks cached so
   common-masking stays possible; `(cube, frame)` manifest with land-cover
   strata. Clay v1.5 deferred (not pip-installable), Prithvi-EO-2.0 dropped
-  permanently (needs SWIR bands these cubes lack) -- so the roster holds ONE
-  EO-native model and no "EO FMs lose dynamics" claim can rest on it yet.
+  permanently (needs SWIR bands these cubes lack).
+- 1.2c strata and control: land cover per GRID CELL (19/20 cubes are not
+  single-class, 5 strata over 320 cells) so replication compares strata within
+  one weather realisation; in-cube E-OBS (8 vars) and cop_dem joined into the
+  manifest, which collapses P4's dependency on any external weather table; and
+  `satlas_s2_swinb_mi_rgb`, a multi-image POSITIVE CONTROL -- the only encoder
+  that can represent change at all. Clay v1.5 still deferred, not dropped.
 - 1.3 `probes/cv.py`: next. Until the fold generators exist, nothing here is a
   result -- the Phase 1.2 embeddings are inputs, not numbers.

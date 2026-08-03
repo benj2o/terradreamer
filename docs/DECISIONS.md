@@ -468,3 +468,65 @@ into the horizon and degrades persistence differently than it degrades the
 probe, contaminating exactly the comparison the paper rests on.
 
 **Commit.** `b84c484`
+
+---
+
+## 2026-08-03: Phase 1.2c, per-cell strata, in-cube weather, and a positive control
+
+Three review points, all accepted after checking the cubes rather than the
+assumptions.
+
+**1. Land cover is now per GRID CELL, not just per cube.** A 128 x 128 cube at
+20 m is 2.56 km across; a 4x4 grid cell is 640 m. Measured on the subset:
+**19 of 20 cubes are NOT single-class**, and the per-cell view resolves 5
+strata over 320 cells (cropland 127, tree_cover 99, grassland 88, built_up 5,
+bare_sparse 1) where the per-cube label resolved only 3 over 20 units. So the
+per-cube dominant class was a coarse label over a heterogeneous scene, exactly
+as the review argued. Per-cell strata give stratum contrast WITHIN one weather
+realisation -- same cube, same sky, different land cover -- which is a far
+stronger replication argument than comparing whole cubes that also differ in
+weather, and it lets P2/P3 filter grid cells by stratum with no re-encode.
+Cells are row-major, aligned with `emb_grid` and `grid_clear_frac`.
+
+**Methods caveat, recorded deliberately.** ESA WorldCover is a STATIC ~2020/21
+product; these cubes are 2018. Stable over three years for forest, grassland
+and built-up, but crop rotation can move a cropland cell between years. It is a
+stratification label and never a target, so the exposure is small -- not zero,
+and it belongs in the paper as a footnote.
+
+**2. The in-cube E-OBS stack is P4's entire input.** Confirmed present, fully
+finite, and on the original daily axis, so it joins on `original_axis_index`
+with no interpolation. P4's dependency chain on a separate weather feature
+table collapses to nothing. One correction to the review: it is **eight**
+variables, not nine -- `tg`/`tn`/`tx` (mean/min/max temperature), `rr`
+(precipitation), `pp` (pressure), `fg` (wind), `hu` (humidity), `qq` (radiation).
+`cop_dem` is cached per cell alongside it: elevation spans **271-864 m** across
+the subset, which is a real phenology-timing gradient in the Alpine foreland and
+the control a reviewer will ask for when green-up dates differ between cubes.
+
+**3. Satlas multi-image fills the positive-control gap without waiting on
+Clay.** Every other wrapper is single-image and cannot, even in principle,
+represent change -- so a null result from those alone is not distinguishable
+from "we only ever showed them one frame". `satlaspretrain-models` already
+ships `Sentinel2_SwinB_MI_RGB` (verified against the package's own model list),
+so this costs no new dependency. Added as `satlas_s2_swinb_mi_rgb`, D=1024.
+
+Input convention read out of the package rather than assumed:
+`AggregationBackbone.groups == [[0..7]]`, so it takes **8 images stacked
+channel-wise** (24 ch) and max-pools features across the group. For retained
+frame t the window is the 8 most recent retained frames ending at t, with the
+earliest repeated when fewer exist -- dropping the first 7 frames of every cube
+would have cost ~7/13 of this subset. The window crosses batch boundaries via a
+context buffer, so batching must not change a number: verified **exactly
+bit-identical** at batch_size 1, 4 and 64. MI embeddings differ from SI by 65.2
+max abs, confirming it actually uses the context rather than ignoring it.
+
+The window spans IRREGULAR gaps between retained frames, so probes must keep
+using `original_axis_index` for anything horizon-related and must not read this
+embedding as a fixed-duration lookback.
+
+**Roster now.** Two EO-native encoders (Satlas SI and MI) plus the positive
+control property, so the n=1 objection is answered. Clay v1.5 stays deferred,
+not dropped -- this is alongside Clay, not instead of it.
+
+**Commit.** (this change)
