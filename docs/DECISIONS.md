@@ -139,3 +139,44 @@ prints a six-line warning naming the comparability consequence.
 is still decided in exactly one place, `valid_mask_from_codes`.
 
 **Commit.** `dc1cdf7`
+
+---
+
+## 2026-08-03: Phase 1.2, encoder input conventions
+
+Three calls the spec left open, decided once here so no wrapper improvises.
+
+**Assumed.** That the SatlasPretrain multi-spectral Sentinel-2 model was the
+natural EO-native choice, and that all RGB models could share one radiometric
+convention.
+
+**Observed.** `Sentinel2_SwinB_SI_MS` expects 9 channels (TCI + B05, B06, B07,
+B08, B11, B12); the cubes carry only (B02, B03, B04, B8A). Feeding zeros for
+six missing bands is inventing data, and the spec forbids filling. The
+single-image RGB variant `Sentinel2_SwinB_SI_RGB` is fully served by the bands
+we have, but it is trained on TCI/255, i.e. approximately
+`clip(2.5 * reflectance, 0, 1)` -- a clamp that would hide exactly the bright
+pixels the >1.2 valid-reflectance assertion exists to catch if it were applied
+globally.
+
+**Changed.** Three conventions, each printed by the wrapper that owns it:
+
+1. **Satlas variant is `Sentinel2_SwinB_SI_RGB`**, embedding = global average
+   pool of the last Swin-B stage (`fpn=False`), D=1024. The TCI clamp is
+   applied INSIDE this wrapper only, because it is that model's trained input
+   distribution.
+2. **ImageNet ViT-B/16 and DINOv2 ViT-B/14 get reflectance as-is** (RGB from
+   B04/B03/B02, resize to 224, ImageNet mean/std). No TCI brightening, no
+   clipping: clipping anywhere outside the Satlas wrapper would mask the
+   mask-leak signal, and brightening is a free parameter we refuse to tune.
+3. **The raw baseline splits its stat domains**: per-band stats over ALL
+   pixels of the unmodified frame -- the identical input the networks see,
+   clouds included -- while NDVI stats run on VALID pixels only via the
+   canonical `data.ndvi.ndvi`. Matching input domains is what makes the
+   baseline row meaningful; masked NDVI is simply the target's definition.
+
+Frame rule recorded with them: keep frames with clear-fraction STRICTLY above
+0.5 (same comparison as `describe_cube`), store the exact fraction with every
+embedding so later probes filter without re-encoding.
+
+**Commit.** `73704ce` (encoders), notebook and bundle in `8ddf508`
