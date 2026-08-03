@@ -34,6 +34,9 @@ encoders/                    Phase 1.2: Tier A frozen encoders, one interface:
                              four wrappers (raw_features D=35, imagenet_vit_b16
                              D=768, dinov2_vitb14 D=768, satlas_s2_swinb_rgb
                              D=1024); pipeline.py cube -> saved .npz embeddings
+encoders/manifest.py         (cube, frame) manifest: original_axis_index (horizons
+                             are DAYS on the original axis, never retained frames),
+                             pixel_bbox, and landcover_stratum from in-cube esawc_lc
 probes/cv.py                 THE split definition. Year mode raises on one year
 tests/                     test_ndvi.py was written before data/ndvi.py existed
 notebooks/phase1_1_data_toy_load.ipynb
@@ -91,5 +94,12 @@ For Colab, follow [RUNBOOK.md](RUNBOOK.md).
   embedding; peak GPU 1.20 GB at T=290. No quality comparison happens in this
   phase. P2 and P3 are unaffected by the single-year subset; the ceiling claim
   narrows to "within-season". See the `probes` package docstring.
+- 1.2b re-encode: feature extraction now follows each model's published probing
+  recipe with named variants for the ablation; patch-grid embeddings
+  `[T_kept, 16, D_grid]` alongside the pooled vector; per-pixel masks cached so
+  common-masking stays possible; `(cube, frame)` manifest with land-cover
+  strata. Clay v1.5 deferred (not pip-installable), Prithvi-EO-2.0 dropped
+  permanently (needs SWIR bands these cubes lack) -- so the roster holds ONE
+  EO-native model and no "EO FMs lose dynamics" claim can rest on it yet.
 - 1.3 `probes/cv.py`: next. Until the fold generators exist, nothing here is a
   result -- the Phase 1.2 embeddings are inputs, not numbers.

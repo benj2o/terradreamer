@@ -19,6 +19,7 @@ from encoders.base import (
     FrozenEncoder,
     resize_bilinear,
     rgb_from_s2,
+    tokens_to_grid,
 )
 
 __all__ = ["ImageNetViTB16"]
@@ -26,7 +27,17 @@ __all__ = ["ImageNetViTB16"]
 
 class ImageNetViTB16(FrozenEncoder):
     name = "imagenet_vit_b16"
-    embed_dim = 768
+    # Probe default is concat(CLS, mean patch token) of the last block, the
+    # usual ViT linear-probe feature: CLS alone discards all spatial evidence,
+    # and on a 128 px agricultural scene there is no object for CLS to centre
+    # on. Both halves are also exposed separately so the ablation is free.
+    embed_dim = 1536           # 768 CLS + 768 patch-mean
+    grid_dim = 768
+    variant_dims = {"cls_last": 768, "patch_mean_last": 768}
+    FEATURE_RECIPE = (
+        "last block, post-LayerNorm; pooled = concat(cls_last, patch_mean_last) "
+        "= 1536; grid = 14x14 patch tokens adaptive-avg-pooled to 4x4"
+    )
     input_size = 224  # torchvision's ViT-B/16 asserts 224x224 input
 
     def _build(self):
@@ -45,21 +56,42 @@ class ImageNetViTB16(FrozenEncoder):
             f"antialiased bilinear resize H x W -> {self.input_size} x {self.input_size} "
             "(torchvision ViT-B/16 accepts exactly 224)",
             f"normalise with ImageNet mean={IMAGENET_MEAN} std={IMAGENET_STD}",
+            f"extraction: {self.FEATURE_RECIPE}",
             "reflectance fed as-is: no TCI brightening, no clipping (clipping would "
             "hide the >1.2 valid-reflectance assertion's target), masked pixels NOT "
             "filled",
         ]
 
-    def _encode_batch(self, frames: torch.Tensor, mask) -> torch.Tensor:
+    def _tokens(self, frames: torch.Tensor) -> torch.Tensor:
+        """All transformer tokens after the final encoder LayerNorm: (B, 1+N, 768).
+
+        torchvision's ViT exposes no token-level forward, so the standard
+        pre-head path is reproduced explicitly: patchify, prepend the class
+        token, run the encoder (which adds the positional embedding and
+        applies the final LayerNorm).
+        """
         x = rgb_from_s2(frames)
         x = self._sanitise(x)  # before resize: a NaN would smear over its neighbours
         x = resize_bilinear(x, self.input_size)
         mean = torch.tensor(IMAGENET_MEAN, device=x.device).view(1, 3, 1, 1)
         std = torch.tensor(IMAGENET_STD, device=x.device).view(1, 3, 1, 1)
-        x = (x - mean) / std
-        z = self._model(x.to(self.device))
-        assert z.shape == (frames.shape[0], self.embed_dim), (
-            f"{self.name}: got {tuple(z.shape)}, expected CLS embedding "
-            f"({frames.shape[0]}, {self.embed_dim}) -- heads not replaced?"
-        )
-        return z
+        x = ((x - mean) / std).to(self.device)
+
+        m = self._model
+        t = m._process_input(x)                                   # (B, N, 768)
+        cls = m.class_token.expand(t.shape[0], -1, -1)            # (B, 1, 768)
+        t = m.encoder(torch.cat([cls, t], dim=1))                 # (B, 1+N, 768)
+        assert t.ndim == 3 and t.shape[-1] == 768, tuple(t.shape)
+        return t
+
+    def _features_batch(self, frames: torch.Tensor, mask) -> dict:
+        t = self._tokens(frames)
+        cls_last = t[:, 0]                                        # (B, 768)
+        patches = t[:, 1:]                                        # (B, N, 768)
+        patch_mean_last = patches.mean(dim=1)                     # (B, 768)
+        return {
+            "cls_last": cls_last,
+            "patch_mean_last": patch_mean_last,
+            "pooled": torch.cat([cls_last, patch_mean_last], dim=1),
+            "grid": tokens_to_grid(patches),
+        }

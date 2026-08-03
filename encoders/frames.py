@@ -47,6 +47,7 @@ __all__ = [
     "SelectedFrames",
     "ReflectanceReport",
     "clear_fraction",
+    "grid_clear_fraction",
     "finite_valid_mask",
     "select_clear_frames",
     "assert_valid_reflectance",
@@ -106,6 +107,29 @@ def clear_fraction(mask) -> np.ndarray:
     out = mask.mean(axis=(1, 2))
     assert out.shape == (mask.shape[0],)
     assert np.isfinite(out).all()
+    return out
+
+
+def grid_clear_fraction(mask, grid: int = 4) -> np.ndarray:
+    """(T, H, W) valid-mask -> (T, grid*grid) valid fraction per grid cell.
+
+    Cells are row-major, matching ``encoders.base.pool_to_grid``. Probes filter
+    individual cells on this, which is finer-grained than dropping whole
+    frames: a frame at 0.6 clear can hold cells at 0.0 and cells at 1.0.
+    """
+    mask = np.asarray(mask)
+    assert mask.ndim == 3, f"mask must be (T, H, W), got {mask.shape}"
+    assert mask.dtype == np.bool_, f"mask must be bool, got {mask.dtype}"
+    T, H, W = mask.shape
+    assert H % grid == 0 and W % grid == 0, (
+        f"{H}x{W} is not divisible by the {grid}x{grid} grid"
+    )
+    ch, cw = H // grid, W // grid
+    out = (mask.reshape(T, grid, ch, grid, cw)
+               .mean(axis=(2, 4))
+               .reshape(T, grid * grid))
+    assert out.shape == (T, grid * grid)
+    assert np.isfinite(out).all() and (out >= 0).all() and (out <= 1).all()
     return out
 
 

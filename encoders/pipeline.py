@@ -28,25 +28,49 @@ import torch
 
 from data.loader import CubeSample
 
-from encoders.base import FrozenEncoder
+from encoders.base import GRID_CELLS, FrozenEncoder
 from encoders.frames import (
     MIN_CLEAR_FRACTION,
     assert_valid_reflectance,
+    grid_clear_fraction,
     select_clear_frames,
 )
 
-__all__ = ["EncodedCube", "encode_cube", "save_encoded", "load_encoded"]
+__all__ = ["EncodedCube", "CubeMasks", "encode_cube", "save_encoded", "load_encoded",
+           "cube_masks", "save_masks", "load_masks"]
 
 
 class EncodedCube(NamedTuple):
     """One cube through one encoder, with everything a probe needs to filter."""
 
-    embeddings: np.ndarray  # (T_kept, D) float32
+    embeddings: np.ndarray  # (T_kept, D) float32   -- the pooled probe default
     timestamps: np.ndarray  # (T_kept,) datetime64[ns], strictly increasing
     clear_frac: np.ndarray  # (T_kept,) float64, exact clear-fraction per frame
     kept_idx: np.ndarray    # (T_kept,) int, index into the ORIGINAL cube time axis
     encoder: str            # FrozenEncoder.name
     cube: str               # basename of the source cube file
+    # --- Phase 1.2b additions -------------------------------------------
+    grid: np.ndarray = None        # (T_kept, 16, D_grid) FLOAT16 on disk
+    grid_clear_frac: np.ndarray = None  # (T_kept, 16) float32, per-cell valid fraction
+    variants: dict = {}            # {name: (T_kept, dim) float32} extraction ablation
+
+
+class CubeMasks(NamedTuple):
+    """Per-cube per-pixel valid mask, cached ONCE per cube, not per encoder.
+
+    Cube-mean NDVI at t averages the pixels valid at t; at t+delta it averages
+    a DIFFERENT pixel set, so a measured "NDVI change" partly measures which
+    pixels happened to be visible. Clear-fraction on this tile swings roughly
+    0.44-0.63, so the confound is live. The fix -- common-masking, restricting
+    compared frames to pixels valid in ALL of them -- is probe-side logic and
+    is NOT implemented here. This exists only so it remains POSSIBLE: without
+    the per-pixel mask it cannot be done at all after the fact.
+    """
+
+    mask: np.ndarray        # (T_kept, H, W) bool, True == valid AND finite
+    kept_idx: np.ndarray    # (T_kept,) int, index into the ORIGINAL time axis
+    timestamps: np.ndarray  # (T_kept,) datetime64[ns]
+    cube: str
 
 
 def encode_cube(
@@ -70,16 +94,36 @@ def encode_cube(
     )
 
     frames = torch.from_numpy(np.ascontiguousarray(sel.values))
-    mask = torch.from_numpy(sel.mask) if encoder.requires_mask else None
-    emb = encoder.encode(frames, mask=mask, batch_size=batch_size, verbose=verbose).numpy()
+    # Every encoder gets the mask now: the baseline needs it for NDVI, and the
+    # networks ignore it (their frames are still fed unmodified).
+    mask = torch.from_numpy(sel.mask)
+    bundle = encoder.encode_bundle(frames, mask=mask, batch_size=batch_size,
+                                   verbose=verbose)
 
     T_kept = sel.values.shape[0]
+    emb = bundle["pooled"].numpy()
+    # float16 for the grid: it is ~16x the pooled size, and probe inputs are
+    # standardised anyway, so fp16 precision is ample. Pooled stays float32.
+    grid = bundle["grid"].numpy().astype(np.float16)
+    gcf = grid_clear_fraction(sel.mask).astype(np.float32)
+    variants = {k: v.numpy() for k, v in bundle.items() if k not in ("pooled", "grid")}
+
     assert emb.shape == (T_kept, encoder.embed_dim), (
-        f"{encoder.name} on {cube_name}: embeddings {emb.shape} != "
+        f"{encoder.name} on {cube_name}: pooled {emb.shape} != "
         f"({T_kept}, {encoder.embed_dim})"
     )
-    assert emb.dtype == np.float32
-    assert np.isfinite(emb).all()
+    assert grid.shape == (T_kept, GRID_CELLS, encoder.grid_dim), (
+        f"{encoder.name} on {cube_name}: grid {grid.shape} != "
+        f"({T_kept}, {GRID_CELLS}, {encoder.grid_dim})"
+    )
+    assert gcf.shape == (T_kept, GRID_CELLS)
+    assert emb.dtype == np.float32 and np.isfinite(emb).all()
+    assert np.isfinite(grid).all(), (
+        f"{encoder.name} on {cube_name}: float16 downcast overflowed to inf; "
+        "the grid features exceed the fp16 range (~65504)"
+    )
+    # The per-cell fractions must average back to the frame clear-fraction.
+    np.testing.assert_allclose(gcf.mean(axis=1), sel.clear_frac, rtol=0, atol=1e-6)
 
     out = EncodedCube(
         embeddings=emb,
@@ -88,11 +132,53 @@ def encode_cube(
         kept_idx=sel.kept_idx,
         encoder=encoder.name,
         cube=cube_name,
+        grid=grid,
+        grid_clear_frac=gcf,
+        variants=variants,
     )
     if verbose:
-        print(f"[pipeline] {cube_name} x {encoder.name}: embeddings {emb.shape} | "
-              f"clear_frac {out.clear_frac.shape} | kept_idx {out.kept_idx.shape}")
+        print(f"[pipeline] {cube_name} x {encoder.name}: pooled {emb.shape} | "
+              f"grid {grid.shape} fp16 | grid_clear_frac {gcf.shape} | "
+              f"variants {sorted(variants)}")
     return out
+
+
+def cube_masks(sample: CubeSample, min_clear=MIN_CLEAR_FRACTION,
+               verbose: bool = True) -> CubeMasks:
+    """The per-pixel valid mask for a cube's retained frames. See CubeMasks."""
+    sel = select_clear_frames(sample.values, sample.timestamps, sample.mask,
+                              min_clear=min_clear, verbose=False)
+    cm = CubeMasks(mask=sel.mask, kept_idx=sel.kept_idx, timestamps=sel.timestamps,
+                   cube=os.path.basename(sample.path))
+    if verbose:
+        print(f"[pipeline] {cm.cube}: mask {cm.mask.shape} bool")
+    return cm
+
+
+def save_masks(out_dir: str, cm: CubeMasks, verbose: bool = True) -> str:
+    """Write one cube's per-pixel masks. Compresses hard: clear-fraction is
+    bimodal, so frames are near-fully clear or near-fully clouded."""
+    os.makedirs(out_dir, exist_ok=True)
+    path = os.path.join(out_dir, f"{os.path.splitext(cm.cube)[0]}__masks.npz")
+    np.savez_compressed(path, mask=cm.mask, kept_idx=cm.kept_idx,
+                        timestamps=cm.timestamps.astype("datetime64[ns]"),
+                        cube=np.array(cm.cube))
+    if verbose:
+        raw = cm.mask.size / 8 / 1e3
+        print(f"[pipeline] saved {os.path.basename(path)} "
+              f"({os.path.getsize(path) / 1e3:.0f} kB on disk, "
+              f"{raw:.0f} kB as packed bits)")
+    return path
+
+
+def load_masks(path: str) -> CubeMasks:
+    with np.load(path) as z:
+        cm = CubeMasks(mask=z["mask"], kept_idx=z["kept_idx"],
+                       timestamps=z["timestamps"].astype("datetime64[ns]"),
+                       cube=str(z["cube"]))
+    assert cm.mask.dtype == np.bool_ and cm.mask.ndim == 3
+    assert cm.kept_idx.shape == cm.timestamps.shape == (cm.mask.shape[0],)
+    return cm
 
 
 def _npz_path(out_dir: str, cube: str, encoder: str) -> str:
@@ -104,8 +190,7 @@ def save_encoded(out_dir: str, ec: EncodedCube, verbose: bool = True) -> str:
     """Write one EncodedCube as a compressed .npz; returns the path."""
     os.makedirs(out_dir, exist_ok=True)
     path = _npz_path(out_dir, ec.cube, ec.encoder)
-    np.savez_compressed(
-        path,
+    payload = dict(
         embeddings=ec.embeddings,
         timestamps=ec.timestamps.astype("datetime64[ns]"),
         clear_frac=ec.clear_frac,
@@ -113,6 +198,13 @@ def save_encoded(out_dir: str, ec: EncodedCube, verbose: bool = True) -> str:
         encoder=np.array(ec.encoder),
         cube=np.array(ec.cube),
     )
+    if ec.grid is not None:
+        payload["grid"] = ec.grid
+    if ec.grid_clear_frac is not None:
+        payload["grid_clear_frac"] = ec.grid_clear_frac
+    for k, v in (ec.variants or {}).items():
+        payload[f"variant__{k}"] = v
+    np.savez_compressed(path, **payload)
     if verbose:
         print(f"[pipeline] saved {path} ({os.path.getsize(path) / 1e3:.0f} kB)")
     return path
@@ -128,8 +220,21 @@ def load_encoded(path: str) -> EncodedCube:
             kept_idx=z["kept_idx"],
             encoder=str(z["encoder"]),
             cube=str(z["cube"]),
+            grid=z["grid"] if "grid" in z else None,
+            grid_clear_frac=z["grid_clear_frac"] if "grid_clear_frac" in z else None,
+            variants={k[len("variant__"):]: z[k] for k in z.files
+                      if k.startswith("variant__")},
         )
     T_kept, _D = ec.embeddings.shape
+    if ec.grid is not None:
+        assert ec.grid.shape[:2] == (T_kept, GRID_CELLS), ec.grid.shape
+        assert ec.grid.dtype == np.float16, f"grid must be fp16, got {ec.grid.dtype}"
+        assert np.isfinite(ec.grid).all()
+    if ec.grid_clear_frac is not None:
+        assert ec.grid_clear_frac.shape == (T_kept, GRID_CELLS)
+        g = ec.grid_clear_frac
+        assert (g >= 0).all() and (g <= 1).all(), "grid_clear_frac outside [0, 1]"
+        np.testing.assert_allclose(g.mean(axis=1), ec.clear_frac, rtol=0, atol=1e-6)
     assert ec.timestamps.shape == ec.clear_frac.shape == ec.kept_idx.shape == (T_kept,)
     assert ec.embeddings.dtype == np.float32
     assert np.isfinite(ec.embeddings).all()

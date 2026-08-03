@@ -41,6 +41,8 @@ class _DummyEncoder(FrozenEncoder):
 
     name = "dummy"
     embed_dim = 6
+    grid_dim = 6
+    FEATURE_RECIPE = "test double: mean-pool then a fixed-seed linear map C -> 6"
 
     def _build(self):
         torch.manual_seed(0)
@@ -52,6 +54,14 @@ class _DummyEncoder(FrozenEncoder):
     def _encode_batch(self, frames, mask):
         x = frames.mean(dim=(2, 3)).to(self.device)
         return self._model(x)
+
+    def _features_batch(self, frames, mask):
+        from encoders.base import pool_to_grid
+        f = torch.nan_to_num(frames, nan=0.0)
+        pooled = self._model(f.mean(dim=(2, 3)).to(self.device))
+        # (B, C, H, W) -> per-cell linear map, so grid.mean(1) == pooled exactly
+        cells = pool_to_grid(f.to(self.device))          # (B, 16, C)
+        return {"pooled": pooled, "grid": self._model(cells)}
 
 
 def _synthetic(T=6, H=12, W=12, seed=0):
@@ -419,3 +429,82 @@ def test_real_wrapper_loads_frozen_and_emits_asserted_shape(name):
     assert z.shape == (3, enc.embed_dim)
     with pytest.raises(AssertionError):
         enc.encode(torch.rand(3, 128, 128), verbose=False)
+
+
+# ------------------------------------------------ Phase 1.2b: grid + schema
+def test_bundle_emits_pooled_and_grid(dummy):
+    values, ts, mask = _synthetic(T=6, H=16, W=16)
+    sel = select_clear_frames(values, ts, mask, verbose=False)
+    b = dummy.encode_bundle(torch.from_numpy(sel.values),
+                            mask=torch.from_numpy(sel.mask), verbose=False)
+    T = sel.values.shape[0]
+    assert b["pooled"].shape == (T, dummy.embed_dim)
+    assert b["grid"].shape == (T, 16, dummy.grid_dim)
+    print(f"[test] pooled {tuple(b['pooled'].shape)} grid {tuple(b['grid'].shape)}")
+
+
+def test_grid_pools_back_to_pooled_when_divisible(dummy):
+    """The classic patch-token bug is a wrong reshape/permute. Where the source
+    lattice divides evenly into the grid, the cell mean must reproduce the
+    pooled vector; the dummy's map is linear so this is exact."""
+    values, ts, mask = _synthetic(T=4, H=16, W=16)
+    sel = select_clear_frames(values, ts, mask, verbose=False)
+    b = dummy.encode_bundle(torch.from_numpy(sel.values),
+                            mask=torch.from_numpy(sel.mask), verbose=False)
+    torch.testing.assert_close(b["grid"].mean(dim=1), b["pooled"], atol=1e-5, rtol=1e-4)
+
+
+def test_uneven_lattice_explains_its_own_mismatch():
+    """ViT-B/16 gives a 14x14 patch lattice, which does NOT divide into 4x4, so
+    adaptive pooling uses uneven bins and the cell mean is a WEIGHTED patch
+    mean. That is geometry, not a reshape bug -- pinned here so nobody
+    'fixes' it."""
+    from torch.nn.functional import adaptive_avg_pool2d
+    for side, divisible in ((16, True), (14, False)):
+        x = torch.rand(2, 8, side, side)
+        d = float((adaptive_avg_pool2d(x, (4, 4)).flatten(2).mean(2)
+                   - x.flatten(2).mean(2)).abs().max())
+        print(f"[test] {side}x{side} -> 4x4 divisible={divisible} diff={d:.2e}")
+        assert (d < 1e-6) == divisible
+
+
+def test_grid_clear_fraction_bounds_and_consistency():
+    from encoders.frames import grid_clear_fraction
+    _v, _t, mask = _synthetic(T=6, H=16, W=16)
+    g = grid_clear_fraction(mask)
+    assert g.shape == (6, 16)
+    assert (g >= 0).all() and (g <= 1).all()
+    np.testing.assert_allclose(g.mean(axis=1), clear_fraction(mask), atol=1e-6)
+
+
+def test_grid_clear_fraction_is_finer_than_the_frame_scalar():
+    """A frame at 0.5 clear can hold cells at 0.0 and cells at 1.0 -- which is
+    the whole reason probes filter cells, not just frames."""
+    from encoders.frames import grid_clear_fraction
+    mask = np.zeros((1, 16, 16), dtype=bool)
+    mask[0, :8] = True                      # top half clear
+    g = grid_clear_fraction(mask)
+    assert g.min() == 0.0 and g.max() == 1.0
+    np.testing.assert_allclose(g.mean(), 0.5)
+
+
+def test_encoded_cube_roundtrips_grid_as_float16(tmp_path, dummy):
+    ec = encode_cube(_sample(H=16, W=16), dummy, verbose=False)
+    assert ec.grid.dtype == np.float16, "grid must be stored fp16"
+    assert ec.grid_clear_frac.shape == (ec.embeddings.shape[0], 16)
+    back = load_encoded(save_encoded(str(tmp_path), ec, verbose=False))
+    np.testing.assert_array_equal(back.grid, ec.grid)
+    np.testing.assert_array_equal(back.grid_clear_frac, ec.grid_clear_frac)
+
+
+def test_cached_mask_roundtrips_and_reproduces_the_scalars(tmp_path, dummy):
+    """Common-masking is probe-side, but it is impossible unless the per-pixel
+    mask is cached. Verify the cache is faithful."""
+    from encoders.pipeline import cube_masks, load_masks, save_masks
+    s = _sample(T=9, H=16, W=16, seed=3)
+    cm = cube_masks(s, verbose=False)
+    back = load_masks(save_masks(str(tmp_path), cm, verbose=False))
+    np.testing.assert_array_equal(back.mask, cm.mask)
+    np.testing.assert_array_equal(back.kept_idx, cm.kept_idx)
+    ec = encode_cube(s, dummy, verbose=False)
+    np.testing.assert_allclose(back.mask.mean(axis=(1, 2)), ec.clear_frac, atol=1e-12)

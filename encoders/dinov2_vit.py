@@ -18,14 +18,35 @@ from encoders.base import (
     FrozenEncoder,
     resize_bilinear,
     rgb_from_s2,
+    tokens_to_grid,
 )
 
 __all__ = ["DINOv2ViTB14"]
 
 
 class DINOv2ViTB14(FrozenEncoder):
+    """DINOv2 ViT-B/14, extracted by its OWN published linear-probe protocol.
+
+    Oquab et al., "DINOv2: Learning Robust Visual Features without
+    Supervision" (TMLR 2023), linear-evaluation protocol: concatenate the
+    class token of the last FOUR blocks with the average-pooled patch tokens
+    of the last block. Final-CLS-only is reported there as underperforming
+    this, so probing final-CLS-only and then concluding that DINOv2 is lossy
+    for dynamics would measure the extraction, not the representation. That
+    is the single most attackable choice in a representation audit, so the
+    published recipe is the default here and the weaker variants are exposed
+    beside it for the ablation.
+    """
+
     name = "dinov2_vitb14"
-    embed_dim = 768
+    embed_dim = 3840           # 4 x 768 CLS + 768 patch-mean
+    grid_dim = 768
+    variant_dims = {"cls_last": 768, "cls_last4_concat": 3072, "patch_mean_last": 768}
+    FEATURE_RECIPE = (
+        "DINOv2 published linear-probe protocol (Oquab et al., TMLR 2023): "
+        "pooled = concat(cls_last4_concat, patch_mean_last) = 3840; "
+        "grid = 16x16 last-block patch tokens adaptive-avg-pooled to 4x4"
+    )
     input_size = 224  # multiple of the 14-px patch: 224 = 16 * 14
 
     def _build(self):
@@ -47,20 +68,29 @@ class DINOv2ViTB14(FrozenEncoder):
             f"({self.input_size} = {self.input_size // 14} x 14, the ViT-B/14 patch size)",
             f"normalise with ImageNet mean={IMAGENET_MEAN} std={IMAGENET_STD} "
             "(DINOv2's own transform)",
+            f"extraction: {self.FEATURE_RECIPE}",
             "reflectance fed as-is: no TCI brightening, no clipping, masked pixels "
             "NOT filled",
         ]
 
-    def _encode_batch(self, frames: torch.Tensor, mask) -> torch.Tensor:
+    def _features_batch(self, frames: torch.Tensor, mask) -> dict:
         x = rgb_from_s2(frames)
         x = self._sanitise(x)  # before resize: a NaN would smear over its neighbours
         x = resize_bilinear(x, self.input_size)
         mean = torch.tensor(IMAGENET_MEAN, device=x.device).view(1, 3, 1, 1)
         std = torch.tensor(IMAGENET_STD, device=x.device).view(1, 3, 1, 1)
-        x = (x - mean) / std
-        z = self._model(x.to(self.device))
-        assert z.shape == (frames.shape[0], self.embed_dim), (
-            f"{self.name}: got {tuple(z.shape)}, expected CLS embedding "
-            f"({frames.shape[0]}, {self.embed_dim})"
-        )
-        return z
+        x = ((x - mean) / std).to(self.device)
+
+        # n=4 -> the last four blocks, each as (patch_tokens, class_token).
+        layers = self._model.get_intermediate_layers(x, n=4, return_class_token=True)
+        assert len(layers) == 4, f"{self.name}: expected 4 blocks, got {len(layers)}"
+        patches_last, cls_last = layers[-1]
+        cls_last4 = torch.cat([c for _p, c in layers], dim=1)     # (B, 3072)
+        patch_mean_last = patches_last.mean(dim=1)                # (B, 768)
+        return {
+            "cls_last": cls_last,
+            "cls_last4_concat": cls_last4,
+            "patch_mean_last": patch_mean_last,
+            "pooled": torch.cat([cls_last4, patch_mean_last], dim=1),
+            "grid": tokens_to_grid(patches_last),
+        }

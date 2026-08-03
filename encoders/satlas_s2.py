@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import torch
 
-from encoders.base import FrozenEncoder, resize_bilinear, rgb_from_s2
+from encoders.base import FrozenEncoder, pool_to_grid, resize_bilinear, rgb_from_s2
 
 __all__ = ["SatlasS2SwinB"]
 
@@ -28,6 +28,18 @@ __all__ = ["SatlasS2SwinB"]
 class SatlasS2SwinB(FrozenEncoder):
     name = "satlas_s2_swinb_rgb"
     embed_dim = 1024  # Swin-B last-stage channels
+    grid_dim = 1024
+    # NO CLS-TOKEN EQUIVALENT EXISTS. Swin is a hierarchical conv-like
+    # transformer: it emits a feature-map pyramid, never a distinguished
+    # summary token. The pooled variant is therefore the global average of the
+    # final stage, which is the standard Swin classification feature, and
+    # there is no cls_* variant to ablate against -- unlike the two ViTs.
+    variant_dims: dict = {}
+    FEATURE_RECIPE = (
+        "final Swin-B stage feature map (fpn=False); pooled = global average "
+        "pool = 1024; grid = same map adaptive-avg-pooled to 4x4. Swin is "
+        "hierarchical and has NO CLS token, so no cls_* variant exists"
+    )
     model_identifier = "Sentinel2_SwinB_SI_RGB"
     # Swin-B downsamples by 32; H and W must be multiples of it. 128 already is.
     size_multiple = 32
@@ -59,7 +71,11 @@ class SatlasS2SwinB(FrozenEncoder):
             f"(fpn=False), D={self.embed_dim}",
         ]
 
-    def _encode_batch(self, frames: torch.Tensor, mask) -> torch.Tensor:
+    def _features_batch(self, frames: torch.Tensor, mask) -> dict:
+        fm = self._final_map(frames)                              # (B, 1024, h, w)
+        return {"pooled": fm.mean(dim=(2, 3)), "grid": pool_to_grid(fm)}
+
+    def _final_map(self, frames: torch.Tensor) -> torch.Tensor:
         x = rgb_from_s2(frames)
         x = self._sanitise(x)  # NaN survives clamp(); substitute before it
         x = torch.clamp(2.5 * x, 0.0, 1.0)
@@ -84,6 +100,4 @@ class SatlasS2SwinB(FrozenEncoder):
             f"{self.name}: last-stage features {tuple(feats.shape)}, expected "
             f"({frames.shape[0]}, {self.embed_dim}, h, w) -- wrong backbone variant?"
         )
-        z = feats.mean(dim=(2, 3))
-        assert z.shape == (frames.shape[0], self.embed_dim)
-        return z
+        return feats

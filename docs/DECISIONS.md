@@ -301,3 +301,170 @@ rewrite is cheap; a decision record pointing at commits nobody can retrieve is
 not.
 
 **Commit.** `deec2b6`
+
+---
+
+## 2026-08-03: Phase 1.2b, feature extraction follows each model's own protocol
+
+**Assumed.** That a single pooled vector per frame — final CLS for the ViTs,
+global-average-pool for Swin — was a neutral choice not worth recording.
+
+**Observed.** It is neither neutral nor recorded. Nothing in the repo said
+WHICH layer or WHICH token each wrapper extracted. DINOv2's published
+linear-probe protocol (Oquab et al., TMLR 2023) concatenates the class token of
+the last FOUR blocks with the average-pooled patch tokens of the last block,
+and reports final-CLS-only as underperforming it. Probing final-CLS-only and
+then concluding "DINOv2 loses dynamics" would have measured our extraction, not
+the representation — the single most attackable methodological choice in a
+representation audit.
+
+**Changed.** Each wrapper follows its own model's recipe, declares it in a
+`FEATURE_RECIPE` string printed at build time, and emits named intermediate
+variants so the extraction ablation is one line of work rather than a
+re-encode:
+
+| encoder | probe default (`pooled`) | D | variants |
+|---|---|---|---|
+| `imagenet_vit_b16` | concat(cls_last, patch_mean_last) | 1536 | cls_last 768, patch_mean_last 768 |
+| `dinov2_vitb14` | concat(cls_last4_concat, patch_mean_last) | 3840 | cls_last 768, cls_last4_concat 3072, patch_mean_last 768 |
+| `satlas_s2_swinb_rgb` | global-avg-pool of final stage | 1024 | none — see below |
+| `raw_features` | 35 whole-frame statistics | 35 | none |
+
+Swin is hierarchical and emits a feature-map pyramid with **no CLS token and no
+CLS equivalent**. Its docstring says so explicitly, and it has no `cls_*`
+variant to ablate against, unlike the two ViTs. That asymmetry is a property of
+the architecture, not an oversight.
+
+**Commit.** (this change)
+
+---
+
+## 2026-08-03: Phase 1.2b, patch-grid embeddings alongside the pooled vector
+
+**Assumed.** One pooled vector per frame was enough to probe dynamics.
+
+**Observed.** It puts every probe deep in the p >> n regime: ~264 rows per
+encoder at prototype scale against D=768-3840, where ridge results track the
+regularisation path rather than the representation. It also collapses the
+target to one scalar per frame, making P2 and P3 one-dimensional problems where
+encoders saturate and tie — i.e. the design would have manufactured the null
+result it set out to test.
+
+**Changed.** Every wrapper additionally emits patch tokens spatially pooled to
+a 4x4 grid **in the same forward pass** (marginal cost ~zero): `emb_pooled
+[T_kept, D]`, `emb_grid [T_kept, 16, D_grid]`. Pooled stays the P1
+(month/appearance) feature; the grid is what P2/P3 consume. The raw baseline
+recomputes the same 35 statistics independently per cell (35 x 16 = 560) so it
+stays spatially comparable to the networks — otherwise the comparison would
+confound representation quality with spatial resolution.
+
+**Storage.** `emb_grid` is stored float16, `emb_pooled` float32. Probe inputs
+are standardised, so fp16 is ample. Measured and projected sizes are in
+[../log.md](../log.md); at 1000 seasonal cubes the grid store is ~20 GB, which
+is a Drive-sizing constraint to plan for, not to discover mid-run.
+
+**A geometry note that looks like a bug and is not.** ViT-B/16 gives a 14x14
+patch lattice, which does not divide evenly into 4x4, so `adaptive_avg_pool2d`
+uses uneven bins and the cell mean is a *weighted* patch mean — it does not
+reproduce `patch_mean_last` exactly (max abs diff ~9e-2). Where the lattice
+does divide evenly (DINOv2's 16x16, Satlas's 4x4 final map) the round-trip is
+exact to 6e-8. Both cases are pinned by tests so nobody "fixes" the first.
+
+**Commit.** (this change)
+
+---
+
+## 2026-08-03: Phase 1.2b, cache the per-pixel mask so common-masking stays possible
+
+**Assumed.** A scalar `clear_frac` per frame was sufficient bookkeeping.
+
+**Observed.** It is not, and the gap is unrecoverable after the fact. Cube-mean
+NDVI at time t is a mean over the pixels valid at t; at t+delta it is a mean
+over a DIFFERENT pixel set. Measured "NDVI change" therefore partly measures
+which pixels happened to be visible. Clear-fraction on this tile swings
+0.44-0.63, so the confound is live, and it is a standard remote-sensing
+reviewer objection.
+
+**Changed.** Two additions, neither of which implements the fix itself:
+
+1. The per-pixel valid mask is cached **once per cube** (not per cube-encoder)
+   in `data/masks/<cube>__masks.npz`, with the original-axis frame indices.
+   These compress extremely well — clear-fraction is bimodal, so frames are
+   near-fully clear or near-fully clouded — measured at **146x** versus packed
+   bits, 0.07 MB for all 20 cubes.
+2. `grid_clear_frac [T_kept, 16]` is stored per (cube, encoder): the valid
+   fraction within each grid cell. P2/P3 filter cells on this, which is
+   finer-grained than dropping whole frames — a frame at 0.5 clear can hold
+   cells at 0.0 and cells at 1.0.
+
+Common-masking itself is **deliberately not implemented here**: it is
+probe-side logic. This block only makes it possible. The Phase 1.2 demotion
+rule is unchanged and applies throughout — a pixel the mask calls valid but
+which carries no finite reflectance is not an observation.
+
+**Commit.** (this change)
+
+---
+
+## 2026-08-03: Prithvi-EO-2.0 dropped permanently; Clay v1.5 deferred, not dropped
+
+**Assumed.** That the EO-native tier could be filled by whichever EO foundation
+models were most cited.
+
+**Observed.** Two different problems.
+
+**Prithvi-EO-2.0** expects six HLS bands including SWIR B11/B12. These cubes
+carry only B02/B03/B04/B8A. Every Prithvi number would rest on band-filling —
+inventing two channels the sensor record does not contain here — and would
+carry a caveat label that no reviewer should accept. **Dropped permanently.**
+Recorded here so it is not revisited: the blocker is the band set of the
+GreenEarthNet minicube, not the model, and it does not go away at scale-up on
+this dataset.
+
+**Clay v1.5** is the right second EO-native model — it takes B02/B03/B04/B8A
+natively with no band pain, which is why it is the least-cost addition. But it
+is **not pip-installable**: there is no `claymodel` distribution on PyPI, and
+`made-with-clay/Clay` on HuggingFace ships only `v1.5/clay-v1.5.ckpt`, a raw
+Lightning checkpoint that requires the `Clay-foundation/model` source tree to
+instantiate. That is a materially different integration cost from the other
+four wrappers, all of which are one `pip install` plus one constructor.
+
+**Changed.** Clay is **deferred to 1.2c, not dropped**, and the roster claim is
+scoped accordingly: until it lands there is exactly ONE EO-native foundation
+model in the roster, so no claim of the form "EO foundation-model
+representations lose dynamics" can be made — n=1 will not survive review. That
+constraint is now explicit rather than implied. When Clay lands it must wire
+lat/lon, timestamp, GSD and band wavelengths through explicitly and assert none
+of them silently defaulted; the loader already carries all four.
+
+**Commit.** (this change)
+
+---
+
+## 2026-08-03: Phase 1.2b, land cover comes from inside the cube
+
+**Assumed.** That deriving a land-cover stratum would need an external join
+against ESA WorldCover by bounding box, with the caveat that implies.
+
+**Observed.** Ran the lookup before assuming, as the spec required. It is not
+needed: GreenEarthNet minicubes already ship **`esawc_lc`** (ESA WorldCover
+10 m) as an in-cube variable, alongside `cop_dem`, `nasa_dem`, `alos_dem`,
+`geom_cls` and a nine-variable E-OBS climate stack. No external join, no
+reprojection, no caveat.
+
+**Changed.** `encoders/manifest.py` derives the dominant WorldCover class per
+cube from `esawc_lc`. Over the 20-cube subset: **cropland 8, grassland 6,
+tree_cover 6** — a usable three-way stratification for the per-stratum
+replication that the plan makes the condition for believing the headline
+result. A cube missing the layer records `ABSENT:<reason>` rather than a silent
+null, and `assert_strata_present` fails loudly on it.
+
+The manifest also exposes `original_axis_index`. Horizons must be defined in
+DAYS on the original regular axis, never in retained frames: after cloudy
+frames are dropped, a gap of 5 retained frames spans 25 days in clear weather
+and 40+ in cloudy weather, cloud correlates with precipitation, and
+precipitation is a weather feature — so a frame-defined horizon leaks weather
+into the horizon and degrades persistence differently than it degrades the
+probe, contaminating exactly the comparison the paper rests on.
+
+**Commit.** (this change)

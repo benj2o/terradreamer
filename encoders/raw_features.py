@@ -34,7 +34,7 @@ import torch
 from data.loader import S2_BANDS
 from data.ndvi import ndvi
 
-from encoders.base import FrozenEncoder
+from encoders.base import GRID, GRID_CELLS, FrozenEncoder
 
 __all__ = ["PERCENTILES", "RAW_FEATURE_NAMES", "NDVI_FEATURE_SLICE", "RawFeatureBaseline"]
 
@@ -68,6 +68,17 @@ def _stats(flat: np.ndarray, nan_aware: bool) -> np.ndarray:
 class RawFeatureBaseline(FrozenEncoder):
     name = "raw_features"
     embed_dim = len(RAW_FEATURE_NAMES)  # 35
+    # The SAME 35 statistics computed independently per grid cell. The
+    # baseline must stay spatially comparable to the networks or it stops
+    # being a fair baseline: comparing a 35-dim whole-frame summary against a
+    # 4x4x768 grid would confound representation quality with spatial
+    # resolution.
+    grid_dim = len(RAW_FEATURE_NAMES)   # 35 per cell, 35 x 16 = 560 flattened
+    FEATURE_RECIPE = (
+        "not a network; pooled = 35 whole-frame statistics; grid = the same 35 "
+        "statistics recomputed independently per 4x4 cell (35 x 16 = 560), NDVI "
+        "via data.ndvi.ndvi per cell"
+    )
     requires_mask = True  # data.ndvi.ndvi requires the cloud mask
 
     def _build(self):
@@ -87,20 +98,45 @@ class RawFeatureBaseline(FrozenEncoder):
             "align across geographically distinct cubes)",
         ]
 
-    def _encode_batch(self, frames: torch.Tensor, mask: torch.Tensor | None) -> torch.Tensor:
+    def _features_batch(self, frames: torch.Tensor, mask: torch.Tensor | None) -> dict:
         assert mask is not None  # enforced upstream by _check_mask
         v = frames.cpu().numpy()
         m = mask.cpu().numpy()
         B, C, H, W = v.shape
+        assert H % GRID == 0 and W % GRID == 0, (
+            f"{self.name}: {H}x{W} is not divisible by the {GRID}x{GRID} grid"
+        )
+        ch, cw = H // GRID, W // GRID
+
+        pooled = self._stats_block(v, m)                            # (B, 35)
+        cells = []
+        for gy in range(GRID):
+            for gx in range(GRID):
+                ys, xs = slice(gy * ch, (gy + 1) * ch), slice(gx * cw, (gx + 1) * cw)
+                cells.append(self._stats_block(v[:, :, ys, xs], m[:, ys, xs]))
+        grid = np.stack(cells, axis=1)                              # (B, 16, 35)
+        assert grid.shape == (B, GRID_CELLS, self.grid_dim)
+        return {"pooled": torch.from_numpy(pooled),
+                "grid": torch.from_numpy(grid)}
+
+    def _stats_block(self, v: np.ndarray, m: np.ndarray) -> np.ndarray:
+        """(B, C, h, w) + (B, h, w) -> (B, 35). Used whole-frame and per cell."""
+        B, C, H, W = v.shape
 
         flat = v.reshape(B, C, H * W)
         n_finite = np.isfinite(flat).sum(axis=-1)
-        assert (n_finite > 0).all(), (
-            f"{self.name}: {int((n_finite == 0).sum())} (frame, band) pair(s) have no "
-            "finite pixel at all, so every band statistic would be a reduction over "
-            "nothing. Such a frame cannot pass the clear-fraction rule -- "
-            "encoders.frames.select_clear_frames was bypassed. Fix the caller."
-        )
+        if not (n_finite > 0).all():
+            # Whole-frame this cannot happen (select_clear_frames asserts it).
+            # Per CELL a 32x32 block can be entirely no-data; substitute the
+            # band's frame-level median so the reduction is defined, and let
+            # grid_clear_frac carry the fact that the cell is empty.
+            flat = flat.copy()
+            for b in range(C):
+                bad = n_finite[:, b] == 0
+                if bad.any():
+                    good = flat[~bad, b] if (~bad).any() else None
+                    fill = float(np.nanmedian(good)) if good is not None and good.size else 0.0
+                    flat[bad, b] = fill
         band_feats = _stats(flat, nan_aware=True).reshape(B, -1)
         assert band_feats.shape == (B, C * len(_STAT_NAMES))
 
@@ -109,16 +145,21 @@ class RawFeatureBaseline(FrozenEncoder):
         assert nd.shape == (B, H, W)
         nd_flat = nd.reshape(B, H * W)
         n_valid = np.isfinite(nd_flat).sum(axis=-1)
-        assert (n_valid > 0).all(), (
-            f"{self.name}: {int((n_valid == 0).sum())} frame(s) have ZERO valid NDVI "
-            "pixels. The contract for an empty spatial reduction is NaN (never 0), "
-            "but a NaN embedding would poison every probe -- and such a frame "
-            "cannot pass the clear-fraction rule, so its presence here means "
-            "encoders.frames.select_clear_frames was bypassed. Fix the caller."
-        )
+        # Whole-frame, a zero-valid frame cannot pass the clear-fraction rule.
+        # Per CELL it can and does: a 32x32 cell may be fully clouded inside an
+        # otherwise clear frame. The contract is NaN, never 0 -- but a NaN
+        # feature would poison every probe, so such cells fall back to the
+        # frame-level statistics and are flagged through grid_clear_frac, which
+        # is exactly what probes filter cells on.
+        if not (n_valid > 0).all():
+            empty = n_valid == 0
+            frame_med = np.nanmedian(nd_flat[~empty]) if (~empty).any() else 0.0
+            nd_flat = nd_flat.copy()
+            nd_flat[empty] = frame_med
         ndvi_feats = _stats(nd_flat, nan_aware=True)
         assert ndvi_feats.shape == (B, len(_STAT_NAMES))
 
         out = np.concatenate([band_feats, ndvi_feats], axis=-1).astype(np.float32)
         assert out.shape == (B, self.embed_dim)
-        return torch.from_numpy(out)
+        assert np.isfinite(out).all(), f"{self.name}: non-finite statistic"
+        return out

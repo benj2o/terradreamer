@@ -3,6 +3,68 @@
 Running record of measurements and adopted definitions. Reverse chronological.
 Decisions and their rationale live in [docs/DECISIONS.md](docs/DECISIONS.md).
 
+## 2026-08-03: Phase 1.2b dimensionalities, sizes and timings
+
+Local CPU run over all 20 cubes of tile 32UNU. Clay deferred (see DECISIONS),
+so three encoders here, not five.
+
+### Feature variants and dimensionality
+
+| encoder | variant | dim |
+|---|---|---|
+| `raw_features` | pooled (35 whole-frame stats) | 35 |
+| | grid, per cell | 35 (x16 = 560) |
+| `imagenet_vit_b16` | cls_last | 768 |
+| | patch_mean_last | 768 |
+| | **pooled** = concat of the two | **1536** |
+| | grid, per cell (14x14 -> 4x4) | 768 |
+| `dinov2_vitb14` | cls_last | 768 |
+| | cls_last4_concat | 3072 |
+| | patch_mean_last | 768 |
+| | **pooled** = concat(cls_last4_concat, patch_mean_last) | **3840** |
+| | grid, per cell (16x16 -> 4x4) | 768 |
+| `satlas_s2_swinb_rgb` | **pooled** = GAP of final stage | **1024** |
+| | grid, per cell (4x4 map, pooling is identity) | 1024 |
+
+Satlas has NO CLS token and therefore no `cls_*` variant; Swin is hierarchical.
+
+### Grid round-trip (the classic patch-token reshape bug)
+
+`grid.mean(cells)` versus the whole-frame patch mean:
+
+```
+16x16 -> 4x4  divisible      max abs diff 5.96e-08   (DINOv2)
+ 4x4  -> 4x4  identity       max abs diff 5.96e-08   (Satlas, exact)
+14x14 -> 4x4  NOT divisible  max abs diff 8.50e-03   (ViT-B/16)
+```
+
+The ViT gap is geometry, not a bug: 14 does not divide by 4, so
+`adaptive_avg_pool2d` uses uneven bins and the cell mean is a *weighted* patch
+mean. Pinned by `test_uneven_lattice_explains_its_own_mismatch`.
+
+### Sizes and timings, 20 cubes / 264 retained frames
+
+```
+re-encode          52 s        CPU, 3 encoders, 20 cubes
+embeddings         18.5 MB     60 .npz (pooled fp32 + grid fp16 + variants)
+per-cube masks      0.07 MB    20 .npz, bool (T_kept, 128, 128)
+mask compression   ~146x       vs packed bits; clear-fraction is bimodal
+manifest           264 rows    strata: cropland 8, grassland 6, tree_cover 6 cubes
+```
+
+### Projection to seasonal scale (~290 frames per cube)
+
+```
+  200 cubes    4.1 GB     ~192 min CPU
+  500 cubes   10.1 GB     ~479 min CPU
+ 1000 cubes   20.3 GB     ~958 min CPU
+```
+
+**Size the seasonal prototype against Drive before running it.** At 1000 cubes
+the grid store alone is ~20 GB, which exceeds a default Drive allowance; the
+grid is already fp16, so the lever is cube count, not precision. GPU will cut
+the time roughly an order of magnitude; the disk figure is device-independent.
+
 ## 2026-08-03: Phase 1.2 exit test PASSED, Colab T4, 20 cubes
 
 `notebooks/phase1_2_encoders.ipynb` run clean end to end in a fresh runtime.

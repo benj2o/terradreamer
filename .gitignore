@@ -21,3 +21,6 @@ data/embeddings/
 
 # build artifact: rebuild with ./make_zip.sh
 phase1_*_repo.zip
+
+# Phase 1.2b: per-cube masks, cached once per cube (not per encoder)
+data/masks/
