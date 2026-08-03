@@ -10,12 +10,14 @@ __pycache__/
 
 # data: cubes are large and reproducible from data/download_minicubes.py.
 # Commit their checksums (data/raw.sha256), never the cubes themselves.
+# Embeddings are reproducible from notebooks/phase1_2_encoders.ipynb Step 11.
 data/raw/
 data/cache/
 data/greenearthnet/
+data/embeddings/
 *.nc
 *.nc.partial
 *.zarr/
 
 # build artifact: rebuild with ./make_zip.sh
-phase1_1_repo.zip
+phase1_*_repo.zip

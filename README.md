@@ -27,9 +27,17 @@ data/download_minicubes.py   live Sentinel-2 extraction. Any location, 14.7 h/20
 data/stackstac_compat.py     shim for stackstac >= 0.5 vs earthnet-minicuber 0.1.3
 data/climatology.py          GreenEarthNet NDVI climatology. Raises on one year
 data/diagnose.py             four escalating checks, stops at the first failure
+encoders/                    Phase 1.2: Tier A frozen encoders, one interface:
+                             encode(frames[T, C, H, W]) -> [T, D]. base.py holds
+                             the frozen/batched/asserted machinery; frames.py the
+                             clear-fraction rule and the valid-reflectance check;
+                             four wrappers (raw_features D=35, imagenet_vit_b16
+                             D=768, dinov2_vitb14 D=768, satlas_s2_swinb_rgb
+                             D=1024); pipeline.py cube -> saved .npz embeddings
 probes/cv.py                 THE split definition. Year mode raises on one year
 tests/                     test_ndvi.py was written before data/ndvi.py existed
 notebooks/phase1_1_data_toy_load.ipynb
+notebooks/phase1_2_encoders.ipynb
 RUNBOOK.md                 Colab walkthrough: folders, restarts, expected output
 docs/DECISIONS.md          why the project is shaped this way. Append-only
 log.md                     measurements and adopted definitions
@@ -72,7 +80,11 @@ For Colab, follow [RUNBOOK.md](RUNBOOK.md).
 ## Phase status
 
 - 1.1 data toy-load: `ndvi()` unit test green, loader and downloader in place.
-- 1.2 frozen encoder embeddings: next. P2 and P3 are unaffected by the
+- 1.2 frozen encoder embeddings: `encoders/` package in place -- four Tier A
+  wrappers behind one interface, frame selection at clear-fraction > 0.5 with
+  the exact fraction stored alongside every embedding, valid-pixel reflectance
+  asserted <= 1.2. Exit test runs in `notebooks/phase1_2_encoders.ipynb`.
+  No quality comparison happens in this phase. P2 and P3 are unaffected by the
   single-year subset; the ceiling claim narrows to "within-season". See the
   `probes` package docstring.
 - 1.3 `probes/cv.py`: until it exists, nothing here is a result.

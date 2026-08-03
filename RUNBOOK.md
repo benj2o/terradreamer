@@ -1,6 +1,13 @@
-# Phase 1.1 runbook
+# Runbook
 
-One manual file move, one runtime restart, one fast download.
+Phase 1.1 first, Phase 1.2 at the end of this file. Both phases share the same
+Colab workflow: one manual file move, one runtime restart, one fast download.
+
+The upload bundle is now `phase1_2_repo.zip` (built by `make_zip.sh`); it
+contains everything the Phase 1.1 notebook needs too, so there is no reason to
+keep an old `phase1_1_repo.zip` around.
+
+# Phase 1.1 runbook
 
 ## Before Colab
 
@@ -186,3 +193,71 @@ Phase 1.1 is done when Steps 4, 7, 8 and 9 pass their checks. Then:
   fine-tuning, ever.
 - Phase 1.3: `probes/cv.py`. Until it exists, no number produced here is a
   result.
+
+---
+
+# Phase 1.2 runbook
+
+Same workflow as Phase 1.1. Build the bundle with `./make_zip.sh` (it now emits
+`phase1_2_repo.zip`), drag it into `My Drive/NeurIPS-CCAI-2026/`, leave it
+zipped, open `notebooks/phase1_2_encoders.ipynb`, set the T4 runtime BEFORE
+Step 1, and run top to bottom. Exactly one restart, at the end of Step 1.
+
+| step | what | time |
+|---|---|---|
+| 1 | install (adds `satlaspretrain-models`), auto-restart | 2 min |
+| 2 | bootstrap, defines `sh()` | 1 min |
+| 3 | environment check | instant |
+| 4 | unit tests, expect `90 passed, 3 skipped` | 30 s |
+| 5 | cubes (skips ones already on Drive) | 15 s |
+| 6 | build 4 encoders, first run downloads ~900 MB of weights | 3 min |
+| 7 | four asserted `[T_kept, D]` on one cube | 1 min |
+| 8 | valid-pixel reflectance <= 1.2 on all 20 cubes | 30 s |
+| 9 | malformed inputs refused loudly | instant |
+| 10 | T=290 memory smoke, peak GPU printed | 1 min |
+| 11 | encode 20 cubes x 4 encoders, save `.npz` to Drive | 5 min |
+
+The 3 skipped tests in Step 4 are the wrapper tests that would download
+pretrained weights inside pytest (`PHASE1_2_WEIGHTS=1` enables them); Steps
+6-11 exercise the same wrappers on the real cubes, which is the stronger test.
+
+### Expected output, Step 6
+
+```
+D per model:
+  raw_features           D=35
+  imagenet_vit_b16       D=768
+  dinov2_vitb14          D=768
+  satlas_s2_swinb_rgb    D=1024
+```
+
+Each wrapper also prints its explicit preprocessing (RGB band selection,
+resize, normalisation). If you did not see a preprocessing block, the wrapper
+did not build.
+
+### Expected output, Step 7
+
+`T_kept` should be 10-16 (the log's `frames >50% clear` range), never 0, and
+identical for all four encoders, with identical kept timestamps. The
+retained-frame count is cross-checked against an independent numpy computation
+in the same cell.
+
+### What lands on Drive
+
+`data/embeddings/<cube>__<encoder>.npz`, 80 files, ~10 MB total. Each carries
+`embeddings [T_kept, D]`, `timestamps`, the exact per-frame `clear_frac`
+(later probes filter on it more strictly WITHOUT re-encoding), `kept_idx`
+into the original cube time axis, and the encoder name. Step 11 is resumable:
+existing files are loaded and re-asserted, not re-encoded. Delete the folder
+after any change to the mask definition or the frame-selection rule.
+
+### When something fails
+
+- Step 6 fails on `satlaspretrain_models`: re-run Step 1 without `-q` blinders,
+  the pip conflict is printed there.
+- A `valid-pixel reflectance max ... exceeds 1.2` assertion in Step 8 means
+  bright cloud is leaking THROUGH the mask -- the s2_dlmask + SCL conjunction
+  is not being applied. Nothing downstream of it is trustworthy; go back to
+  `data/loader.py` and Phase 1.1's diagnostics.
+- `EMPTY BATCH` from an encoder means a fully-clouded cube reached `encode()`
+  without going through `encoders.pipeline.encode_cube`. Use the pipeline.
