@@ -240,7 +240,23 @@ did not build.
 `T_kept` should be 10-16 (the log's `frames >50% clear` range), never 0, and
 identical for all four encoders, with identical kept timestamps. The
 retained-frame count is cross-checked against an independent numpy computation
-in the same cell.
+in the same cell. On cube 1 the reference run gives `T_kept = 14/29`.
+
+### Expected output, Steps 8, 10 and 11
+
+Measured on the reference T4 run (full numbers in [log.md](log.md)):
+
+```
+Step 8   all 20 cubes pass, worst prevalence 1.89e-05 vs tolerance 1e-04
+         all-finite max reaches 1.9817 (bright cloud, behind the mask)
+Step 10  peak GPU memory 1.20 GB for T=290 at batch_size=16   (budget 12 GB)
+Step 11  80 cube x encoder pairs, 264 frames per encoder
+         T_kept min 10, median 13, max 16
+```
+
+A `cached` status in Step 11 on a first run means `data/embeddings/` still
+holds files from an earlier attempt. Delete the folder and re-run: cached
+embeddings predate any change to the mask or the frame-selection rule.
 
 ### What lands on Drive
 

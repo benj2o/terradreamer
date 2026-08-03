@@ -38,6 +38,9 @@ probes/cv.py                 THE split definition. Year mode raises on one year
 tests/                     test_ndvi.py was written before data/ndvi.py existed
 notebooks/phase1_1_data_toy_load.ipynb
 notebooks/phase1_2_encoders.ipynb
+notebooks/runs/                the executed exit-test runs, outputs kept, as
+                               evidence. Never re-run in place; excluded from
+                               the Colab bundle by make_zip.sh
 RUNBOOK.md                 Colab walkthrough: folders, restarts, expected output
 docs/DECISIONS.md          why the project is shaped this way. Append-only
 log.md                     measurements and adopted definitions
@@ -80,11 +83,13 @@ For Colab, follow [RUNBOOK.md](RUNBOOK.md).
 ## Phase status
 
 - 1.1 data toy-load: `ndvi()` unit test green, loader and downloader in place.
-- 1.2 frozen encoder embeddings: `encoders/` package in place -- four Tier A
-  wrappers behind one interface, frame selection at clear-fraction > 0.5 with
-  the exact fraction stored alongside every embedding, valid-pixel reflectance
-  asserted <= 1.2. Exit test runs in `notebooks/phase1_2_encoders.ipynb`.
-  No quality comparison happens in this phase. P2 and P3 are unaffected by the
-  single-year subset; the ceiling claim narrows to "within-season". See the
-  `probes` package docstring.
-- 1.3 `probes/cv.py`: until it exists, nothing here is a result.
+- 1.2 frozen encoder embeddings: **DONE**, exit test passed on a Colab T4
+  (`notebooks/phase1_2_encoders.ipynb`, run recorded in [log.md](log.md)).
+  Four Tier A wrappers behind one interface at D = 35 / 768 / 768 / 1024;
+  80 cube x encoder embedding files, 264 retained frames each; frame selection
+  at clear-fraction > 0.5 with the exact fraction stored alongside every
+  embedding; peak GPU 1.20 GB at T=290. No quality comparison happens in this
+  phase. P2 and P3 are unaffected by the single-year subset; the ceiling claim
+  narrows to "within-season". See the `probes` package docstring.
+- 1.3 `probes/cv.py`: next. Until the fold generators exist, nothing here is a
+  result -- the Phase 1.2 embeddings are inputs, not numbers.

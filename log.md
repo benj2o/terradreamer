@@ -3,6 +3,66 @@
 Running record of measurements and adopted definitions. Reverse chronological.
 Decisions and their rationale live in [docs/DECISIONS.md](docs/DECISIONS.md).
 
+## 2026-08-03: Phase 1.2 exit test PASSED, Colab T4, 20 cubes
+
+`notebooks/phase1_2_encoders.ipynb` run clean end to end in a fresh runtime.
+These are shape and integrity numbers, not results: **no quality comparison
+happens in Phase 1.2, and any number produced outside `probes/cv.py` does not
+exist.** The embeddings are inputs to Phase 1.3, nothing more.
+
+Environment: Tesla T4 15.6 GB, torch 2.11.0+cu128, torchvision 0.26.0+cu128,
+Python 3.12.
+
+### Embedding dimension per encoder
+
+| encoder | what | params | D |
+|---|---|---|---|
+| `raw_features` | not a network | 0 | **35** |
+| `imagenet_vit_b16` | torchvision ViT-B/16 | 85.8M | **768** |
+| `dinov2_vitb14` | torch.hub DINOv2 ViT-B/14 | 86.6M | **768** |
+| `satlas_s2_swinb_rgb` | SatlasPretrain Swin-B | 87.9M | **1024** |
+
+All three networks reported `eval()=True, requires_grad=False` on every
+parameter at construction, re-asserted on every `encode` call.
+
+### Frame retention, 20 cubes
+
+```
+T_kept       min 10  median 13  max 16      (of T = 28-30)
+frames total 264 per encoder, 80 cube x encoder pairs
+distribution 10:1  11:1  12:4  13:6  14:4  15:3  16:1
+```
+
+`T_kept` reproduces Phase 1.1's `frames >50% clear` counts (min 10, median 13,
+max 16) exactly, so neither the finite-mask correction nor anything else in
+Phase 1.2 changed a frame's keep/drop decision. All four encoders returned
+identical kept timestamps on every cube.
+
+### Valid-pixel reflectance, 20 cubes
+
+All 20 pass. Worst prevalence **1.89e-05** against the 1e-4 tolerance; 12 of 20
+cubes have zero implausible valid pixels. The all-finite maximum reaches
+**1.9817**, confirming Phase 1.1's 1.98 figure and confirming it stays behind
+the mask: the valid maximum on that same cube is 1.7839, from 5 isolated
+pixels.
+
+### Other gates
+
+- Unit tests **95 passed, 3 skipped** (the 3 download weights inside pytest).
+- Malformed input refused loudly by all four wrappers: rank-3, channels-last,
+  empty batch, plus the baseline refusing to run without the mask.
+- Memory does not scale with T: **peak GPU 1.20 GB at T=290, batch_size=16**,
+  against the 12 GB T4 budget. The seasonal split (~290 frames) fits with an
+  order of magnitude to spare.
+
+### Cross-machine reproducibility
+
+The per-cube valid maxima and implausible-pixel counts from the T4 run match a
+local CPU run of the same code exactly (0.8235/0, 1.7839/5, 1.4655/4,
+0.7446/0, 1.4637/1, ...), as do `T_kept` and the 264-frame total. DINOv2 ran on
+Colab; it is skipped locally only because `facebookresearch/dinov2` hub code
+evaluates PEP 604 unions at import and needs Python >= 3.10.
+
 ## 2026-08-03: two encoder-input data properties, tile 32UNU, 20 cubes
 
 Both found by Phase 1.2's own assertions firing on real cubes. Measured over
