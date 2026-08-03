@@ -529,4 +529,4 @@ embedding as a fixed-duration lookback.
 control property, so the n=1 objection is answered. Clay v1.5 stays deferred,
 not dropped -- this is alongside Clay, not instead of it.
 
-**Commit.** (this change)
+**Commit.** `d58e98e`
