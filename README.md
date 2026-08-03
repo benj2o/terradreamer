@@ -27,16 +27,26 @@ data/download_minicubes.py   live Sentinel-2 extraction. Any location, 14.7 h/20
 data/stackstac_compat.py     shim for stackstac >= 0.5 vs earthnet-minicuber 0.1.3
 data/climatology.py          GreenEarthNet NDVI climatology. Raises on one year
 data/diagnose.py             four escalating checks, stops at the first failure
-encoders/                    Phase 1.2: Tier A frozen encoders, one interface:
-                             encode(frames[T, C, H, W]) -> [T, D]. base.py holds
-                             the frozen/batched/asserted machinery; frames.py the
-                             clear-fraction rule and the valid-reflectance check;
-                             four wrappers (raw_features D=35, imagenet_vit_b16
-                             D=768, dinov2_vitb14 D=768, satlas_s2_swinb_rgb
-                             D=1024); pipeline.py cube -> saved .npz embeddings
+encoders/                    Tier A frozen encoders, one interface:
+                             encode_bundle(frames[T, C, H, W]) -> {"pooled": [T, D],
+                             "grid": [T, 16, D_grid] fp16, named variants, ...}.
+                             base.py holds the frozen/batched/asserted machinery,
+                             the 4x4 grid pooling and window_len/window_span_days;
+                             frames.py the clear-fraction rule, valid-reflectance
+                             check and per-cell clear fraction. Five wrappers:
+                               raw_features          D=35    not a network
+                               imagenet_vit_b16      D=1536  concat(cls, patch-mean)
+                               dinov2_vitb14         D=3840  published linear-probe recipe
+                               satlas_s2_swinb_rgb   D=1024  single-image, EO-native
+                               satlas_s2_swinb_mi_rgb D=1024 multi-image POSITIVE CONTROL,
+                                                     window_len=8, caches window_span_days
+                             pipeline.py cube -> saved .npz (pooled/grid/variants/
+                             grid_clear_frac/window_span_days) + per-cube mask cache
 encoders/manifest.py         (cube, frame) manifest: original_axis_index (horizons
                              are DAYS on the original axis, never retained frames),
-                             pixel_bbox, and landcover_stratum from in-cube esawc_lc
+                             pixel_bbox, per-cube AND per-grid-cell landcover_stratum
+                             (esawc_lc), per-cell elevation (cop_dem), in-cube E-OBS
+                             weather (8 vars) joined on original_axis_index
 probes/cv.py                 THE split definition. Year mode raises on one year
 tests/                     test_ndvi.py was written before data/ndvi.py existed
 notebooks/phase1_1_data_toy_load.ipynb
@@ -106,5 +116,19 @@ For Colab, follow [RUNBOOK.md](RUNBOOK.md).
   manifest, which collapses P4's dependency on any external weather table; and
   `satlas_s2_swinb_mi_rgb`, a multi-image POSITIVE CONTROL -- the only encoder
   that can represent change at all. Clay v1.5 still deferred, not dropped.
+  Its lookback is a variable number of days (measured: median 55, max 105,
+  min 0 -- three times the 35-day nominal span for 8 frames at the 5-day
+  revisit) and correlates with cloud, so every embedding stores
+  `window_span_days` as a covariate. See [log.md](log.md) for the full
+  measurement and `docs/DECISIONS.md` for two effects recorded but
+  deliberately deferred to Phase 1.3 (MI's max-pool aggregation is lossy for
+  trajectory; the built_up/bare_sparse strata are too thin to replicate on).
+- **Current roster is FIVE encoders**, D = 35 / 1536 / 3840 / 1024 / 1024.
+  Re-encoded locally on 4 of 5 (`dinov2_vitb14` needs Python >= 3.10 for its
+  hub code and runs on Colab only); `data/embeddings/` and `data/masks/` are
+  therefore from that 4-encoder local pass until the notebook is re-run on
+  Colab with the current code -- the notebook has NOT been re-executed since
+  1.2b/1.2c/window_span_days landed, so its Step 6 "D per model" output and
+  the RUNBOOK reference numbers still reflect the earlier 4-wrapper run.
 - 1.3 `probes/cv.py`: next. Until the fold generators exist, nothing here is a
-  result -- the Phase 1.2 embeddings are inputs, not numbers.
+  result -- the Phase 1.2/1.2b/1.2c embeddings are inputs, not numbers.
