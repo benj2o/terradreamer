@@ -47,7 +47,11 @@ encoders/manifest.py         (cube, frame) manifest: original_axis_index (horizo
                              pixel_bbox, per-cube AND per-grid-cell landcover_stratum
                              (esawc_lc), per-cell elevation (cop_dem), in-cube E-OBS
                              weather (8 vars) joined on original_axis_index
+data/paths.py                phase-scoped artefact dirs: phase_dir/describe_phase/
+                             reset_phase. data/raw is shared and never reset
 probes/cv.py                 THE split definition. Year mode raises on one year
+                             INCOMPLETE: only cube_years/assert_multi_year/
+                             year_groups exist. Phase 1.3 adds the fold generators
 tests/                     test_ndvi.py was written before data/ndvi.py existed
 notebooks/phase1_1_data_toy_load.ipynb
 notebooks/phase1_2_encoders.ipynb
@@ -96,10 +100,9 @@ For Colab, follow [RUNBOOK.md](RUNBOOK.md).
 ## Phase status
 
 - 1.1 data toy-load: `ndvi()` unit test green, loader and downloader in place.
-- 1.2 frozen encoder embeddings: **DONE**, exit test passed on a Colab T4
-  (`notebooks/phase1_2_encoders.ipynb`, run recorded in [log.md](log.md)).
-  Four Tier A wrappers behind one interface at D = 35 / 768 / 768 / 1024;
-  80 cube x encoder embedding files, 264 retained frames each; frame selection
+- 1.2 frozen encoder embeddings: **DONE**, superseded by the 2026-08-04
+  five-encoder run below. Originally four wrappers at D = 35 / 768 / 768 / 1024
+  and 80 embedding files; 264 retained frames each; frame selection
   at clear-fraction > 0.5 with the exact fraction stored alongside every
   embedding; peak GPU 1.20 GB at T=290. No quality comparison happens in this
   phase. P2 and P3 are unaffected by the single-year subset; the ceiling claim
@@ -123,12 +126,17 @@ For Colab, follow [RUNBOOK.md](RUNBOOK.md).
   measurement and `docs/DECISIONS.md` for two effects recorded but
   deliberately deferred to Phase 1.3 (MI's max-pool aggregation is lossy for
   trajectory; the built_up/bare_sparse strata are too thin to replicate on).
-- **Current roster is FIVE encoders**, D = 35 / 1536 / 3840 / 1024 / 1024.
-  Re-encoded locally on 4 of 5 (`dinov2_vitb14` needs Python >= 3.10 for its
-  hub code and runs on Colab only); `data/embeddings/` and `data/masks/` are
-  therefore from that 4-encoder local pass until the notebook is re-run on
-  Colab with the current code -- the notebook has NOT been re-executed since
-  1.2b/1.2c/window_span_days landed, so its Step 6 "D per model" output and
-  the RUNBOOK reference numbers still reflect the earlier 4-wrapper run.
+- **Current roster is FIVE encoders**, D = 35 / 1536 / 3840 / 1024 / 1024, all
+  verified against real weights on a Colab T4 (2026-08-04, archived under
+  `notebooks/runs/`). 100 `.npz` = 20 cubes x 5 encoders, 264 frames each.
+  `dinov2_vitb14` ran for the first time in that pass -- its extraction had
+  only ever been exercised through the synthetic dummy before.
+- **Artefacts are phase-scoped.** `data/<phase>/<kind>/` via `data/paths.py`:
+  `phase_dir("phase1_2", "embeddings")`, `describe_phase(...)` to see what is
+  on disk, `reset_phase("phase1_2")` to clear exactly one phase before a
+  re-run. `data/raw/` is shared and never cleared. Do this rather than
+  `rm -rf`: `zipfile.extractall` overwrites but never deletes, so a stale
+  artefact from an older mask definition survives into the next run and the
+  resumable cache reuses it silently.
 - 1.3 `probes/cv.py`: next. Until the fold generators exist, nothing here is a
   result -- the Phase 1.2/1.2b/1.2c embeddings are inputs, not numbers.

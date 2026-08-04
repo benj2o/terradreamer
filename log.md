@@ -3,6 +3,57 @@
 Running record of measurements and adopted definitions. Reverse chronological.
 Decisions and their rationale live in [docs/DECISIONS.md](docs/DECISIONS.md).
 
+## 2026-08-04: Phase 1.2 exit test PASSED on the full five-encoder roster
+
+Colab T4, 20 cubes, `notebooks/runs/phase1_2_encoders_2026-08-04_T4_5enc.ipynb`.
+The headline: **`dinov2_vitb14` ran against real weights for the first time.**
+Its extraction was rewritten in `b84c484` to follow DINOv2's published
+linear-probe protocol and had only ever been exercised through the synthetic
+dummy encoder, because the real-weight tests need Python >= 3.10 and the local
+venv is 3.9.6. It was the most structurally complex wrapper in the roster and
+the only one never watched running. It works.
+
+### D per encoder, all verified against real weights
+
+| encoder | pooled D | grid | variants |
+|---|---|---|---|
+| `raw_features` | 35 | 4x4 x 35 | - |
+| `imagenet_vit_b16` | 1536 | 4x4 x 768 | cls_last 768, patch_mean_last 768 |
+| `dinov2_vitb14` | **3840** | 4x4 x 768 | cls_last 768, cls_last4_concat 3072, patch_mean_last 768 |
+| `satlas_s2_swinb_rgb` | 1024 | 4x4 x 1024 | - (no CLS: Swin is hierarchical) |
+| `satlas_s2_swinb_mi_rgb` | 1024 | 4x4 x 1024 | - (positive control) |
+
+### Exit test
+
+```
+Step 4   107 passed, 9 skipped   (116 collected -- see the caveat below)
+Step 6   five encoders built frozen; DINOv2's 4-block CLS concat live
+Step 7   all five return [14, D] on cube 1, identical kept timestamps
+Step 8   20/20 cubes pass, worst prevalence 1.89e-05 vs 1e-04
+Step 10  peak GPU 1.56 GB at T=290, batch_size=16   (budget 12 GB)
+Step 11  100 .npz = 20 cubes x 5 encoders, 264 frames per encoder, 0 cached
+```
+
+`T_kept` min 10, median 13, max 16, summing to 264 per encoder -- identical to
+the local CPU run and to Phase 1.1's clear-frame counts. Three independent
+routes to the same 264.
+
+MI `window_span_days` on cube 1: min 0, median 38, max 85 days.
+
+### Caveat: the run collected 116 tests, local collects 123
+
+The 7-test gap is exactly `tests/test_paths.py`, which was UNTRACKED when the
+bundle was built. `make_zip.sh` lists files with `git ls-files`, so an
+untracked file is silently absent from every Colab bundle. It is committed now.
+The rule this re-proves: **commit before `make_zip.sh`**, and treat a changed
+collection count as a stale-bundle signal, not noise.
+
+Two breaks in the notebook were found afterwards and fixed in `31c481f`: a
+Python string literal split across raw newlines in Step 11 (SyntaxError before
+any encoding), and a Step 2 import of the since-removed `migrate_legacy`.
+Neither could have been caught by the 2026-08-04 run, because that run used
+the older bundle in which neither line existed yet.
+
 ## 2026-08-04: Phase 1.2c exit test PASSED on Colab T4, all five encoders
 
 The re-run that closed the one piece of never-executed code. Numbers are shape

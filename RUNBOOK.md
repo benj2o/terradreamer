@@ -208,7 +208,7 @@ Step 1, and run top to bottom. Exactly one restart, at the end of Step 1.
 | 1 | install (adds `satlaspretrain-models`), auto-restart | 2 min |
 | 2 | bootstrap, defines `sh()` | 1 min |
 | 3 | environment check | instant |
-| 4 | unit tests, expect `95 passed, 3 skipped` | 30 s |
+| 4 | unit tests, expect `118 passed, 5 skipped` locally | 30 s |
 | 5 | cubes (skips ones already on Drive) | 15 s |
 | 6 | build 4 encoders, first run downloads ~900 MB of weights | 3 min |
 | 7 | four asserted `[T_kept, D]` on one cube | 1 min |
@@ -247,12 +247,30 @@ in the same cell. On cube 1 the reference run gives `T_kept = 14/29`.
 Measured on the reference T4 run (full numbers in [log.md](log.md)):
 
 ```
+Step 6   D per model: 35 / 1536 / 3840 / 1024 / 1024  (five encoders)
 Step 8   all 20 cubes pass, worst prevalence 1.89e-05 vs tolerance 1e-04
          all-finite max reaches 1.9817 (bright cloud, behind the mask)
-Step 10  peak GPU memory 1.20 GB for T=290 at batch_size=16   (budget 12 GB)
-Step 11  80 cube x encoder pairs, 264 frames per encoder
+Step 10  peak GPU memory 1.56 GB for T=290 at batch_size=16   (budget 12 GB)
+Step 11  100 cube x encoder pairs, 264 frames per encoder
          T_kept min 10, median 13, max 16
 ```
+
+If Step 4 reports a DIFFERENT number of collected tests than you get locally,
+the bundle is stale -- `make_zip.sh` lists files with `git ls-files`, so an
+uncommitted file is silently absent from it. **Commit before `make_zip.sh`.**
+A changed collection count is a stale-bundle signal, not noise.
+
+Before re-running a phase after any change to the mask, the frame-selection
+rule or an encoder's feature recipe:
+
+```python
+from data.paths import reset_phase
+reset_phase("phase1_2")     # clears ONLY this phase; data/raw is untouched
+```
+
+`zipfile.extractall` overwrites but never deletes, and the Step 11 cache
+reuses whatever it finds, so a stale artefact is a wrong number no assertion
+will catch.
 
 A `cached` status in Step 11 on a first run means `data/embeddings/` still
 holds files from an earlier attempt. Delete the folder and re-run: cached
