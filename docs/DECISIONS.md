@@ -588,3 +588,50 @@ and quietly including them would let a reviewer read more coverage into the
 claim than the data supports.
 
 **Commit.** `a1a6a12`
+
+---
+
+## 2026-08-04: per-phase artefact directories, and a cache schema version
+
+**Assumed.** That `data/embeddings/` and `data/masks/` were adequate homes for
+artefacts, and that a "cached" file was by definition a usable file.
+
+**Observed.** Two problems, one structural and one that had already fired
+silently.
+
+*Structural.* All phases wrote into the same directories, so re-running one
+phase meant either deleting artefacts another phase still depended on, or
+hand-typing a path into `rm -rf`. There was no way to say "redo Phase 1.2,
+leave Phase 1.3 alone".
+
+*Silent.* The Phase 1.2c Colab re-run reported **100 cached, 0 encoded**. The
+files were valid, but nothing in the pipeline could establish they were
+CURRENT. Encoder dimensionality does not settle it: the multi-image encoder
+landed in `d58e98e` and `window_span_days` in `a1a6a12`, a later commit, so a
+cache can hold MI files at exactly the right D and still predate the covariate.
+`np.load` reports a missing key as absent rather than failing, so
+`load_encoded` returned `None` and continued. A probe would have read
+`window_span_days`, found nothing, and silently dropped the control for a
+confound this project spent a whole block establishing.
+
+**Changed.**
+
+1. `data/paths.py`. Artefacts live at `data/<phase>/<kind>` --
+   `data/phase1_2/embeddings`, `data/phase1_2/masks`, `data/phase1_3/...`.
+   `reset_phase(phase)` deletes exactly one phase and prints what it removed;
+   it REFUSES to touch `data/raw`, which stays shared because the cubes are
+   phase-independent and re-downloading them to re-run a probe is waste rather
+   than hygiene. `migrate_legacy()` moves pre-phase directories once and
+   idempotently, so an existing Drive checkout is not forced into a needless
+   re-encode by a layout change.
+2. `SCHEMA_VERSION` (now 3) is stamped into every `.npz`, and `load_encoded`
+   REFUSES anything older, naming the reset command. v1 Phase 1.2, v2 added the
+   grid, v3 added `window_span_days`. Bump it whenever a stored field is added,
+   removed, or changes meaning.
+
+The general lesson, worth stating once: **a resumable cache is a correctness
+hazard unless it can prove its own version.** Every earlier guard in this
+project checks the data; this one checks the artefact against the code that
+claims to have produced it.
+
+**Commit.** (this change)

@@ -15,6 +15,8 @@ data/raw/
 data/cache/
 data/greenearthnet/
 data/embeddings/
+data/masks/
+data/phase*/
 *.nc
 *.nc.partial
 *.zarr/

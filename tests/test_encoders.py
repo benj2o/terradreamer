@@ -606,3 +606,56 @@ def test_encoded_cube_roundtrips_window_span_days(tmp_path, dummy):
     assert (ec.window_span_days == 0).all(), "dummy is single-image"
     back = load_encoded(save_encoded(str(tmp_path), ec, verbose=False))
     np.testing.assert_array_equal(back.window_span_days, ec.window_span_days)
+
+
+def test_stale_cache_schema_is_refused_loudly(tmp_path, dummy):
+    """A cache from an older schema lacks newer keys, which np.load reports as
+    simply absent -- so a probe would read window_span_days, find nothing, and
+    silently drop the covariate. Encoder dimensionality cannot catch this: the
+    MI encoder and window_span_days landed in different commits."""
+    import numpy as np
+    from encoders.pipeline import SCHEMA_VERSION
+
+    ec = encode_cube(_sample(H=16, W=16), dummy, verbose=False)
+    path = save_encoded(str(tmp_path), ec, verbose=False)
+    assert load_encoded(path).window_span_days is not None
+
+    # Rewrite it as the previous schema: drop the stamp and the newest field.
+    with np.load(path) as z:
+        payload = {k: z[k] for k in z.files
+                   if k not in ("schema_version", "window_span_days")}
+    np.savez_compressed(path, **payload)
+    with pytest.raises(AssertionError, match="schema"):
+        load_encoded(path)
+    print(f"[test] refused a v0 cache against v{SCHEMA_VERSION}")
+
+
+def test_phase_dirs_isolate_and_reset(tmp_path):
+    """Re-running one phase must not touch another, and must never touch the
+    shared cube directory."""
+    from data.paths import phase_dir, reset_phase
+
+    root = str(tmp_path)
+    a = phase_dir("phase1_2", "embeddings", root=root)
+    b = phase_dir("phase1_3", "folds", root=root)
+    for d, n in ((a, 3), (b, 2)):
+        for i in range(n):
+            open(os.path.join(d, f"f{i}.npz"), "w").write("x")
+
+    removed = reset_phase("phase1_2", root=root, verbose=False)
+    assert removed == 3
+    # The phase root survives (empty); phase_dir recreates kinds on demand.
+    assert os.listdir(os.path.join(root, "phase1_2")) == [], "phase1_2 not cleared"
+    assert os.listdir(phase_dir("phase1_2", "embeddings", root=root)) == []
+    assert len(os.listdir(b)) == 2, "reset_phase leaked into another phase"
+    print(f"[test] reset removed {removed} file(s), left phase1_3 intact")
+
+
+def test_reset_phase_refuses_to_delete_the_shared_cubes(tmp_path):
+    """data/raw is shared across phases; re-downloading 20 cubes to re-run a
+    probe is waste, not hygiene."""
+    from data.paths import RAW_DIR, reset_phase
+
+    with pytest.raises(AssertionError, match="shared cube directory"):
+        reset_phase(os.path.basename(RAW_DIR), root=os.path.dirname(RAW_DIR),
+                    verbose=False)

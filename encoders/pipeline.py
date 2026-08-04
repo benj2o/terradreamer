@@ -36,8 +36,22 @@ from encoders.frames import (
     select_clear_frames,
 )
 
-__all__ = ["EncodedCube", "CubeMasks", "encode_cube", "save_encoded", "load_encoded",
-           "cube_masks", "save_masks", "load_masks"]
+__all__ = ["EncodedCube", "CubeMasks", "SCHEMA_VERSION", "encode_cube",
+           "save_encoded", "load_encoded", "cube_masks", "save_masks", "load_masks"]
+
+# Bump whenever a stored field is ADDED, REMOVED or changes meaning.
+#   1  Phase 1.2   pooled + timestamps + clear_frac + kept_idx
+#   2  Phase 1.2b  + grid (fp16), grid_clear_frac, variants
+#   3  Phase 1.2c  + window_span_days
+#
+# Why this exists. Step 11 is resumable, and np.load on an older file simply
+# lacks the newer keys -- load_encoded would return None for them and continue
+# silently, so a probe would read window_span_days, find nothing, and quietly
+# drop the covariate. Encoder D values do NOT settle it either: the multi-image
+# encoder and window_span_days landed in DIFFERENT commits, so a cache can
+# contain MI files at the right dimensionality and still predate the covariate.
+# A stamped version is the only thing that distinguishes "cached" from "stale".
+SCHEMA_VERSION = 3
 
 
 class EncodedCube(NamedTuple):
@@ -231,6 +245,7 @@ def save_encoded(out_dir: str, ec: EncodedCube, verbose: bool = True) -> str:
     os.makedirs(out_dir, exist_ok=True)
     path = _npz_path(out_dir, ec.cube, ec.encoder)
     payload = dict(
+        schema_version=np.array(SCHEMA_VERSION),
         embeddings=ec.embeddings,
         timestamps=ec.timestamps.astype("datetime64[ns]"),
         clear_frac=ec.clear_frac,
@@ -255,6 +270,17 @@ def save_encoded(out_dir: str, ec: EncodedCube, verbose: bool = True) -> str:
 def load_encoded(path: str) -> EncodedCube:
     """Read an EncodedCube back, re-asserting every invariant that was saved."""
     with np.load(path) as z:
+        found = int(z["schema_version"]) if "schema_version" in z else 0
+        assert found == SCHEMA_VERSION, (
+            f"{os.path.basename(path)} was written with cache schema v{found}, "
+            f"but this code expects v{SCHEMA_VERSION}. A cached file from an older "
+            "schema is missing fields that probes read silently as absent -- "
+            "window_span_days is the live example. Delete this phase's artefacts "
+            "and re-encode:\n"
+            "    from data.paths import reset_phase; reset_phase('phase1_2')\n"
+            "Encoder dimensionality does NOT prove a cache is current: the "
+            "multi-image encoder and window_span_days landed in different commits."
+        )
         ec = EncodedCube(
             embeddings=z["embeddings"],
             timestamps=z["timestamps"].astype("datetime64[ns]"),

@@ -3,6 +3,64 @@
 Running record of measurements and adopted definitions. Reverse chronological.
 Decisions and their rationale live in [docs/DECISIONS.md](docs/DECISIONS.md).
 
+## 2026-08-04: Phase 1.2c exit test PASSED on Colab T4, all five encoders
+
+The re-run that closed the one piece of never-executed code. Numbers are shape
+and integrity checks, not results: no quality comparison happens before
+`probes/cv.py`.
+
+Environment: Tesla T4, torch 2.11.0+cu128, Python 3.12.
+
+### D per encoder, all five verified against real weights
+
+| encoder | D (pooled) | grid | variants |
+|---|---|---|---|
+| `raw_features` | 35 | 4x4 x 35 | - |
+| `imagenet_vit_b16` | 1536 | 4x4 x 768 | cls_last 768, patch_mean_last 768 |
+| `dinov2_vitb14` | **3840** | 4x4 x 768 | cls_last 768, cls_last4_concat 3072, patch_mean_last 768 |
+| `satlas_s2_swinb_rgb` | 1024 | 4x4 x 1024 | - |
+| `satlas_s2_swinb_mi_rgb` | 1024 | 4x4 x 1024 | - |
+
+**`dinov2_vitb14` ran against real weights for the first time here.** Its
+extraction was rewritten in `b84c484` to follow the published linear-probe
+protocol and could not be executed locally (its hub code needs Python >= 3.10;
+the dev venv is 3.9.6), so until this run the most structurally complex wrapper
+in the roster was also the only one never watched running. It produced exactly
+the declared shapes: `cls_last4_concat` 3072, `pooled` 3840, `grid` (14, 16, 768)
+off a 16x16 patch lattice.
+
+### Gates
+
+```
+Step 4   111 passed, 5 skipped        (was 95/3 before 1.2b/1.2c)
+Step 7   T_kept = 14/29 on cube 1, identical across all five encoders
+Step 8   20/20 cubes, worst prevalence 1.89e-05 vs 1e-04 tolerance
+Step 10  peak GPU 1.56 GB at T=290, batch_size=16   (budget 12 GB)
+Step 11  100 .npz, 264 frames per encoder, T_kept min 10 median 13
+```
+
+Peak GPU rose 1.20 -> 1.56 GB because the ViT probe default is now 1536-dim
+rather than 768. `window_span_days` on cube 1: min 0, median 38, max 85 days.
+
+### One thing this run did NOT do, and the guard added because of it
+
+Step 11 reported **100 cached, 0 encoded**: the artefacts already existed from a
+prior execution, so this pass re-asserted them rather than recomputing them.
+Re-assertion is real verification -- every one of the 100 files passed
+`load_encoded`, including the fp16 grid check and the
+`grid_clear_frac.mean == clear_frac` identity -- but it left one question open.
+
+Encoder dimensionality does **not** prove a cache is current. The multi-image
+encoder landed in `d58e98e` and `window_span_days` in `a1a6a12`, a later
+commit, so a cache can hold MI files at exactly the right D and still predate
+the covariate. `np.load` reports a missing key as simply absent, and
+`load_encoded` returned `None` for it and continued. A probe would then read
+`window_span_days`, find nothing, and quietly drop the confound control.
+
+Fixed by stamping `SCHEMA_VERSION` (now 3) into every `.npz` and refusing to
+load anything older, with the reset command in the message. Version 1 was
+Phase 1.2, 2 added the grid, 3 added `window_span_days`.
+
 ## 2026-08-03: Phase 1.2c re-encode, and the MI lookback measured
 
 Local CPU run, all 20 cubes. Four of the five encoders: `dinov2_vitb14` runs on

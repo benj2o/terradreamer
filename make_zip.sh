@@ -13,6 +13,7 @@ git ls-files -z \
   | grep -zv '^data/raw/' \
   | grep -zv '^data/embeddings/' \
   | grep -zv '^data/masks/' \
+  | grep -zv '^data/phase' \
   | grep -zv '^notebooks/runs/' \
   | xargs -0 zip -q "$ZIP"
 echo "built $ZIP ($(du -h "$ZIP" | cut -f1))"
