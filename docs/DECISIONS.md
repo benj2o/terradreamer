@@ -634,4 +634,4 @@ hazard unless it can prove its own version.** Every earlier guard in this
 project checks the data; this one checks the artefact against the code that
 claims to have produced it.
 
-**Commit.** (this change)
+**Commit.** `f4ed234`
