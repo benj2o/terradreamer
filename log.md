@@ -3,6 +3,94 @@
 Running record of measurements and adopted definitions. Reverse chronological.
 Decisions and their rationale live in [docs/DECISIONS.md](docs/DECISIONS.md).
 
+## 2026-08-05: Phase 1.3 exit test PASSED, local CPU, 20 cubes
+
+`notebooks/runs/phase1_3_cv_2026-08-05_localCPU.ipynb`. CPU only, no weights,
+nothing re-encoded. These are split-structure numbers; the probes that turn
+folds into results are P1-P4.
+
+### Gates
+
+```
+Step 5   146 passed, 5 skipped      (118 pre-existing + 28 new fold tests)
+Step 6   manifest (264, 21), 20 cubes, tile ['32UNU'], year [2018]
+Step 7   cube k=5 / LOCO / spatial_block k=5 / temporal all yield folds
+Step 8   year, tile, crossed all RAISE -- the designed behaviour
+Step 9   same-cube gate fires on a seasonal manifest; duplicates refused
+Step 10  join contract asserted on one real pair per encoder
+Step 11  5 files, 0.20 MB under data/phase1_3/folds/
+```
+
+### Fold structure on the 20-cube subset
+
+```
+cube, k=5        test 52-53 rows / 4 cubes per fold; every row tested once
+LOCO             20 folds, test sizes 10..16 (= T_kept per cube)
+spatial_block    5 blocks by pixel_bbox centroid, sizes [9, 3, 4, 3, 1]
+temporal         cutoff 2018-08-15: 17 cubes train / 3 test, 65 frames DROPPED
+```
+
+**31 folds re-checked independently** in the notebook (not by the code under
+test): no `cube_id` on both sides of any fold, in any mode.
+
+The spatial_block sizes are uneven because the 20 cubes are not uniformly
+spread over the tile: 9 of them fall in one contiguous region (tile-pixel rows
+1145-2937, columns 3705-5369, against a full extent of 889-5241 by 377-5369),
+and one cube sits alone far enough from every other to be its own block. That
+is a property of the round-robin selection over 16 time windows, not of the
+clustering; complete linkage on the same centroids is deterministic and
+reproduces the same blocks on every run (pinned by a test).
+
+The temporal claim above was checked exhaustively rather than by sampling:
+over **every** day in the retained-frame span, the number of cutoffs that
+separate complete cubes with nothing straddling is **0**.
+
+### What temporal mode costs, measured
+
+The 16 time windows overlap so heavily that **no cutoff separates complete
+cubes**: for every candidate date, at least one cube has retained frames on
+both sides. Cube-atomic assignment (whole cube to its majority side,
+wrong-side frames dropped) at 2018-08-15 keeps 199 of 264 frames, i.e.
+**65 dropped, 24.6%**, and leaves 3 test cubes. That is the starvation the
+spec predicted, quantified: it is why temporal is a P3 robustness variant and
+never a default.
+
+### The three refusals, verbatim
+
+```
+year     SingleYearError  -> "Use 'cube' mode ... or 'crossed' once the
+                             manifest spans years. Do not fall back to a
+                             random split"
+tile     SingleTileError  -> "use 'spatial_block' as the prototype-scale
+                             substitute ... DEFERRED TO SCALE-UP"
+crossed  SingleYearError  -> "cube and year are perfectly confounded, so
+                             grouping by cube already holds the year out"
+```
+
+### Join contract, real (cube, encoder) pairs
+
+`(cube_id, original_axis_index) == (cube, kept_idx)`, asserted on kept_idx,
+timestamps and clear_frac for every encoder present:
+
+```
+imagenet_vit_b16         (14, 1536)   window_span_days 0 exactly
+raw_features             (14,   35)   window_span_days 0 exactly
+satlas_s2_swinb_rgb      (14, 1024)   window_span_days 0 exactly
+satlas_s2_swinb_mi_rgb   (14, 1024)   window_span_days min 0 median 38 max 85
+```
+
+The MI figures reproduce the 2026-08-03 measurement on cube 1 exactly. The
+join REFUSES an embedding without `window_span_days` rather than returning one
+silently missing the covariate.
+
+**Four encoders, not five, in this run**: `dinov2_vitb14` cannot be encoded
+locally (its hub code needs Python >= 3.10; the dev venv is 3.9.6). The Colab
+run sees all five. This also forced a local `reset_phase("phase1_2")` and
+re-encode, because the local `.npz` cache predated `SCHEMA_VERSION` and
+`load_encoded` correctly refused it -- the v3 guard from `f4ed234` doing
+exactly what it was added for.
+
+
 ## 2026-08-04: Phase 1.2 exit test PASSED on the full five-encoder roster
 
 Colab T4, 20 cubes, `notebooks/runs/phase1_2_encoders_2026-08-04_T4_5enc.ipynb`.

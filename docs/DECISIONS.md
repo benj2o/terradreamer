@@ -635,3 +635,116 @@ project checks the data; this one checks the artefact against the code that
 claims to have produced it.
 
 **Commit.** `f4ed234`
+
+---
+
+## 2026-08-05: Phase 1.3, the crossed holdout resolves the cube/year collision
+
+**Assumed.** That "group by cube" and "group by year" were two independent
+leakage rules that could each be switched on when its axis was available.
+
+**Observed.** They collide, and the collision is a property of the dataset's
+own split structure rather than of our code:
+
+* On the **extreme** split (the current 20 cubes) every cube is 2018, so cube
+  and year are perfectly confounded: grouping by cube ALREADY groups by year,
+  and a year-grouped split has exactly one group.
+* On the **seasonal** split one cube internally spans 2017-2020 (~1,050
+  timesteps in a single file). Grouping by year there means splitting WITHIN a
+  cube -- which is precisely what the spatial rule forbids.
+
+So on one split the year rule is vacuous, and on the other it directly
+contradicts the cube rule. Choosing either rule alone produces a confident,
+leaky number on one of the two splits.
+
+**Changed.** A **crossed** mode: a test fold contains only (cube, year) pairs
+whose cube is unseen in train AND whose year is unseen in train. Rows matching
+on one axis only belong to neither side of that fold and are dropped from it.
+This satisfies both rules simultaneously, and it is the same protocol as
+`data/climatology.py` (leave-target-year-out, adopted verbatim from
+GreenEarthNet), so the CV is consistent with the climatology baseline instead
+of fighting it. It is the mode P4 uses whenever the manifest spans more than
+one year, and it RAISES on a single-year manifest naming `cube` as the correct
+fallback -- because on that subset grouping by cube already holds the year out.
+
+Two smaller consequences recorded with it:
+
+1. **The same-cube check runs inside the splitter, not in the caller**, for
+   every mode. `year` mode on a seasonal manifest therefore raises
+   `LeakageError` naming `crossed`, rather than silently splitting a cube.
+2. **Year-aware modes derive the year per ROW from the timestamp** and refuse a
+   manifest whose `year` column (parsed from the cube id, i.e. the window START
+   year) disagrees. On a seasonal cube those differ, and splitting on the wrong
+   label is exactly the failure the mode exists to prevent.
+
+**Commit.** `TBD`
+
+---
+
+## 2026-08-05: Phase 1.3, three modes that are honest about what they are not
+
+**Assumed.** That `tile` and `temporal` were ordinary modes to be offered
+alongside `cube`, and that a spatial mode at prototype scale was a matter of
+choosing a block size.
+
+**Observed.** Each of the three is weaker than its name suggests on this
+subset, in a different way, and saying so in a docstring is not enough -- the
+code has to enforce it.
+
+**`tile` RAISES on one tile.** The 20 cubes are all 32UNU. A tile-grouped split
+would have exactly one group.
+
+**`spatial_block` is a SUBSTITUTE, and is labelled one everywhere.** It
+clusters cubes by `pixel_bbox` centroid distance (complete linkage,
+deterministic, no RNG) and holds out whole clusters. Test cubes still share the
+tile's weather and phenology with train, so it is strictly weaker than tile
+holdout; true tile holdout is deferred to scale-up. On a MULTI-tile manifest
+the mode collapses to tile holdout, because clustering within tiles when whole
+tiles are available would be gratuitously weaker.
+
+**`temporal` is cube-atomic, and pays for it in dropped frames.** The
+same-cube rule binds here too, so a cube straddling the cutoff cannot
+contribute frames to both sides. Measured on the real subset: the 16 time
+windows overlap so heavily that NO cutoff separates complete cubes. Each cube
+is therefore assigned WHOLE to the side holding the majority of its frames
+(ties to train) and its wrong-side frames are DROPPED, with the count printed.
+At cutoff 2018-08-15: 17 cubes to train, 3 to test, **65 of 264 frames
+dropped**. That starvation is the real price of the mode, which is why it is a
+P3 robustness variant and never a default.
+
+**Changed.** All three behaviours are asserted by the exit test rather than
+described. The notebook's Step 8 fails if a refusal does NOT fire.
+
+**Commit.** `TBD`
+
+---
+
+## 2026-08-05: one Drive folder per phase
+
+**Assumed.** That phase-scoped directories inside one checkout
+(`data/<phase>/<kind>`, `f4ed234`) were sufficient isolation, and that all
+phases could share one Drive folder.
+
+**Observed.** They are sufficient for artefacts and insufficient for the
+CHECKOUT. Every phase extracting its bundle into the same folder means one
+zip's `extractall` overwrites another phase's code in place, so "re-run Phase
+1.2 as it was" is not reachable once Phase 1.3 has been uploaded, and clearing
+a phase means trusting `reset_phase` to be the only thing that ever wrote
+outside its own directory.
+
+**Changed.** From Phase 1.3 on, each phase gets its own Drive folder
+(`NeurIPS-CCAI-2026-phase1_3/`) holding its own checkout. Two rules keep it
+coherent:
+
+* **A phase writes only under its own folder**, through `data.paths.phase_dir`.
+* **A phase READS earlier artefacts in place.** The Phase 1.3 bootstrap
+  searches Drive one and two levels down for `data/raw/*.nc` and
+  `data/phase1_2/embeddings/*.npz`, uses whichever it finds, and never writes
+  there. Copying 70 MB of cubes per phase would be waste; writing into Phase
+  1.2's folder would destroy the property this change exists for.
+
+Deleting a phase folder is now a complete undo of that phase.
+`reset_phase(phase)` remains the finer-grained version, and `data/raw` stays
+shared and is cleared by neither.
+
+**Commit.** `TBD`

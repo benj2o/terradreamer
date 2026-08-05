@@ -1,11 +1,38 @@
 # Runbook
 
-Phase 1.1 first, Phase 1.2 at the end of this file. Both phases share the same
-Colab workflow: one manual file move, one runtime restart, one fast download.
+Phase 1.1 first, then Phase 1.2, then Phase 1.3 at the end of this file. Every
+phase shares the same Colab workflow: one manual file move, one runtime
+restart, one fast download.
 
-The upload bundle is now `phase1_2_repo.zip` (built by `make_zip.sh`); it
-contains everything the Phase 1.1 notebook needs too, so there is no reason to
-keep an old `phase1_1_repo.zip` around.
+The upload bundle is now `phase1_3_repo.zip` (built by `make_zip.sh`); it
+contains everything the earlier notebooks need too, so there is no reason to
+keep an old `phase1_1_repo.zip` or `phase1_2_repo.zip` around.
+
+## ONE DRIVE FOLDER PER PHASE
+
+From Phase 1.3 on, each phase gets its own Drive folder. Deleting that folder
+is then a complete undo of that phase and cannot touch another phase's
+artefacts:
+
+```
+My Drive/
+├── NeurIPS-CCAI-2026/               Phase 1.1 / 1.2. Holds data/raw and
+│   └── phase1_2_repo.zip            data/phase1_2/embeddings
+└── NeurIPS-CCAI-2026-phase1_3/      Phase 1.3, its own checkout
+    └── phase1_3_repo.zip            <- drag it here, leave it zipped
+```
+
+The two rules that make this safe:
+
+* **A phase writes only under its own folder**, through
+  `data.paths.phase_dir(<phase>, <kind>)`. Never a hand-typed path.
+* **A phase READS earlier artefacts in place.** The Phase 1.3 bootstrap
+  searches Drive (one and two levels down) for `data/raw/*.nc` and
+  `data/phase1_2/embeddings/*.npz` and uses whichever it finds, without
+  copying 70 MB of cubes per phase and without writing into Phase 1.2's folder.
+
+`reset_phase("phase1_3")` is the finer-grained version of the same undo, and
+`data/raw` is shared and never cleared by either.
 
 # Phase 1.1 runbook
 
@@ -297,3 +324,100 @@ after any change to the mask definition or the frame-selection rule.
   (isolated specular pixels, see `log.md` 2026-08-03) and does not stop the run.
 - `EMPTY BATCH` from an encoder means a fully-clouded cube reached `encode()`
   without going through `encoders.pipeline.encode_cube`. Use the pipeline.
+
+---
+
+# Phase 1.3 runbook
+
+`probes/cv.py`, the leakage-safe split definition. **CPU is enough** — no GPU,
+no encoder weights, nothing re-encoded. Build the bundle with `./make_zip.sh`
+(it emits `phase1_3_repo.zip`), drag it into a NEW folder
+`My Drive/NeurIPS-CCAI-2026-phase1_3/`, leave it zipped, open
+`notebooks/phase1_3_cv.ipynb`, and run top to bottom. Exactly one restart, at
+the end of Step 1.
+
+Phase 1.2 must have run first: Step 10 asserts the join contract against
+`data/phase1_2/embeddings/`. Step 2 finds that folder wherever it is on Drive
+and reads it in place, so Phase 1.2's folder is never modified.
+
+| step | what | time |
+|---|---|---|
+| 1 | install (no `satlaspretrain-models` here), auto-restart | 2 min |
+| 2 | bootstrap, resolves RAW + EMB_IN read-only, defines `sh()` | 1 min |
+| 3 | environment check; fails loudly if Phase 1.2 never ran | instant |
+| 4 | cubes (skips ones already on Drive) | 15 s |
+| 5 | unit tests, expect `146 passed, 5 skipped` | 30 s |
+| 6 | build the REAL manifest from `data/raw/*.nc` | 1 min |
+| 7 | the three runnable modes: cube, spatial_block, temporal | 10 s |
+| 8 | the three refusals: year, tile, crossed | instant |
+| 9 | the same-cube gate provoked; duplicate rows refused | instant |
+| 10 | join contract on one real (cube, encoder) pair per encoder | 10 s |
+| 11 | save fold indices under `data/phase1_3/folds/` | 5 s |
+
+### What must RAISE, and is not a bug
+
+The 20 cubes are one tile (32UNU) and one year (2018), so:
+
+```
+cube            runs      DEFAULT, GroupKFold on cube_id
+spatial_block   runs      SUBSTITUTE for tile holdout at prototype scale
+temporal        runs      P3 robustness variant only, starves training data
+year            RAISES    SingleYearError  -> use cube, or crossed at scale-up
+tile            RAISES    SingleTileError  -> use spatial_block
+crossed         RAISES    SingleYearError  -> use cube (cube == year here)
+```
+
+Step 8 asserts all three refusals fire. A green Step 8 means the guards work.
+Do not "fix" them with a random split: it would put the same season on both
+sides, which is exactly the inflated number the grouping exists to prevent.
+
+### Expected output, reference local CPU run (2026-08-05)
+
+Full numbers in [log.md](log.md); the archived run is
+`notebooks/runs/phase1_3_cv_2026-08-05_localCPU.ipynb`.
+
+```
+Step 5   146 passed, 5 skipped        (118 pre-existing + 28 new fold tests)
+Step 6   manifest (264, 21), 20 cubes, tile ['32UNU'], years [2018]
+Step 7   cube k=5      test 52-53 rows / 4 cubes per fold
+         LOCO          20 folds, test sizes 10..16
+         spatial_block 5 blocks sized [9, 3, 4, 3, 1]
+         temporal      cutoff 2018-08-15, 17 cubes train / 3 test, 65 dropped
+         31 folds re-checked independently: no cube on both sides
+Step 8   SingleYearError / SingleTileError / SingleYearError
+Step 9   LeakageError naming crossed; crossed handles the same manifest
+Step 10  window_span_days min 0 median 38 max 85 days on the MI encoder,
+         exactly 0 on all single-image encoders
+Step 11  5 files, 0.20 MB under data/phase1_3/folds/
+```
+
+The local run has **four** encoders in Step 10, not five: `dinov2_vitb14`
+cannot be encoded locally (its hub code needs Python >= 3.10, the dev venv is
+3.9.6). On Colab, Step 10 sees all five.
+
+### When something fails
+
+- Step 3 `No Phase 1.2 embeddings found`: run
+  `notebooks/phase1_2_encoders.ipynb` first. Its own Drive folder is fine —
+  Step 2 here searches for `data/phase1_2/embeddings` and reads it in place.
+- A `cache schema v<N>` assertion in Step 10 means the embeddings predate
+  `window_span_days`. They are Phase 1.2's artefacts, so reset THAT phase in
+  ITS folder (`reset_phase("phase1_2")`) and re-encode; Phase 1.3 never writes
+  there.
+- A `LeakageError` from Step 7 on real data would mean the manifest has two
+  cubes sharing an id, or duplicate `(cube_id, timestamp)` rows. Read the
+  message: it names the cube.
+- Step 5 collecting a different number of tests than you get locally means the
+  bundle is stale. `make_zip.sh` lists files with `git ls-files`, so an
+  uncommitted file is silently absent. **Commit before `make_zip.sh`.**
+
+### Re-running cleanly
+
+```python
+from data.paths import reset_phase
+reset_phase("phase1_3")     # clears ONLY this phase; data/raw is untouched
+```
+
+Deleting the whole `NeurIPS-CCAI-2026-phase1_3` Drive folder is the coarser
+version of the same undo. Neither can touch Phase 1.2's artefacts, because
+this notebook only ever reads them.

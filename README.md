@@ -49,12 +49,22 @@ encoders/manifest.py         (cube, frame) manifest: original_axis_index (horizo
                              weather (8 vars) joined on original_axis_index
 data/paths.py                phase-scoped artefact dirs: phase_dir/describe_phase/
                              reset_phase. data/raw is shared and never reset
-probes/cv.py                 THE split definition. Year mode raises on one year
-                             INCOMPLETE: only cube_years/assert_multi_year/
-                             year_groups exist. Phase 1.3 adds the fold generators
+probes/cv.py                 THE split definition. Six modes over the manifest,
+                             each yielding (train_idx, test_idx) row positions:
+                               cube          DEFAULT, GroupKFold on cube_id
+                               crossed       cube AND year held out jointly
+                               year          raises on one year
+                               tile          raises on one tile
+                               spatial_block within-tile substitute for tile
+                               temporal      P3 robustness variant only
+                             Every mode refuses if one cube would land on both
+                             sides, whatever mode asked. join_embeddings holds
+                             the (cube_id, original_axis_index) == (cube,
+                             kept_idx) contract and carries window_span_days
 tests/                     test_ndvi.py was written before data/ndvi.py existed
 notebooks/phase1_1_data_toy_load.ipynb
 notebooks/phase1_2_encoders.ipynb
+notebooks/phase1_3_cv.ipynb
 notebooks/runs/                the executed exit-test runs, outputs kept, as
                                evidence. Never re-run in place; excluded from
                                the Colab bundle by make_zip.sh
@@ -138,5 +148,16 @@ For Colab, follow [RUNBOOK.md](RUNBOOK.md).
   `rm -rf`: `zipfile.extractall` overwrites but never deletes, so a stale
   artefact from an older mask definition survives into the next run and the
   resumable cache reuses it silently.
-- 1.3 `probes/cv.py`: next. Until the fold generators exist, nothing here is a
-  result -- the Phase 1.2/1.2b/1.2c embeddings are inputs, not numbers.
+- 1.3 `probes/cv.py`: **DONE**. Six fold generators over the manifest, one
+  leakage rule enforced inside every one of them: frames of the same cube never
+  land on both sides, whatever mode asked. The cube/year collision (extreme
+  split confounds them; a seasonal cube spans years) is resolved by the
+  `crossed` mode, which holds cube AND year out jointly and so agrees with the
+  climatology's leave-target-year-out protocol. On this subset `cube`,
+  `spatial_block` and `temporal` run while `year`, `tile` and `crossed`
+  correctly RAISE -- the exit test asserts the refusals rather than working
+  around them. 146 tests pass, 5 skipped.
+- **One Drive folder per phase**, from 1.3 on. A phase writes only under its
+  own folder (via `data/paths.py`) and READS earlier phases' artefacts in
+  place, so deleting a phase folder is a complete undo that cannot touch
+  another phase. See [RUNBOOK.md](RUNBOOK.md).
