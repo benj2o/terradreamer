@@ -8,28 +8,48 @@ The upload bundle is now `phase1_3_repo.zip` (built by `make_zip.sh`); it
 contains everything the earlier notebooks need too, so there is no reason to
 keep an old `phase1_1_repo.zip` or `phase1_2_repo.zip` around.
 
-## ONE DRIVE FOLDER PER PHASE
+## ONE SUBFOLDER PER PHASE
 
-From Phase 1.3 on, each phase gets its own Drive folder. Deleting that folder
-is then a complete undo of that phase and cannot touch another phase's
-artefacts:
+From Phase 1.3 on, each phase gets its own subfolder under one project folder,
+holding its own checkout. Deleting a phase's subfolder is then a complete undo
+of that phase and cannot touch another phase's artefacts:
 
 ```
 My Drive/
-├── NeurIPS-CCAI-2026/               Phase 1.1 / 1.2. Holds data/raw and
-│   └── phase1_2_repo.zip            data/phase1_2/embeddings
-└── NeurIPS-CCAI-2026-phase1_3/      Phase 1.3, its own checkout
-    └── phase1_3_repo.zip            <- drag it here, leave it zipped
+└── NeurIPS-CCAI-2026/
+    ├── data/raw/*.nc         SHARED cubes. NOT a phase.
+    ├── phase1_1/             checkout + notebook
+    ├── phase1_2/             checkout; artefacts at data/phase1_2/{embeddings,masks}
+    └── phase1_3/             checkout
+        └── phase1_3_repo.zip <- drag it here, leave it zipped
 ```
+
+**`data/raw` is not filed under a phase, and that is deliberate.** The cubes
+are phase-independent: Phase 1.2 and 1.3 both read them and scale-up will too.
+`data/paths.py` encodes this -- `RAW_DIR` is never phase-scoped and
+`reset_phase` refuses to touch it. Filing the cubes under `phase1_1/` would
+force every later phase to reach into another phase's folder, which is the
+coupling this layout removes.
+
+The `phase1_2/data/phase1_2/` nesting is redundant but deliberate: the outer
+name is the Drive checkout, the inner one is `data.paths.phase_dir`, which is
+canonical and not worth bending for cosmetics.
 
 The two rules that make this safe:
 
-* **A phase writes only under its own folder**, through
+* **A phase writes only under its own subfolder**, through
   `data.paths.phase_dir(<phase>, <kind>)`. Never a hand-typed path.
 * **A phase READS earlier artefacts in place.** The Phase 1.3 bootstrap
-  searches Drive (one and two levels down) for `data/raw/*.nc` and
-  `data/phase1_2/embeddings/*.npz` and uses whichever it finds, without
-  copying 70 MB of cubes per phase and without writing into Phase 1.2's folder.
+  searches this checkout first, then Drive up to THREE levels down, for
+  `data/raw/*.nc` and `data/phase1_2/embeddings/*.npz`, and uses whichever it
+  finds. Three levels because the nested layout puts the embeddings at
+  `NeurIPS-CCAI-2026/phase1_2/data/phase1_2/embeddings`. No cubes are copied
+  per phase and nothing is written into Phase 1.2's subfolder.
+
+Both the nested layout above and the older flat one
+(`NeurIPS-CCAI-2026/data/phase1_2/embeddings`) resolve, so moving existing
+Phase 1.2 artefacts into `phase1_2/` is tidiness, not a requirement. Step 2
+prints which path it resolved -- read it.
 
 `reset_phase("phase1_3")` is the finer-grained version of the same undo, and
 `data/raw` is shared and never cleared by either.
@@ -331,14 +351,14 @@ after any change to the mask definition or the frame-selection rule.
 
 `probes/cv.py`, the leakage-safe split definition. **CPU is enough** — no GPU,
 no encoder weights, nothing re-encoded. Build the bundle with `./make_zip.sh`
-(it emits `phase1_3_repo.zip`), drag it into a NEW folder
-`My Drive/NeurIPS-CCAI-2026-phase1_3/`, leave it zipped, open
+(it emits `phase1_3_repo.zip`), drag it into a NEW subfolder
+`My Drive/NeurIPS-CCAI-2026/phase1_3/`, leave it zipped, open
 `notebooks/phase1_3_cv.ipynb`, and run top to bottom. Exactly one restart, at
 the end of Step 1.
 
 Phase 1.2 must have run first: Step 10 asserts the join contract against
-`data/phase1_2/embeddings/`. Step 2 finds that folder wherever it is on Drive
-and reads it in place, so Phase 1.2's folder is never modified.
+`data/phase1_2/embeddings/`. Step 2 finds that directory wherever it is on
+Drive and reads it in place, so Phase 1.2's subfolder is never modified.
 
 | step | what | time |
 |---|---|---|
@@ -398,8 +418,10 @@ cannot be encoded locally (its hub code needs Python >= 3.10, the dev venv is
 ### When something fails
 
 - Step 3 `No Phase 1.2 embeddings found`: run
-  `notebooks/phase1_2_encoders.ipynb` first. Its own Drive folder is fine —
-  Step 2 here searches for `data/phase1_2/embeddings` and reads it in place.
+  `notebooks/phase1_2_encoders.ipynb` first. Whichever subfolder it ran in is
+  fine — Step 2 here searches up to three levels down for
+  `data/phase1_2/embeddings` and reads it in place. Read the `EMB_IN` line
+  Step 2 prints to see what it resolved.
 - A `cache schema v<N>` assertion in Step 10 means the embeddings predate
   `window_span_days`. They are Phase 1.2's artefacts, so reset THAT phase in
   ITS folder (`reset_phase("phase1_2")`) and re-encode; Phase 1.3 never writes
@@ -418,6 +440,6 @@ from data.paths import reset_phase
 reset_phase("phase1_3")     # clears ONLY this phase; data/raw is untouched
 ```
 
-Deleting the whole `NeurIPS-CCAI-2026-phase1_3` Drive folder is the coarser
-version of the same undo. Neither can touch Phase 1.2's artefacts, because
-this notebook only ever reads them.
+Deleting the `phase1_3/` subfolder is the coarser version of the same undo.
+Neither can touch Phase 1.2's artefacts or the shared cubes, because this
+notebook only ever reads them.

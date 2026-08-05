@@ -157,7 +157,10 @@ For Colab, follow [RUNBOOK.md](RUNBOOK.md).
   `spatial_block` and `temporal` run while `year`, `tile` and `crossed`
   correctly RAISE -- the exit test asserts the refusals rather than working
   around them. 146 tests pass, 5 skipped.
-- **One Drive folder per phase**, from 1.3 on. A phase writes only under its
-  own folder (via `data/paths.py`) and READS earlier phases' artefacts in
-  place, so deleting a phase folder is a complete undo that cannot touch
-  another phase. See [RUNBOOK.md](RUNBOOK.md).
+- **One Drive SUBFOLDER per phase**, from 1.3 on:
+  `NeurIPS-CCAI-2026/{phase1_1,phase1_2,phase1_3}/`, each its own checkout,
+  with the cubes at `NeurIPS-CCAI-2026/data/raw` because `data/raw` is shared
+  and not a phase. A phase writes only under its own subfolder (via
+  `data/paths.py`) and READS earlier phases' artefacts in place, so deleting a
+  phase subfolder is a complete undo that cannot touch another phase. See
+  [RUNBOOK.md](RUNBOOK.md).
