@@ -677,7 +677,7 @@ Two smaller consequences recorded with it:
    year) disagrees. On a seasonal cube those differ, and splitting on the wrong
    label is exactly the failure the mode exists to prevent.
 
-**Commit.** `TBD`
+**Commit.** `76dd0c1`
 
 ---
 
@@ -715,7 +715,7 @@ P3 robustness variant and never a default.
 **Changed.** All three behaviours are asserted by the exit test rather than
 described. The notebook's Step 8 fails if a refusal does NOT fire.
 
-**Commit.** `TBD`
+**Commit.** `76dd0c1`
 
 ---
 
@@ -747,4 +747,4 @@ Deleting a phase folder is now a complete undo of that phase.
 `reset_phase(phase)` remains the finer-grained version, and `data/raw` stays
 shared and is cleared by neither.
 
-**Commit.** `TBD`
+**Commit.** `76dd0c1`
