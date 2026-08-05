@@ -3,6 +3,50 @@
 Running record of measurements and adopted definitions. Reverse chronological.
 Decisions and their rationale live in [docs/DECISIONS.md](docs/DECISIONS.md).
 
+## 2026-08-05: project-tree tooling, and the test count moves to 171
+
+Two scripts, `scripts/inventory.py` and `scripts/organise_phases.py`, added to
+reorganise a Drive checkout into the per-phase layout. Not science: nothing
+here produces a number.
+
+The pair is split so that the thing which LOOKS and the thing which MOVES are
+different programs, and the mover imports its classification from the lister
+rather than re-deriving it -- so the plan you approve in the listing is the
+plan that runs.
+
+Verified on a simulated Drive tree (131 files, 20.3 MB, 3 cubes + 120
+artefacts + a loose checkout + two bundles):
+
+```
+before   11 units at the root, data/ holding three different kinds at once
+after     3 units: data/raw (shared), phase1_2/, phase1_3/
+          131 files before and after, sha256 multiset identical
+          a second run plans 0 moves -- idempotent
+```
+
+Four refusals are pinned by tests rather than documented: `data/raw` is never
+filed under a phase (mirroring `data.paths.reset_phase`), no destination may
+escape the root, an existing destination is never overwritten, and a checkout
+moves whole or not at all with its owning phase stated explicitly. The last one
+matters because a checkout is **not** classifiable from the filesystem -- it
+looks identical whichever bundle produced it -- so the script asks instead of
+guessing from mtimes.
+
+`apply_moves` re-checks every refusal immediately before touching disk rather
+than trusting the plan it was handed; a hand-forged move of `data/raw` raises
+there too.
+
+### The test count is now 171 passed, 5 skipped (176 collected)
+
+Was 146/5 (151 collected). The 25 new tests are `tests/test_scripts_organise.py`.
+Every documented expectation has been updated in step -- RUNBOOK (both phases),
+README, and the Phase 1.3 notebook's Step 5 -- because a collection count that
+disagrees with the docs is the project's stale-bundle signal, and a signal
+nobody trusts is worse than no signal.
+
+The 2026-08-05 exit-test run recorded below measured 146/5 and is left as
+measured. It is dated evidence, not a live expectation.
+
 ## 2026-08-05: Phase 1.3 exit test PASSED, local CPU, 20 cubes
 
 `notebooks/runs/phase1_3_cv_2026-08-05_localCPU.ipynb`. CPU only, no weights,

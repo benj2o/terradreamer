@@ -61,6 +61,11 @@ probes/cv.py                 THE split definition. Six modes over the manifest,
                              sides, whatever mode asked. join_embeddings holds
                              the (cube_id, original_axis_index) == (cube,
                              kept_idx) contract and carries window_span_days
+scripts/inventory.py         list every file and folder, classify each movable
+                             unit by the phase that owns it. Only looks
+scripts/organise_phases.py   file those units into the per-phase Drive layout.
+                             Imports the classifier rather than re-deriving it.
+                             DRY RUN by default; data/raw is never moved
 tests/                     test_ndvi.py was written before data/ndvi.py existed
 notebooks/phase1_1_data_toy_load.ipynb
 notebooks/phase1_2_encoders.ipynb
@@ -156,7 +161,7 @@ For Colab, follow [RUNBOOK.md](RUNBOOK.md).
   climatology's leave-target-year-out protocol. On this subset `cube`,
   `spatial_block` and `temporal` run while `year`, `tile` and `crossed`
   correctly RAISE -- the exit test asserts the refusals rather than working
-  around them. 146 tests pass, 5 skipped.
+  around them. 171 tests pass, 5 skipped.
 - **One Drive SUBFOLDER per phase**, from 1.3 on:
   `NeurIPS-CCAI-2026/{phase1_1,phase1_2,phase1_3}/`, each its own checkout,
   with the cubes at `NeurIPS-CCAI-2026/data/raw` because `data/raw` is shared

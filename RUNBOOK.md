@@ -54,6 +54,63 @@ prints which path it resolved -- read it.
 `reset_phase("phase1_3")` is the finer-grained version of the same undo, and
 `data/raw` is shared and never cleared by either.
 
+### Reorganising an existing folder into this layout: two scripts
+
+Both run anywhere -- locally, or in a Colab cell against the mounted Drive.
+Step one only LOOKS, step two only MOVES, and step two imports its
+classification from step one, so the plan you approve in the listing is the
+plan that runs.
+
+```bash
+python -m scripts.inventory --root "/content/drive/MyDrive/NeurIPS-CCAI-2026" --sha256 --json before.json
+```
+
+Prints the tree, then every movable unit with the phase that owns it:
+
+```
+UNIT               KIND         PHASE        FILES  SIZE
+data/phase1_2      artefacts    phase1_2       120  10.1 MB
+data/raw           shared       -                3  10.2 MB
+phase1_2_repo.zip  bundle       phase1_2         1  2 B
+probes             checkout     -                1  2 B
+```
+
+`data/` is expanded one level on purpose: it holds three different kinds at
+once, and collapsing it would drag the shared cubes into a phase folder.
+
+`checkout` units show phase `-` because a checkout is **not** classifiable from
+the filesystem -- it looks identical whichever bundle produced it. Step two
+asks rather than guessing from mtimes.
+
+```bash
+python -m scripts.organise_phases --root "/content/drive/MyDrive/NeurIPS-CCAI-2026" --checkout-phase phase1_2
+```
+
+**Dry run by default.** It prints the plan and moves nothing. Read it, then
+re-run with `--apply`. Afterwards:
+
+```bash
+python -m scripts.inventory --root "/content/drive/MyDrive/NeurIPS-CCAI-2026" --sha256 --json after.json
+```
+
+Diff `before.json` against `after.json`: same set of hashes, different paths.
+That is what proves the move lost nothing, and Drive is exactly the kind of
+place where an interrupted move is not obviously distinguishable from a
+completed one.
+
+Four things the mover refuses to do, each pinned by a test rather than a
+docstring:
+
+1. Move `data/raw`. It is shared; `data.paths.reset_phase` refuses it too.
+2. Write to any destination outside the root.
+3. Overwrite an existing destination. A same-named leftover from an older
+   layout is common on Drive, and replacing a current artefact with a stale one
+   is silent.
+4. Split a checkout, or guess which phase owns one.
+
+Re-running after an `--apply` plans zero moves. It is idempotent, so a half
+finished run is resumed by simply running it again.
+
 # Phase 1.1 runbook
 
 ## Before Colab
@@ -255,7 +312,7 @@ Step 1, and run top to bottom. Exactly one restart, at the end of Step 1.
 | 1 | install (adds `satlaspretrain-models`), auto-restart | 2 min |
 | 2 | bootstrap, defines `sh()` | 1 min |
 | 3 | environment check | instant |
-| 4 | unit tests, expect `118 passed, 5 skipped` locally | 30 s |
+| 4 | unit tests, expect `171 passed, 5 skipped` locally | 30 s |
 | 5 | cubes (skips ones already on Drive) | 15 s |
 | 6 | build 4 encoders, first run downloads ~900 MB of weights | 3 min |
 | 7 | four asserted `[T_kept, D]` on one cube | 1 min |
@@ -366,7 +423,7 @@ Drive and reads it in place, so Phase 1.2's subfolder is never modified.
 | 2 | bootstrap, resolves RAW + EMB_IN read-only, defines `sh()` | 1 min |
 | 3 | environment check; fails loudly if Phase 1.2 never ran | instant |
 | 4 | cubes (skips ones already on Drive) | 15 s |
-| 5 | unit tests, expect `146 passed, 5 skipped` | 30 s |
+| 5 | unit tests, expect `171 passed, 5 skipped` | 30 s |
 | 6 | build the REAL manifest from `data/raw/*.nc` | 1 min |
 | 7 | the three runnable modes: cube, spatial_block, temporal | 10 s |
 | 8 | the three refusals: year, tile, crossed | instant |
@@ -397,7 +454,7 @@ Full numbers in [log.md](log.md); the archived run is
 `notebooks/runs/phase1_3_cv_2026-08-05_localCPU.ipynb`.
 
 ```
-Step 5   146 passed, 5 skipped        (118 pre-existing + 28 new fold tests)
+Step 5   171 passed, 5 skipped        (176 collected)
 Step 6   manifest (264, 21), 20 cubes, tile ['32UNU'], years [2018]
 Step 7   cube k=5      test 52-53 rows / 4 cubes per fold
          LOCO          20 folds, test sizes 10..16
