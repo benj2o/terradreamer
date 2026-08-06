@@ -58,8 +58,15 @@ prints which path it resolved -- read it.
 
 **On Colab, use `notebooks/organise_drive.ipynb`.** It is self-contained: it
 imports nothing from the project, so it works on a Drive folder that has no
-checkout in it yet. Four cells -- mount, inventory, plan, verify -- and nothing
-moves until you set `APPLY = True` in Step 3.
+checkout in it yet. Five cells -- mount, inventory, plan, verify, full listing
+-- and nothing moves until you set `APPLY = True` in Step 3.
+
+Step 5 prints **every folder and every file** from the project root with no
+depth limit, then checks the shape of the result: at the root there should be
+nothing except `data/` (holding only `raw/`) and the `phase1_*` folders.
+Anything else is reported as `TODO ... still loose at the root`. It writes
+`tree.txt`, so two runs can be diffed, and it is standalone -- run it on its
+own in a fresh runtime whenever you want to see what is actually on Drive.
 
 This matters because of a bootstrap problem the shell scripts have and the
 notebook does not: `scripts/inventory.py` lives *inside* `phase1_3_repo.zip`,
