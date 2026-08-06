@@ -12,7 +12,7 @@ import os
 
 import pytest
 
-from scripts.inventory import classify, iter_units, sha256_of, walk
+from scripts.inventory import Unit, classify, iter_units, sha256_of, walk
 from scripts.organise_phases import (
     PlanError,
     apply_moves,
@@ -208,3 +208,84 @@ def test_apply_rechecks_safety_rather_than_trusting_the_plan(drive):
     with pytest.raises(AssertionError, match="SHARED"):
         apply_moves(drive, forged, verbose=False)
     assert os.path.isdir(os.path.join(drive, "data", "raw"))
+
+
+# --- the Colab notebook's inline copy must not drift ------------------------
+#
+# notebooks/organise_drive.ipynb carries its own copy of classify/destination,
+# because a tool that reorganises the folder a checkout lives in cannot import
+# from that checkout. Duplication is the price of that bootstrap; these tests
+# are what stop the two copies disagreeing about where a file belongs.
+
+import json as _json
+
+NOTEBOOK = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "notebooks", "organise_drive.ipynb")
+_BEGIN = "# === SHARED WITH scripts/inventory.py AND scripts/organise_phases.py -- BEGIN ==="
+_END = "# === SHARED -- END ==="
+
+
+def _notebook_shared_block():
+    """The sentinel-delimited block of the notebook, exec'd in a fresh namespace."""
+    with open(NOTEBOOK) as fh:
+        nb = _json.load(fh)
+    for cell in nb["cells"]:
+        src = "".join(cell["source"])
+        if _BEGIN in src and _END in src:
+            block = src.split(_BEGIN, 1)[1].split(_END, 1)[0]
+            ns = {}
+            exec("import os, re\n" + block, ns)          # noqa: S102 - our own file
+            return ns
+    raise AssertionError(
+        f"no sentinel-delimited shared block in {NOTEBOOK}. Either the "
+        "notebook lost its inline classifier or the sentinels were renamed; "
+        "without them nothing stops the two copies drifting."
+    )
+
+
+def test_notebook_still_carries_the_shared_block():
+    ns = _notebook_shared_block()
+    assert {"SKIP", "SHARED", "classify", "destination"} <= set(ns)
+
+
+@pytest.mark.parametrize("rel", [
+    "data/raw", "data/phase1_2", "data/phase1_3", "phase1_2_repo.zip",
+    "phase1_3_repo.zip", "phase1_1_repo.zip", "phase1_1", "phase1_2",
+    "data/ndvi.py", "probes", "encoders", "notebooks", "tests", "README.md",
+    "RUNBOOK.md", "data/raw/a.nc", "scripts", "make_zip.sh",
+])
+def test_notebook_classify_agrees_with_the_module(rel):
+    ns = _notebook_shared_block()
+    assert ns["classify"](rel) == classify(rel), (
+        f"notebooks/organise_drive.ipynb and scripts/inventory.py disagree "
+        f"about {rel!r}. They must not: the notebook is the Colab entry point "
+        "and the module is the shell one, and a file must land in the same "
+        "place either way."
+    )
+
+
+def test_notebook_shared_constants_agree_with_the_module():
+    from scripts.inventory import SHARED as MOD_SHARED, SKIP as MOD_SKIP
+    ns = _notebook_shared_block()
+    assert ns["SHARED"] == MOD_SHARED, "the shared-path contract diverged"
+    assert ns["SKIP"] == MOD_SKIP, "the skip list diverged"
+
+
+@pytest.mark.parametrize("rel,checkout_phase", [
+    ("data/raw", "phase1_2"),
+    ("data/raw", None),
+    ("data/phase1_2", None),
+    ("phase1_3_repo.zip", None),
+    ("probes", "phase1_2"),
+    ("probes", None),
+    ("phase1_1", "phase1_2"),
+])
+def test_notebook_destination_agrees_with_the_module(drive, rel, checkout_phase):
+    ns = _notebook_shared_block()
+    kind, phase = classify(rel)
+    theirs = ns["destination"](rel, kind, phase, checkout_phase)
+    mine = destination(Unit(rel, True, kind, phase, 0, 0), checkout_phase)
+    assert theirs == mine, (
+        f"notebook and module disagree on where {rel!r} belongs "
+        f"(checkout_phase={checkout_phase!r}): {theirs!r} vs {mine!r}"
+    )

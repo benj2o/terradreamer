@@ -3,6 +3,41 @@
 Running record of measurements and adopted definitions. Reverse chronological.
 Decisions and their rationale live in [docs/DECISIONS.md](docs/DECISIONS.md).
 
+## 2026-08-05: the organiser had a bootstrap bug; a self-contained Colab notebook
+
+**Observed.** `python -m scripts.inventory` does not work on Colab, and the
+reason is structural rather than a path problem: the scripts live INSIDE
+`phase1_3_repo.zip`, so running them requires a checkout already extracted into
+the very folder you are trying to reorganise. A tool that tidies the folder a
+checkout lives in cannot depend on that checkout existing. Shipping the
+reorganiser inside the thing it reorganises was the mistake.
+
+**Changed.** `notebooks/organise_drive.ipynb`: four cells, imports nothing from
+the project, works on a Drive folder with no checkout in it. Mount, inventory
+(with SHA-256), plan, verify. `APPLY = False` until you flip it.
+
+That requires the classification rules to exist in two places, which the repo
+otherwise forbids. The exception is narrow and the drift is guarded rather than
+trusted: the notebook's rules sit between sentinel comments,
+`tests/test_scripts_organise.py` extracts and execs that block, and compares
+`classify` and `destination` against `scripts.inventory` over a table of 18
+paths and 7 (path, checkout_phase) pairs, plus the `SKIP` and `SHARED`
+constants. Verified the guard fails when the copies disagree, by breaking the
+notebook on purpose and watching two tests go red.
+
+**Verified end to end** on a simulated Drive tree, notebook executed rather
+than reasoned about:
+
+```
+before  11 units at the root, data/ holding three kinds at once
+after    3 units: data/raw (shared), phase1_2/, phase1_3/
+         47 files before and after, SHA-256 multiset IDENTICAL
+         a second plan is empty -- idempotent
+```
+
+Test count 171 -> **198 passed, 5 skipped (203 collected)**; the 27 new tests
+are the drift guard. Every documented expectation updated in step.
+
 ## 2026-08-05: project-tree tooling, and the test count moves to 171
 
 Two scripts, `scripts/inventory.py` and `scripts/organise_phases.py`, added to
@@ -36,9 +71,11 @@ guessing from mtimes.
 than trusting the plan it was handed; a hand-forged move of `data/raw` raises
 there too.
 
-### The test count is now 171 passed, 5 skipped (176 collected)
+### The test count moved to 171 passed, 5 skipped (176 collected)
 
 Was 146/5 (151 collected). The 25 new tests are `tests/test_scripts_organise.py`.
+It rose again to 198/5 the same day when the drift guard landed; see the entry
+above.
 Every documented expectation has been updated in step -- RUNBOOK (both phases),
 README, and the Phase 1.3 notebook's Step 5 -- because a collection count that
 disagrees with the docs is the project's stale-bundle signal, and a signal

@@ -66,6 +66,13 @@ scripts/inventory.py         list every file and folder, classify each movable
 scripts/organise_phases.py   file those units into the per-phase Drive layout.
                              Imports the classifier rather than re-deriving it.
                              DRY RUN by default; data/raw is never moved
+notebooks/organise_drive.ipynb  the SAME job as the two scripts, but
+                             self-contained for Colab: it imports nothing from
+                             the project, because a tool that reorganises the
+                             folder a checkout lives in cannot depend on that
+                             checkout existing. Its inline copy of the
+                             classifier is pinned against scripts/inventory.py
+                             by tests, so the two cannot drift
 tests/                     test_ndvi.py was written before data/ndvi.py existed
 notebooks/phase1_1_data_toy_load.ipynb
 notebooks/phase1_2_encoders.ipynb
@@ -161,7 +168,7 @@ For Colab, follow [RUNBOOK.md](RUNBOOK.md).
   climatology's leave-target-year-out protocol. On this subset `cube`,
   `spatial_block` and `temporal` run while `year`, `tile` and `crossed`
   correctly RAISE -- the exit test asserts the refusals rather than working
-  around them. 171 tests pass, 5 skipped.
+  around them. 198 tests pass, 5 skipped.
 - **One Drive SUBFOLDER per phase**, from 1.3 on:
   `NeurIPS-CCAI-2026/{phase1_1,phase1_2,phase1_3}/`, each its own checkout,
   with the cubes at `NeurIPS-CCAI-2026/data/raw` because `data/raw` is shared

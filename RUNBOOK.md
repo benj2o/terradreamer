@@ -54,7 +54,25 @@ prints which path it resolved -- read it.
 `reset_phase("phase1_3")` is the finer-grained version of the same undo, and
 `data/raw` is shared and never cleared by either.
 
-### Reorganising an existing folder into this layout: two scripts
+### Reorganising an existing folder into this layout
+
+**On Colab, use `notebooks/organise_drive.ipynb`.** It is self-contained: it
+imports nothing from the project, so it works on a Drive folder that has no
+checkout in it yet. Four cells -- mount, inventory, plan, verify -- and nothing
+moves until you set `APPLY = True` in Step 3.
+
+This matters because of a bootstrap problem the shell scripts have and the
+notebook does not: `scripts/inventory.py` lives *inside* `phase1_3_repo.zip`,
+so `python -m scripts.inventory` needs a checkout already extracted into the
+very folder you are trying to reorganise. A tool that tidies the folder a
+checkout lives in cannot depend on that checkout existing.
+
+The notebook therefore carries its own copy of the classification rules. That
+copy is pinned against `scripts/inventory.py` by
+`tests/test_scripts_organise.py`, over a table of paths and both decision
+functions, so the two cannot drift into disagreeing about where a file belongs.
+
+### The same job from a shell, when a checkout IS present
 
 Both run anywhere -- locally, or in a Colab cell against the mounted Drive.
 Step one only LOOKS, step two only MOVES, and step two imports its
@@ -312,7 +330,7 @@ Step 1, and run top to bottom. Exactly one restart, at the end of Step 1.
 | 1 | install (adds `satlaspretrain-models`), auto-restart | 2 min |
 | 2 | bootstrap, defines `sh()` | 1 min |
 | 3 | environment check | instant |
-| 4 | unit tests, expect `171 passed, 5 skipped` locally | 30 s |
+| 4 | unit tests, expect `198 passed, 5 skipped` locally | 30 s |
 | 5 | cubes (skips ones already on Drive) | 15 s |
 | 6 | build 4 encoders, first run downloads ~900 MB of weights | 3 min |
 | 7 | four asserted `[T_kept, D]` on one cube | 1 min |
@@ -423,7 +441,7 @@ Drive and reads it in place, so Phase 1.2's subfolder is never modified.
 | 2 | bootstrap, resolves RAW + EMB_IN read-only, defines `sh()` | 1 min |
 | 3 | environment check; fails loudly if Phase 1.2 never ran | instant |
 | 4 | cubes (skips ones already on Drive) | 15 s |
-| 5 | unit tests, expect `171 passed, 5 skipped` | 30 s |
+| 5 | unit tests, expect `198 passed, 5 skipped` | 30 s |
 | 6 | build the REAL manifest from `data/raw/*.nc` | 1 min |
 | 7 | the three runnable modes: cube, spatial_block, temporal | 10 s |
 | 8 | the three refusals: year, tile, crossed | instant |
@@ -454,7 +472,7 @@ Full numbers in [log.md](log.md); the archived run is
 `notebooks/runs/phase1_3_cv_2026-08-05_localCPU.ipynb`.
 
 ```
-Step 5   171 passed, 5 skipped        (176 collected)
+Step 5   198 passed, 5 skipped        (203 collected)
 Step 6   manifest (264, 21), 20 cubes, tile ['32UNU'], years [2018]
 Step 7   cube k=5      test 52-53 rows / 4 cubes per fold
          LOCO          20 folds, test sizes 10..16
