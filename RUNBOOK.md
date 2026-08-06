@@ -455,6 +455,7 @@ Drive and reads it in place, so Phase 1.2's subfolder is never modified.
 | 9 | the same-cube gate provoked; duplicate rows refused | instant |
 | 10 | join contract on one real (cube, encoder) pair per encoder | 10 s |
 | 11 | save fold indices under `data/phase1_3/folds/` | 5 s |
+| 12 | full recursive listing of the project root, layout check | 5 s |
 
 ### What must RAISE, and is not a bug
 
@@ -491,7 +492,17 @@ Step 9   LeakageError naming crossed; crossed handles the same manifest
 Step 10  window_span_days min 0 median 38 max 85 days on the MI encoder,
          exactly 0 on all single-image encoders
 Step 11  5 files, 0.20 MB under data/phase1_3/folds/
+Step 12  full tree; PHASE 1.3 OUTPUTS all present; LAYOUT CHECK
 ```
+
+Step 12 lists every folder and file from the **project root** -- the parent of
+this checkout in the nested layout -- so the shared cubes and Phase 1.2's
+artefacts appear alongside Phase 1.3's own outputs. Two things to read there:
+`PHASE 1.3 OUTPUTS` should show all five files under `data/phase1_3/folds/`,
+and under `READ-ONLY INPUTS` neither the cubes nor the Phase 1.2 embeddings
+should carry the `[inside this checkout]` tag -- that tag means the layout is
+still flat, not that anything is wrong. It writes `tree.txt` beside the folds,
+so two runs can be diffed.
 
 The local run has **four** encoders in Step 10, not five: `dinov2_vitb14`
 cannot be encoded locally (its hub code needs Python >= 3.10, the dev venv is

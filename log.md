@@ -3,6 +3,42 @@
 Running record of measurements and adopted definitions. Reverse chronological.
 Decisions and their rationale live in [docs/DECISIONS.md](docs/DECISIONS.md).
 
+## 2026-08-05: a full-tree listing in both notebooks
+
+`organise_drive.ipynb` Step 5 and `phase1_3_cv.ipynb` Step 12: every folder and
+every file from the absolute project root, no depth limit, no summarising. The
+existing cells could not answer "did it land where I think it did" -- they
+print movable units and rollups, both collapsed.
+
+The Phase 1.3 copy is wired to that notebook's variables rather than pasted:
+it derives the PROJECT root from `REPO` (the parent when the checkout sits in
+a `phase1_*` subfolder, `REPO` itself in the flat layout), then adds two
+Phase 1.3-specific sections.
+
+`PHASE 1.3 OUTPUTS` checks the five files Step 11 wrote are present.
+`READ-ONLY INPUTS` prints where the cubes and the Phase 1.2 embeddings were
+resolved from, tagging any that sit `[inside this checkout]`. In the nested
+layout NEITHER should carry that tag, and its absence is the visible evidence
+that this phase read another phase's artefacts without writing into its folder
+-- the property the per-phase layout exists for, checked rather than asserted.
+
+Both layout branches exercised, not reasoned about:
+
+```
+nested   OK data/raw 2 cubes / OK phase folders / OK nothing loose
+         -> "Layout matches the target."
+         read-only inputs carry NO [inside this checkout] tag
+flat     NOTE data/ also holds the checkout modules -- expected, not stray
+         -> points at organise_drive.ipynb rather than reporting a fault
+```
+
+The flat branch matters: a naive root check would have reported 17 "stray"
+entries on a working flat checkout and sent someone chasing a fault that does
+not exist.
+
+No new classification logic, so the drift guard is untouched and the count
+stays 198 passed, 5 skipped.
+
 ## 2026-08-05: the organiser had a bootstrap bug; a self-contained Colab notebook
 
 **Observed.** `python -m scripts.inventory` does not work on Colab, and the
