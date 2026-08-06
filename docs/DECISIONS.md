@@ -852,4 +852,4 @@ fallback. Silently accepting a second shape a directory could take is how the
 first incident happened; this is a human-in-the-loop diagnostic, not a wider
 search.
 
-**Commit.** `TBD`
+**Commit.** `142a7ff`
