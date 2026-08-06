@@ -174,7 +174,7 @@ For Colab, follow [RUNBOOK.md](RUNBOOK.md).
   climatology's leave-target-year-out protocol. On this subset `cube`,
   `spatial_block` and `temporal` run while `year`, `tile` and `crossed`
   correctly RAISE -- the exit test asserts the refusals rather than working
-  around them. 223 tests pass, 5 skipped.
+  around them. 251 tests pass, 5 skipped.
 - **One Drive SUBFOLDER per phase**, from 1.3 on:
   `NeurIPS-CCAI-2026/{phase1_1,phase1_2,phase1_3}/`, each its own checkout,
   with the cubes at `NeurIPS-CCAI-2026/data/raw` because `data/raw` is shared

@@ -748,3 +748,68 @@ Deleting a phase folder is now a complete undo of that phase.
 shared and is cleared by neither.
 
 **Commit.** `76dd0c1`
+
+---
+
+## 2026-08-06: a shared Drive folder is an untrusted input, and must be audited
+
+**Assumed.** That a directory of `.npz` written by our own pipeline could be
+read back by globbing it, and that `load_encoded`'s schema guard was enough
+protection because it refuses anything stale.
+
+**Observed.** A real Phase 1.3 run died at the join step, and the traceback
+carried four separate faults, only one of which was the schema:
+
+```
+AssertionError: Copy of 32UNU_..._dinov2_vitb14.npz was written with cache
+schema v0, but this code expects v3
+```
+
+1. **`EMB_IN` resolved to the wrong directory.** The bootstrap searched "this
+   checkout first", and a stale copy of `data/phase1_2/embeddings` was sitting
+   INSIDE the phase1_3 checkout. It won over the real Phase 1.2 folder. Taking
+   the first hit is not a selection.
+2. **Google Drive had renamed a duplicate to `Copy of <name>.npz`.** That still
+   ends in the right `__<encoder>.npz` suffix, and `C` sorts before a digit, so
+   `sorted(glob(...))[0]` picked the copy *every time*. The selection was
+   deterministic and deterministically wrong.
+3. **The copy was pre-schema**, so the run halted on it -- at an arbitrary
+   point, with the other 99 files undiagnosed.
+4. **Only one pair per encoder was ever checked**, so a cache with holes in it
+   would have passed.
+
+**Changed.** `encoders.pipeline.audit_embeddings` partitions a directory before
+any probe reads from it: `current` / `unstamped` / `incomplete` / `foreign` /
+`duplicates` / `unreadable`, each with its own remedy printed.
+`assert_embeddings_complete` then requires every (cube, encoder) pair the
+caller needs. **Every later phase should call both before touching an
+embedding**; that is why this lives in the repo and not in a notebook cell.
+
+Duplicate detection compares the filename against the one derived from the
+file's OWN stored `cube` and `encoder`. That is exact and locale-independent --
+Drive localises the prefix ("Kopie von", "Copie de", ...), so matching on the
+prefix would work in English and fail silently in German.
+
+Two smaller rules follow from the same incident:
+
+* **A phase never prefers another phase's artefacts found inside its own
+  checkout**, whatever the file counts say. The layout contract -- a phase reads
+  its inputs in place and never owns a copy -- is now enforced in the resolver
+  rather than described in the RUNBOOK. The block is sentinel-fenced and
+  exercised by `tests/test_notebook_resolver.py` against a simulated Drive,
+  including the exact tree that failed.
+* **Coverage is asserted before the contract.** Asserting the join on one pair
+  proves the contract; asserting it on all of them proves the cache is whole.
+  A cube silently missing one encoder turns a per-encoder comparison into a
+  comparison over DIFFERENT cubes, which no downstream assertion can detect --
+  and that is precisely the comparison P1-P4 rest on.
+
+**The general lesson, worth stating once.** Phase 1.2 established that a
+resumable cache is a correctness hazard unless it can prove its own version.
+This adds the other half: **a cache on shared storage cannot be trusted to
+contain only what we put there.** Drive copies files, users copy folders, and
+both produce artefacts that are byte-identical to something valid and yet
+wrong to read. The remedy is not a stricter loader -- `load_encoded` was
+already correct -- but a selection step that decides what to load.
+
+**Commit.** `TBD`

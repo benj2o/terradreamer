@@ -3,6 +3,87 @@
 Running record of measurements and adopted definitions. Reverse chronological.
 Decisions and their rationale live in [docs/DECISIONS.md](docs/DECISIONS.md).
 
+## 2026-08-06: the Drive cache audit, and four faults in one traceback
+
+A real Phase 1.3 run died at Step 10. The traceback named a schema version, but
+the schema was the LAST of four faults in the chain, and the first three were
+the ones that made it inevitable. Recorded here because each has a different
+fix and only one was already known.
+
+```
+encoders in .../NeurIPS-CCAI-2026-phase1_3/data/phase1_2/embeddings: [...5 encoders]
+AssertionError: Copy of 32UNU_2018-05-03_..._dinov2_vitb14.npz was written
+               with cache schema v0, but this code expects v3
+```
+
+| # | fault | why it was invisible |
+|---|---|---|
+| 1 | `EMB_IN` was a stale copy INSIDE the phase1_3 checkout | "this checkout first" is not a selection |
+| 2 | Drive had renamed a duplicate to `Copy of ....npz` | `C` sorts before a digit, so `sorted(glob)[0]` picked it every time |
+| 3 | that copy predated the schema stamp | one bad file halts the run at an arbitrary point |
+| 4 | only 1 pair per encoder was ever joined | a cache with holes would have passed |
+
+Fault 2 is the one worth remembering: the selection was **deterministic and
+deterministically wrong**. It would have picked the copy on every future run,
+on every machine.
+
+### Measured on the real cache after the fix
+
+```
+[audit] 80 .npz on disk -> 80 usable (20 cubes x 4 encoders)
+[audit] COMPLETE: all 20 x 4 = 80 (cube, encoder) pairs present at v3
+JOIN CONTRACT asserted on 80 (cube, encoder) pairs, 1056 rows total
+  imagenet_vit_b16        D=1536   264 rows   window_span_days 0/0/0
+  raw_features            D=35     264 rows   window_span_days 0/0/0
+  satlas_s2_swinb_mi_rgb  D=1024   264 rows   window_span_days min 0 med 55 max 105
+  satlas_s2_swinb_rgb     D=1024   264 rows   window_span_days 0/0/0
+```
+
+**The MI figures now cover all 20 cubes rather than one**, and reproduce the
+2026-08-03 measurement exactly: min 0, median 55, max 105 days. The earlier
+0/38/85 in the Phase 1.3 entry below was cube 1 alone, which is why it differed.
+
+Step 10 previously joined 4 pairs (one per encoder). It now joins **80**, which
+is the check that actually protects P1-P4: a cube missing one encoder turns a
+per-encoder comparison into a comparison over different cubes.
+
+### The resolver, pinned against the tree that failed
+
+`tests/test_notebook_resolver.py` extracts the sentinel-fenced resolver block
+out of the notebook and runs it against simulated Drives -- the nested layout,
+the older sibling layout that actually failed, and a plain dev clone. The
+precedence rule is asserted directly: a `data/phase1_2` inside the phase1_3
+checkout loses even when it holds **500 files against the real folder's 3**.
+Verified the guard fails when the rule is regressed to first-hit-wins.
+
+One false positive found and fixed while testing: in a plain development clone
+the repo root IS where `data/phase1_2` belongs, so the "inside this checkout"
+demotion is gated on the checkout actually being a phase folder
+(`PHASE in basename(REPO)`, which covers both `phase1_3` and the older
+`NeurIPS-CCAI-2026-phase1_3`). A warning that fires when nothing is wrong is a
+warning nobody reads the second time.
+
+### organise_drive Step 5 now scans the whole Drive
+
+Previously it walked only the project folder -- which is exactly why the stale
+sibling was invisible. It now starts at `My Drive`, expands project-like
+folders in full, lists everything else by name, and warns when more than one
+project folder sits at the top level. On a simulated Drive holding both
+folders it flags the sibling and the single `Copy of ...npz`, and no longer
+mis-flags `.nc` cubes (which have no `__` at all).
+
+### A fourth thing, found while verifying the fix
+
+`sh(f"{PY} -m pytest tests -q")` combined with `addopts = -q` in `pytest.ini`
+is **-qq**, which SUPPRESSES pytest's final `N passed, N skipped` line. The
+number the runbook tells you to compare against -- and the project's own
+stale-bundle signal -- was never printed at Step 5 in either notebook. Both now
+let the ini file own the verbosity, and the archived run shows
+`251 passed, 5 skipped` where there was previously nothing.
+
+Test count 223 -> **251 passed, 5 skipped (256 collected)**: 19 for the audit,
+9 for the resolver.
+
 ## 2026-08-05: the Drive cache is unstamped, not incomplete -- a verified re-stamp
 
 **Observed.** Phase 1.3 Step 10 stopped on Colab with the schema guard firing:

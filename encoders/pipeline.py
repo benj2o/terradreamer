@@ -20,6 +20,7 @@ re-encoding), and their indices into the original cube time axis.
 
 from __future__ import annotations
 
+import glob
 import os
 from typing import NamedTuple
 
@@ -36,9 +37,11 @@ from encoders.frames import (
     select_clear_frames,
 )
 
-__all__ = ["EncodedCube", "CubeMasks", "SCHEMA_VERSION", "REQUIRED_KEYS",
-           "encode_cube", "save_encoded", "load_encoded", "assert_encoded",
-           "inspect_encoded", "migrate_to_current",
+__all__ = ["EncodedCube", "CubeMasks", "EmbeddingAudit", "SCHEMA_VERSION",
+           "REQUIRED_KEYS", "encode_cube", "save_encoded", "load_encoded",
+           "assert_encoded", "inspect_encoded", "migrate_to_current",
+           "audit_embeddings", "print_embedding_audit",
+           "assert_embeddings_complete",
            "cube_masks", "save_masks", "load_masks"]
 
 # Bump whenever a stored field is ADDED, REMOVED or changes meaning.
@@ -326,15 +329,186 @@ def inspect_encoded(path: str) -> dict:
     Diagnostic only -- never returns something a probe can consume. Use it to
     tell "written before the stamp existed but otherwise complete" apart from
     "genuinely missing a field", which have completely different remedies.
+
+    Also reports whether the FILENAME is the one ``save_encoded`` would have
+    chosen for this file's contents. It usually is, and when it is not the file
+    is a copy: Google Drive renames a duplicate to "Copy of <name>" (or "Kopie
+    von", "Copie de", ... -- the prefix is localised, so never match on it).
+    Comparing against the name derived from the stored ``cube`` and ``encoder``
+    is exact, locale-independent, and needs no list of Drive's prefixes.
     """
     with np.load(path) as z:
         keys = set(z.files)
         version = int(z["schema_version"]) if "schema_version" in z else 0
+        cube = str(z["cube"]) if "cube" in z else None
+        encoder = str(z["encoder"]) if "encoder" in z else None
     missing = [k for k in REQUIRED_KEYS if k not in keys]
+    expected = (os.path.basename(_npz_path("", cube, encoder))
+                if cube and encoder else None)
     return {"path": path, "file": os.path.basename(path), "schema_version": version,
             "missing": missing, "n_variants": len([k for k in keys
                                                    if k.startswith("variant__")]),
-            "complete": not missing}
+            "complete": not missing, "cube": cube, "encoder": encoder,
+            "expected_file": expected,
+            "canonical": expected is not None and os.path.basename(path) == expected}
+
+
+class EmbeddingAudit(NamedTuple):
+    """What a directory of .npz actually contains, partitioned by usability.
+
+    ``current`` is the ONLY part a probe may consume: {(cube, encoder): path},
+    every entry stamped v{SCHEMA_VERSION} and named as ``save_encoded`` would
+    have named it. Everything else is a defect with its own remedy.
+    """
+
+    dir: str
+    current: dict        # {(cube, encoder): path} -- usable
+    unstamped: list      # complete but v0: re-stampable, no GPU
+    incomplete: list     # missing a REQUIRED key: must be re-encoded
+    foreign: list        # cube not in cube_ids: another tile, or a Drive copy
+    duplicates: list     # a second file for a (cube, encoder) already covered
+    unreadable: list     # [(path, error)]
+    encoders: tuple
+    cubes: tuple
+
+
+def audit_embeddings(emb_dir: str, cube_ids=None, verbose: bool = True):
+    """Partition an embeddings directory before any probe reads from it.
+
+    WHY THIS EXISTS, AND WHY EVERY LATER PHASE SHOULD CALL IT FIRST. Globbing a
+    directory and taking ``sorted(...)[0]`` is not a selection, it is a
+    coin-flip that a shared Drive folder will eventually lose. Three things
+    accumulate there that look like embeddings and are not:
+
+      * Drive duplicates. Copying a file into a folder that already holds that
+        name yields "Copy of <name>.npz", which still ends in the right
+        ``__<encoder>.npz`` suffix and sorts BEFORE the real file, so
+        ``sorted(...)[0]`` picks the copy every time. Detected by comparing the
+        filename against the one derived from the file's own stored cube and
+        encoder -- exact, and independent of Drive's UI language.
+      * Artefacts from an older schema, which ``load_encoded`` refuses one file
+        at a time, halting a run at an arbitrary point with the rest
+        undiagnosed.
+      * Files for cubes that are not in this manifest at all.
+
+    ``cube_ids`` is the set of cube ids the caller actually intends to use --
+    ``set(MANIFEST.cube_id)``. Pass it: without it, foreign files cannot be
+    told from legitimate ones.
+    """
+    paths = sorted(glob.glob(os.path.join(emb_dir, "*.npz")))
+    by_key, foreign, incomplete, unstamped, unreadable = {}, [], [], [], []
+
+    for p in paths:
+        try:
+            info = inspect_encoded(p)
+        except Exception as e:                       # noqa: BLE001 - reported
+            unreadable.append((p, f"{type(e).__name__}: {e}"))
+            continue
+        if info["cube"] is None or info["encoder"] is None:
+            unreadable.append((p, "no cube/encoder field -- not one of ours"))
+            continue
+        if cube_ids is not None and info["cube"] not in cube_ids:
+            foreign.append(info)
+            continue
+        by_key.setdefault((info["cube"], info["encoder"]), []).append(info)
+
+    current, duplicates = {}, []
+    for key, infos in sorted(by_key.items()):
+        # Prefer the canonically-named file; a copy only wins if it is alone.
+        canon = [i for i in infos if i["canonical"]]
+        chosen = (canon or infos)[0]
+        duplicates.extend(i for i in infos if i is not chosen)
+        if chosen["missing"]:
+            incomplete.append(chosen)
+        elif chosen["schema_version"] == 0:
+            unstamped.append(chosen)
+        elif chosen["schema_version"] != SCHEMA_VERSION:
+            incomplete.append(chosen)                # declares a schema we lack
+        else:
+            current[key] = chosen["path"]
+
+    audit = EmbeddingAudit(
+        dir=emb_dir, current=current, unstamped=unstamped, incomplete=incomplete,
+        foreign=foreign, duplicates=duplicates, unreadable=unreadable,
+        encoders=tuple(sorted({e for _, e in current})),
+        cubes=tuple(sorted({c for c, _ in current})),
+    )
+    if verbose:
+        print_embedding_audit(audit, len(paths))
+    return audit
+
+
+def print_embedding_audit(audit: EmbeddingAudit, n_files: int | None = None) -> None:
+    """Everything the audit found, with the remedy for each defect."""
+    n_files = len(audit.current) if n_files is None else n_files
+    print(f"[audit] {audit.dir}")
+    print(f"[audit]   {n_files} .npz on disk -> {len(audit.current)} usable "
+          f"({len(audit.cubes)} cubes x {len(audit.encoders)} encoders)")
+    for enc in audit.encoders:
+        n = sum(1 for _, e in audit.current if e == enc)
+        print(f"[audit]     {enc:<24} {n:>3} cubes")
+    if audit.duplicates:
+        print(f"[audit]   {len(audit.duplicates)} DUPLICATE file(s) -- a second "
+              "copy of a (cube, encoder)\n[audit]   already covered. The "
+              "canonically-named file was used. Delete these:")
+        for i in audit.duplicates[:6]:
+            print(f"[audit]     {i['file']}   (should be {i['expected_file']})")
+        if len(audit.duplicates) > 6:
+            print(f"[audit]     ... and {len(audit.duplicates) - 6} more")
+    if audit.foreign:
+        print(f"[audit]   {len(audit.foreign)} file(s) for cubes NOT in this "
+              "manifest -- another tile,\n[audit]   or a Drive copy whose cube "
+              "id no longer parses. Ignored:")
+        for i in audit.foreign[:6]:
+            print(f"[audit]     {i['file']}")
+        if len(audit.foreign) > 6:
+            print(f"[audit]     ... and {len(audit.foreign) - 6} more")
+    if audit.unstamped:
+        print(f"[audit]   {len(audit.unstamped)} file(s) COMPLETE but UNSTAMPED "
+              "-- re-stampable, no GPU:")
+        print(f"[audit]     python -m scripts.restamp_cache --dir '{audit.dir}'")
+        print("[audit]     (add --apply once the dry run looks right)")
+    if audit.incomplete:
+        print(f"[audit]   {len(audit.incomplete)} file(s) genuinely INCOMPLETE "
+              "-- must be re-encoded:")
+        for i in audit.incomplete[:6]:
+            print(f"[audit]     {i['file']}  missing {i['missing']}")
+    if audit.unreadable:
+        print(f"[audit]   {len(audit.unreadable)} UNREADABLE file(s):")
+        for p, e in audit.unreadable[:6]:
+            print(f"[audit]     {os.path.basename(p)}: {e}")
+
+
+def assert_embeddings_complete(audit: EmbeddingAudit, cube_ids, encoders=None) -> None:
+    """Every (cube, encoder) the caller needs is present and current.
+
+    This is the check that protects P1-P4. Asserting the join contract on ONE
+    pair proves the contract; asserting it on ALL of them proves the cache is
+    whole. A cube silently missing one encoder turns a per-encoder comparison
+    into a comparison over different cubes, which is a confound no downstream
+    assertion can detect.
+    """
+    cube_ids = sorted(set(cube_ids))
+    # Emptiness is checked on the AUDIT, not on the requested encoder list: a
+    # caller naming encoders it expects must still get "there is nothing here"
+    # rather than a gap list enumerating every pair, which buries the cause.
+    assert audit.current, (
+        f"no usable embeddings in {audit.dir}. Nothing can be joined. See the "
+        "audit above for which defect applies and its remedy; if every line is "
+        "empty too, the directory itself is wrong -- check the path."
+    )
+    encoders = tuple(sorted(encoders)) if encoders is not None else audit.encoders
+    gaps = [(c, e) for c in cube_ids for e in encoders if (c, e) not in audit.current]
+    assert not gaps, (
+        f"{len(gaps)} of {len(cube_ids) * len(encoders)} (cube, encoder) pairs "
+        f"have no current embedding in {audit.dir}, e.g. {gaps[:5]}.\n"
+        "A per-encoder comparison over a cache with holes is a comparison over "
+        "DIFFERENT cubes,\nwhich no downstream assertion can detect. Fix the "
+        "defects the audit named, then re-run."
+    )
+    print(f"[audit] COMPLETE: all {len(cube_ids)} x {len(encoders)} = "
+          f"{len(cube_ids) * len(encoders)} (cube, encoder) pairs present at "
+          f"v{SCHEMA_VERSION}")
 
 
 def migrate_to_current(path: str, apply: bool = False, verbose: bool = True) -> str:
