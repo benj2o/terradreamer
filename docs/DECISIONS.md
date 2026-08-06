@@ -813,3 +813,43 @@ wrong to read. The remedy is not a stricter loader -- `load_encoded` was
 already correct -- but a selection step that decides what to load.
 
 **Commit.** `0116d4d`
+
+---
+
+## 2026-08-06: a flat legacy layout hid 100 good embeddings from every resolver
+
+**Assumed.** That the resolver in `notebooks/phase1_3_cv.ipynb` (Step 2)
+searching for `data/phase1_2/embeddings` at various Drive depths was enough to
+find Phase 1.2's artefacts wherever a user's checkout happened to sit.
+
+**Observed.** On a real Drive, `organise_drive.ipynb` Step 5 (whole-Drive scan,
+`fdc8f18`) showed the actual, correct, current 100-file five-encoder embedding
+set sitting at `NeurIPS-CCAI-2026/phase1_2/data/embeddings/` -- one folder
+short of what any resolver looks for. `data.paths` phase-scoped artefact dirs
+(`f4ed234`) moved the write path from `data/embeddings` to
+`data/<phase>/embeddings`; this checkout's DATA predates that refactor even
+though its CODE does not (it has `paths.py`, so it was extracted from a later
+bundle after the embeddings were already written). The resolver has no
+fallback for the flat layout and never should: with THREE flat-layout
+candidates on the same Drive (the real one, plus an intentional 80-file
+`Back-Up/` copy, plus the already-diagnosed stale `Copy of` duplicates one
+folder over), guessing which is current would be exactly the "first hit wins"
+mistake `0116d4d` exists to prevent.
+
+**Changed.** `organise_drive.ipynb` Step 5 gained a legacy-layout detector:
+finds any `.../data/embeddings` or `.../data/masks` whose PARENT is literally
+named `data` -- i.e. no phase segment between them -- holding at least one
+`.npz`, and prints the exact rename by walking up for the nearest
+`phase1_N`-named ancestor. It only detects and prints; nothing moves a file,
+matching every other tool in this project. Verified against a reconstruction
+of the real tree: flags the two flat directories (the real 100 files and the
+80-file backup) with correct rename targets, does not flag the already-nested
+`Copy of` duplicates (a different, already-handled defect), and the flag
+disappears once the suggested rename is performed.
+
+The resolver itself is UNCHANGED and stays strict: nested path only, no flat
+fallback. Silently accepting a second shape a directory could take is how the
+first incident happened; this is a human-in-the-loop diagnostic, not a wider
+search.
+
+**Commit.** `TBD`

@@ -3,6 +3,48 @@
 Running record of measurements and adopted definitions. Reverse chronological.
 Decisions and their rationale live in [docs/DECISIONS.md](docs/DECISIONS.md).
 
+## 2026-08-06: the flat legacy layout, found by the whole-Drive scan
+
+Running `organise_drive.ipynb` Step 5 (the whole-Drive scan added earlier
+today) against a real Drive surfaced a fifth, separate defect from the last
+incident's four -- not another stale duplicate, but the project's actual
+CURRENT, CORRECT 100-file five-encoder embedding set sitting somewhere no
+resolver looks:
+
+```
+NeurIPS-CCAI-2026/phase1_2/data/embeddings/        100 x .npz   <- the real one
+NeurIPS-CCAI-2026/phase1_2/Back-Up/data/embeddings/ 80 x .npz   <- an older backup, same shape
+NeurIPS-CCAI-2026-phase1_3/data/phase1_2/embeddings/ 50 x .npz   <- the ALREADY-diagnosed
+                                                                    'Copy of' duplicates
+```
+
+Every resolver in the project looks for `data/phase1_2/embeddings` (the
+nested, phase-scoped path from `f4ed234`). The real data sits at the FLAT
+`data/embeddings` -- one folder short -- because this checkout's embeddings
+predate that refactor even though its code does not.
+
+### Verified against a reconstruction of the exact tree
+
+```
+before  LEGACY  phase1_2/Back-Up/data/embeddings   (2 .npz)
+        LEGACY  phase1_2/data/embeddings            (5 .npz)
+                rename to: phase1_2/data/phase1_2/embeddings
+after renaming the real one:
+        LEGACY  phase1_2/Back-Up/data/embeddings   (2 .npz)   <- backup, left alone
+        (the real one no longer flagged)
+```
+
+`organise_drive.ipynb` Step 5 now detects this class of directory directly:
+any `data/embeddings` or `data/masks` with no phase segment, holding at least
+one `.npz`, reported with the exact rename computed from the nearest
+`phase1_N`-named ancestor. Detection only -- nothing is moved automatically,
+same as every other tool here.
+
+Test count 251 -> **259 passed, 5 skipped (264 collected)**: 8 new tests in
+`tests/test_legacy_layout.py`, extracting the sentinel-fenced detector the same
+way `test_notebook_resolver.py` already does for the resolver. Confirmed the
+guard fires when the detection condition is deliberately broken.
+
 ## 2026-08-06: the Drive cache audit, and four faults in one traceback
 
 A real Phase 1.3 run died at Step 10. The traceback named a schema version, but
