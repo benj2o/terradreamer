@@ -337,7 +337,7 @@ Step 1, and run top to bottom. Exactly one restart, at the end of Step 1.
 | 1 | install (adds `satlaspretrain-models`), auto-restart | 2 min |
 | 2 | bootstrap, defines `sh()` | 1 min |
 | 3 | environment check | instant |
-| 4 | unit tests, expect `198 passed, 5 skipped` locally | 30 s |
+| 4 | unit tests, expect `223 passed, 5 skipped` locally | 30 s |
 | 5 | cubes (skips ones already on Drive) | 15 s |
 | 6 | build 4 encoders, first run downloads ~900 MB of weights | 3 min |
 | 7 | four asserted `[T_kept, D]` on one cube | 1 min |
@@ -448,7 +448,7 @@ Drive and reads it in place, so Phase 1.2's subfolder is never modified.
 | 2 | bootstrap, resolves RAW + EMB_IN read-only, defines `sh()` | 1 min |
 | 3 | environment check; fails loudly if Phase 1.2 never ran | instant |
 | 4 | cubes (skips ones already on Drive) | 15 s |
-| 5 | unit tests, expect `198 passed, 5 skipped` | 30 s |
+| 5 | unit tests, expect `223 passed, 5 skipped` | 30 s |
 | 6 | build the REAL manifest from `data/raw/*.nc` | 1 min |
 | 7 | the three runnable modes: cube, spatial_block, temporal | 10 s |
 | 8 | the three refusals: year, tile, crossed | instant |
@@ -480,7 +480,7 @@ Full numbers in [log.md](log.md); the archived run is
 `notebooks/runs/phase1_3_cv_2026-08-05_localCPU.ipynb`.
 
 ```
-Step 5   198 passed, 5 skipped        (203 collected)
+Step 5   223 passed, 5 skipped        (228 collected)
 Step 6   manifest (264, 21), 20 cubes, tile ['32UNU'], years [2018]
 Step 7   cube k=5      test 52-53 rows / 4 cubes per fold
          LOCO          20 folds, test sizes 10..16

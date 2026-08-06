@@ -36,8 +36,10 @@ from encoders.frames import (
     select_clear_frames,
 )
 
-__all__ = ["EncodedCube", "CubeMasks", "SCHEMA_VERSION", "encode_cube",
-           "save_encoded", "load_encoded", "cube_masks", "save_masks", "load_masks"]
+__all__ = ["EncodedCube", "CubeMasks", "SCHEMA_VERSION", "REQUIRED_KEYS",
+           "encode_cube", "save_encoded", "load_encoded", "assert_encoded",
+           "inspect_encoded", "migrate_to_current",
+           "cube_masks", "save_masks", "load_masks"]
 
 # Bump whenever a stored field is ADDED, REMOVED or changes meaning.
 #   1  Phase 1.2   pooled + timestamps + clear_frac + kept_idx
@@ -52,6 +54,15 @@ __all__ = ["EncodedCube", "CubeMasks", "SCHEMA_VERSION", "encode_cube",
 # contain MI files at the right dimensionality and still predate the covariate.
 # A stamped version is the only thing that distinguishes "cached" from "stale".
 SCHEMA_VERSION = 3
+
+# Every field a current .npz must carry. Used by inspect_encoded and
+# migrate_to_current to tell "unstamped but complete" apart from "missing a
+# field", which need completely different remedies -- a re-stamp versus a
+# GPU re-encode. variant__* is deliberately absent: raw_features and both
+# Satlas wrappers legitimately emit none.
+REQUIRED_KEYS = ("embeddings", "timestamps", "clear_frac", "kept_idx",
+                 "encoder", "cube", "grid", "grid_clear_frac",
+                 "window_span_days")
 
 
 class EncodedCube(NamedTuple):
@@ -267,33 +278,26 @@ def save_encoded(out_dir: str, ec: EncodedCube, verbose: bool = True) -> str:
     return path
 
 
-def load_encoded(path: str) -> EncodedCube:
-    """Read an EncodedCube back, re-asserting every invariant that was saved."""
-    with np.load(path) as z:
-        found = int(z["schema_version"]) if "schema_version" in z else 0
-        assert found == SCHEMA_VERSION, (
-            f"{os.path.basename(path)} was written with cache schema v{found}, "
-            f"but this code expects v{SCHEMA_VERSION}. A cached file from an older "
-            "schema is missing fields that probes read silently as absent -- "
-            "window_span_days is the live example. Delete this phase's artefacts "
-            "and re-encode:\n"
-            "    from data.paths import reset_phase; reset_phase('phase1_2')\n"
-            "Encoder dimensionality does NOT prove a cache is current: the "
-            "multi-image encoder and window_span_days landed in different commits."
-        )
-        ec = EncodedCube(
-            embeddings=z["embeddings"],
-            timestamps=z["timestamps"].astype("datetime64[ns]"),
-            clear_frac=z["clear_frac"],
-            kept_idx=z["kept_idx"],
-            encoder=str(z["encoder"]),
-            cube=str(z["cube"]),
-            grid=z["grid"] if "grid" in z else None,
-            grid_clear_frac=z["grid_clear_frac"] if "grid_clear_frac" in z else None,
-            variants={k[len("variant__"):]: z[k] for k in z.files
-                      if k.startswith("variant__")},
-            window_span_days=z["window_span_days"] if "window_span_days" in z else None,
-        )
+def _read_encoded(z) -> EncodedCube:
+    """Build an EncodedCube from an open npz, without checking the version."""
+    return EncodedCube(
+        embeddings=z["embeddings"],
+        timestamps=z["timestamps"].astype("datetime64[ns]"),
+        clear_frac=z["clear_frac"],
+        kept_idx=z["kept_idx"],
+        encoder=str(z["encoder"]),
+        cube=str(z["cube"]),
+        grid=z["grid"] if "grid" in z else None,
+        grid_clear_frac=z["grid_clear_frac"] if "grid_clear_frac" in z else None,
+        variants={k[len("variant__"):]: z[k] for k in z.files
+                  if k.startswith("variant__")},
+        window_span_days=z["window_span_days"] if "window_span_days" in z else None,
+    )
+
+
+def assert_encoded(ec: EncodedCube) -> EncodedCube:
+    """Every invariant a saved EncodedCube must satisfy. Shared by load and
+    migrate, so a re-stamped file is held to exactly the load-time standard."""
     T_kept, _D = ec.embeddings.shape
     if ec.grid is not None:
         assert ec.grid.shape[:2] == (T_kept, GRID_CELLS), ec.grid.shape
@@ -314,3 +318,111 @@ def load_encoded(path: str) -> EncodedCube:
     assert (ec.clear_frac > 0).all() and (ec.clear_frac <= 1).all()
     assert np.all(np.diff(ec.timestamps) > np.timedelta64(0, "ns"))
     return ec
+
+
+def inspect_encoded(path: str) -> dict:
+    """What is actually in one .npz, WITHOUT enforcing the version.
+
+    Diagnostic only -- never returns something a probe can consume. Use it to
+    tell "written before the stamp existed but otherwise complete" apart from
+    "genuinely missing a field", which have completely different remedies.
+    """
+    with np.load(path) as z:
+        keys = set(z.files)
+        version = int(z["schema_version"]) if "schema_version" in z else 0
+    missing = [k for k in REQUIRED_KEYS if k not in keys]
+    return {"path": path, "file": os.path.basename(path), "schema_version": version,
+            "missing": missing, "n_variants": len([k for k in keys
+                                                   if k.startswith("variant__")]),
+            "complete": not missing}
+
+
+def migrate_to_current(path: str, apply: bool = False, verbose: bool = True) -> str:
+    """Re-stamp an UNSTAMPED .npz that already carries every current field.
+
+    Returns one of: "current", "migrated", "would-migrate", "incomplete",
+    "wrong-version".
+
+    WHY THIS IS NOT THE HAZARD THE VERSION STAMP EXISTS TO PREVENT. That hazard
+    was silence: ``np.load`` reports a missing key as merely absent, so
+    ``load_encoded`` returned None for it and a probe read ``window_span_days``,
+    found nothing, and quietly dropped the covariate. This function is the
+    opposite -- it REQUIRES every key in ``REQUIRED_KEYS`` to be present and
+    re-runs ``assert_encoded`` in full before it will re-stamp anything. A file
+    missing a field is reported and left alone.
+
+    It exists because of an accident of ordering: ``window_span_days`` landed in
+    a1a6a12 and the stamp in f4ed234, a LATER commit. Artefacts written between
+    the two are complete but unstamped, and re-encoding them costs a GPU run to
+    reproduce bytes that are already correct.
+
+    NOTHING IS INVENTED. A missing ``window_span_days`` is not recomputed even
+    though the timestamps are present, because a value the artefact does not
+    contain is not a value it recorded.
+    """
+    info = inspect_encoded(path)
+    name = info["file"]
+    if info["schema_version"] == SCHEMA_VERSION:
+        if verbose:
+            print(f"[migrate] {name}: already v{SCHEMA_VERSION}, untouched")
+        return "current"
+    if info["schema_version"] != 0:
+        if verbose:
+            print(f"[migrate] {name}: stamped v{info['schema_version']}, not 0 -- "
+                  f"refusing to re-stamp a file that declares a different schema")
+        return "wrong-version"
+    if info["missing"]:
+        if verbose:
+            print(f"[migrate] {name}: INCOMPLETE, missing {info['missing']} -- "
+                  "re-encode this one; nothing is invented here")
+        return "incomplete"
+
+    with np.load(path) as z:
+        ec = _read_encoded(z)
+        payload = {k: z[k] for k in z.files}
+    assert_encoded(ec)            # the full load-time standard, not a subset
+
+    if not apply:
+        if verbose:
+            print(f"[migrate] {name}: complete and would be stamped v{SCHEMA_VERSION} "
+                  "(dry run)")
+        return "would-migrate"
+
+    payload["schema_version"] = np.array(SCHEMA_VERSION)
+    # The suffix must stay .npz: np.savez_compressed APPENDS ".npz" to any name
+    # that lacks it, so a plain ".tmp" would be written as "....tmp.npz" and the
+    # rename below would look for a file that was never created.
+    tmp = path + ".tmp.npz"
+    np.savez_compressed(tmp, **payload)
+    os.replace(tmp, path)         # atomic: a crash cannot leave a half-written npz
+    load_encoded(path)            # prove the result loads under the real guard
+    if verbose:
+        print(f"[migrate] {name}: stamped v{SCHEMA_VERSION} and re-verified")
+    return "migrated"
+
+
+def load_encoded(path: str) -> EncodedCube:
+    """Read an EncodedCube back, re-asserting every invariant that was saved."""
+    with np.load(path) as z:
+        found = int(z["schema_version"]) if "schema_version" in z else 0
+        assert found == SCHEMA_VERSION, (
+            f"{os.path.basename(path)} was written with cache schema v{found}, "
+            f"but this code expects v{SCHEMA_VERSION}. A cached file from an older "
+            "schema is missing fields that probes read silently as absent -- "
+            "window_span_days is the live example.\n"
+            "TWO DIFFERENT CAUSES, two different fixes:\n"
+            "  (a) written BEFORE the stamp existed but otherwise complete "
+            "(window_span_days\n"
+            "      landed in a1a6a12, the stamp in f4ed234, a later commit). Check "
+            "and\n"
+            "      re-stamp in place, no GPU needed:\n"
+            "          python -m scripts.restamp_cache --dir <embeddings dir>\n"
+            "  (b) genuinely missing a field. Re-encode:\n"
+            "          from data.paths import reset_phase; reset_phase('phase1_2')\n"
+            "The command in (a) tells you which of the two you have, and refuses "
+            "to stamp\nanything incomplete. Encoder dimensionality does NOT settle "
+            "it: the multi-image\nencoder and window_span_days landed in different "
+            "commits."
+        )
+        ec = _read_encoded(z)
+    return assert_encoded(ec)

@@ -63,6 +63,12 @@ probes/cv.py                 THE split definition. Six modes over the manifest,
                              kept_idx) contract and carries window_span_days
 scripts/inventory.py         list every file and folder, classify each movable
                              unit by the phase that owns it. Only looks
+scripts/restamp_cache.py     diagnose an embedding cache and re-stamp files
+                             that are COMPLETE but predate the schema stamp
+                             (window_span_days landed in a1a6a12, the stamp in
+                             f4ed234, a later commit). Refuses anything missing
+                             a field; invents nothing. Also reports Drive
+                             duplicates. DRY RUN by default
 scripts/organise_phases.py   file those units into the per-phase Drive layout.
                              Imports the classifier rather than re-deriving it.
                              DRY RUN by default; data/raw is never moved
@@ -168,7 +174,7 @@ For Colab, follow [RUNBOOK.md](RUNBOOK.md).
   climatology's leave-target-year-out protocol. On this subset `cube`,
   `spatial_block` and `temporal` run while `year`, `tile` and `crossed`
   correctly RAISE -- the exit test asserts the refusals rather than working
-  around them. 198 tests pass, 5 skipped.
+  around them. 223 tests pass, 5 skipped.
 - **One Drive SUBFOLDER per phase**, from 1.3 on:
   `NeurIPS-CCAI-2026/{phase1_1,phase1_2,phase1_3}/`, each its own checkout,
   with the cubes at `NeurIPS-CCAI-2026/data/raw` because `data/raw` is shared

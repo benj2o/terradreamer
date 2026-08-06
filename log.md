@@ -3,6 +3,73 @@
 Running record of measurements and adopted definitions. Reverse chronological.
 Decisions and their rationale live in [docs/DECISIONS.md](docs/DECISIONS.md).
 
+## 2026-08-05: the Drive cache is unstamped, not incomplete -- a verified re-stamp
+
+**Observed.** Phase 1.3 Step 10 stopped on Colab with the schema guard firing:
+
+```
+AssertionError: Copy of 32UNU_2018-05-03_..._dinov2_vitb14.npz was written with
+cache schema v0, but this code expects v3.
+```
+
+Two separate faults in one line, and the guard was right about both.
+
+*The filename.* `Copy of ` is Google Drive's own prefix for a duplicated file.
+Step 10 took `sorted(glob(...))[0]` per encoder, so a stray duplicate could be
+the file that loads -- selection by alphabetical accident.
+
+*The version.* `window_span_days` landed in **a1a6a12** and the schema stamp in
+**f4ed234**, a LATER commit. Artefacts written between the two carry every
+field and no stamp. So "v0" here means UNSTAMPED, which is not the same as
+incomplete, and the two have very different costs: a re-stamp takes seconds,
+a re-encode takes a GPU run.
+
+**Changed.** Three things, none of which weakens the guard.
+
+1. `encoders.pipeline.inspect_encoded` reads a file WITHOUT enforcing the
+   version, so the two cases can be told apart. `migrate_to_current` re-stamps
+   a file only if every key in the new `REQUIRED_KEYS` is present AND the full
+   `assert_encoded` set passes; it writes atomically through a temp file and
+   then re-opens the result through the real `load_encoded`. `assert_encoded`
+   is the invariant block extracted from `load_encoded`, so a migrated file is
+   held to exactly the load-time standard rather than a subset.
+
+   **Nothing is invented.** A missing `window_span_days` is NOT recomputed from
+   the timestamps sitting beside it, and a test asserts that specifically. The
+   hazard the stamp exists to prevent was silence -- a missing key read as
+   merely absent; requiring every key and re-running every assertion is the
+   opposite of that.
+
+2. `scripts/restamp_cache.py`, dry-run by default: reports current /
+   unstamped-but-complete / genuinely-incomplete / Drive-duplicate counts, then
+   migrates only the second class.
+
+3. Phase 1.3 Step 10 now **diagnoses the whole cache before joining anything**.
+   It recognises a file as ours only when the cube half of its name is a cube in
+   the manifest -- exact, and needs no locale-specific matching for `Copy of` /
+   `Kopie von` / `Copie de`. One stale file used to halt the run at an arbitrary
+   point with the rest undiagnosed; now every file is classified first and the
+   remedy is printed once.
+
+   Step 10 does not migrate anything itself: Phase 1.3 must not write into
+   Phase 1.2's folder.
+
+**Verified** on a copy of the real cache, both paths executed:
+
+```
+dry run    7 files -> current 2, unstamped-complete 3, incomplete 1, duplicate 1
+--apply    3 stamped v3 and re-verified; the incomplete one left alone
+after      5 load through the real guard, 2 still refused (correct)
+           the MI file keeps window_span_days max 85 d through the migration
+```
+
+and Step 10's stale path fired on a scratch cache holding 3 unstamped, 1
+incomplete and 1 `Copy of` file, reporting all four before raising.
+
+Test count 198 -> **223 passed, 5 skipped (228 collected)**; 25 new tests,
+including one parametrized over every `REQUIRED_KEYS` field to prove each
+absence is refused individually.
+
 ## 2026-08-05: a full-tree listing in both notebooks
 
 `organise_drive.ipynb` Step 5 and `phase1_3_cv.ipynb` Step 12: every folder and
