@@ -812,4 +812,4 @@ both produce artefacts that are byte-identical to something valid and yet
 wrong to read. The remedy is not a stricter loader -- `load_encoded` was
 already correct -- but a selection step that decides what to load.
 
-**Commit.** `TBD`
+**Commit.** `0116d4d`
