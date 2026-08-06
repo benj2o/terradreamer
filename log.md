@@ -3,6 +3,62 @@
 Running record of measurements and adopted definitions. Reverse chronological.
 Decisions and their rationale live in [docs/DECISIONS.md](docs/DECISIONS.md).
 
+## 2026-08-06: Phase 1.3 exit test PASSED on Colab, and four silent skips closed
+
+The full five-encoder Phase 1.3 run, on the corrected nested Drive layout.
+Every gate green.
+
+```
+Step 3   100 .npz -> 100 usable (20 cubes x 5 encoders) at v3
+Step 5   255 passed, 9 skipped   (264 collected)      <- see below
+Step 6   manifest (264, 21), 20 cubes, tile ['32UNU'], year [2018]
+Step 7   cube k=5 / LOCO / spatial_block [9,3,4,3,1] / temporal 17-3, 65 dropped
+         31 folds re-checked independently: no cube on both sides
+Step 8   year / tile / crossed all RAISE
+Step 9   same-cube gate fires; duplicate rows refused
+Step 10  COMPLETE: 20 x 5 = 100 pairs; JOIN CONTRACT on all 100, 1320 rows
+Step 11  5 files, 0.20 MB under data/phase1_3/folds/
+```
+
+`dinov2_vitb14` at **D=3840** ran for the first time in a Phase 1.3 context,
+so the join contract is now asserted on the FULL roster rather than the four
+encoders a Python 3.9 dev box can build. 264 rows x 5 encoders = 1320.
+
+MI `window_span_days` min 0, median 55, max 105 days -- unchanged through the
+re-stamp of all 100 files, which is the point of that migration being
+array-preserving.
+
+### The 100-file re-stamp
+
+All 100 embeddings were COMPLETE but UNSTAMPED (written between a1a6a12 and
+f4ed234). `scripts/restamp_cache.py` reported `INCOMPLETE 0`, then stamped all
+100 and re-verified each through the real `load_encoded`. Verified beforehand
+on a local reproduction: array contents bit-identical across the migration in
+80 of 80 files, only `schema_version` added.
+
+### Four tests were silently skipping on Colab
+
+`255 passed, 9 skipped` against a documented `259 passed, 5 skipped` -- same
+264 collected, so the bundle was current. The gap was four real-cube tests
+(`test_grid_landcover_aligns_with_the_embedding_grid`,
+`test_grid_landcover_is_finer_than_the_per_cube_label`,
+`test_in_cube_eobs_is_present_and_finite`, `test_elevation_is_cached_per_cell`)
+skipping because `_real_cube()` globbed `data/raw/*.nc` relative to the WORKING
+DIRECTORY. Locally that is the repo root and the cubes are there; on Drive it
+is the phase checkout, and the cubes are SHARED one level up at the project
+root. The per-phase layout introduced this and nothing caught it: the gate was
+quietly weaker in the only environment the phases actually run in.
+
+**Changed.** The lookup is anchored on the test FILE, not the cwd, and checks
+both layouts -- `<repo>/data/raw` then `<repo>/../data/raw`. The skip message
+now names both paths it searched, so a future skip explains itself. Verified
+by running the real bundle from a simulated phase checkout with the cubes one
+level up: **261 passed, 5 skipped**, identical to local; and with no cubes
+anywhere, an honest 4-test skip naming both directories.
+
+Test count 259 -> **261 passed, 5 skipped (266 collected)**: two tests pinning
+that the lookup covers both layouts and does not depend on the cwd.
+
 ## 2026-08-06: the flat legacy layout, found by the whole-Drive scan
 
 Running `organise_drive.ipynb` Step 5 (the whole-Drive scan added earlier

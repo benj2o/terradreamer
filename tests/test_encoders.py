@@ -511,12 +511,30 @@ def test_cached_mask_roundtrips_and_reproduces_the_scalars(tmp_path, dummy):
 
 
 # ------------------------------------------- Phase 1.2c: strata, weather, MI
+def _cube_dirs():
+    """The two places the shared cubes can sit, most specific first.
+
+    Anchored on THIS FILE, not the working directory. pytest is run from the
+    repo root locally but from a phase checkout on Drive, and a cwd-relative
+    glob silently skipped four real-cube tests there -- a weaker gate in the
+    one environment the phases actually run in.
+    """
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return [
+        os.path.join(repo, "data", "raw"),                  # dev clone
+        os.path.join(os.path.dirname(repo), "data", "raw"),  # phase checkout:
+    ]                                        # cubes are SHARED at the project
+                                             # root, one level above the phase
+
+
 def _real_cube():
     import glob
-    p = sorted(glob.glob("data/raw/*.nc"))
-    if not p:
-        pytest.skip("no cubes on disk; run data.download_greenearthnet")
-    return p[0]
+    for d in _cube_dirs():
+        p = sorted(glob.glob(os.path.join(d, "*.nc")))
+        if p:
+            return p[0]
+    pytest.skip("no cubes in " + " or ".join(_cube_dirs())
+                + "; run data.download_greenearthnet")
 
 
 def test_grid_landcover_aligns_with_the_embedding_grid():
@@ -659,3 +677,27 @@ def test_reset_phase_refuses_to_delete_the_shared_cubes(tmp_path):
     with pytest.raises(AssertionError, match="shared cube directory"):
         reset_phase(os.path.basename(RAW_DIR), root=os.path.dirname(RAW_DIR),
                     verbose=False)
+
+
+# ------------------------------------------- the cube lookup itself
+# These four real-cube tests silently SKIPPED on Colab for a whole phase,
+# because the lookup was cwd-relative and the phase checkout does not contain
+# the cubes -- they are SHARED at the project root, one level up. A weaker
+# gate in the one environment the phases actually run in is worth pinning.
+
+def test_cube_lookup_covers_both_layouts():
+    """Dev clone AND phase checkout, most specific first."""
+    dirs = _cube_dirs()
+    assert len(dirs) == 2
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    assert dirs[0] == os.path.join(repo, "data", "raw")
+    assert dirs[1] == os.path.join(os.path.dirname(repo), "data", "raw")
+
+
+def test_cube_lookup_is_anchored_on_the_file_not_the_working_directory(monkeypatch,
+                                                                      tmp_path):
+    """pytest runs from the repo root locally and from a phase checkout on
+    Drive. The answer must not depend on which."""
+    before = _cube_dirs()
+    monkeypatch.chdir(tmp_path)
+    assert _cube_dirs() == before
