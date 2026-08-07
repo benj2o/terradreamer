@@ -853,3 +853,41 @@ first incident happened; this is a human-in-the-loop diagnostic, not a wider
 search.
 
 **Commit.** `142a7ff`
+
+---
+
+## 2026-08-07: K1 fired -- EO-WM's published rows are not a validation surface
+
+K1's pre-registered condition: EO-WM eval unreproducible (no code reply AND
+appendix rows not matchable within ~10%) -> drop their benchmark surface,
+keep our own protocol.
+
+**Fired**, for a better-documented reason than anticipated. The authors
+replied helpfully and shared configs, a reconstruction eval script, and a
+weather climatology file -- see
+[docs/correspondence/2026-08-07-eowm-authors.md](correspondence/2026-08-07-eowm-authors.md).
+But two things put the published rows out of reach within our budget:
+
+- The Earthformer baseline is not an official checkpoint. It is a
+  200-epoch self-trained model on `CuboidEarthNet2021` with meso auxiliary
+  input -- reproducing it means reproducing that training run, not loading
+  weights.
+- The core EO-WM model and training code are unreleased pending
+  acceptance.
+
+Separately, Tab. 1 and Tab. 2 never contained persistence rows in the
+first place -- "copy last clear frame" and "persistence (cloud-free mean)"
+are Appendix A.1 reconstruction references, not forecasting baselines. So
+even the part of K1's condition that assumed a persistence row to match
+against does not apply as framed.
+
+**Consequence.** We drop "match EO-WM's published rows" as a validation
+surface and evaluate under our own protocol: our own persistence baseline
+for P3, our own mask definition (GreenEarthNet's `s2_dlmask` + `s2_SCL`
+allow-list, not EarthNet2021-era masks), citing the authors' configuration
+for commensurability where it is directly comparable (5 of our 8 E-OBS
+channels, their reconstruction-diagnostic conventions if H3 reaches
+EarthNetScore). This decides the eval surface, not the project -- exactly
+as pre-registered.
+
+**Commit.** (this entry)

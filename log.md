@@ -895,3 +895,15 @@ loop. Adopted instead: pool embeddings across cubes spanning the tile's 16
 distinct time windows (starts 2018-03-09 through 2018-07-07, aggregate coverage
 2018-03 to 2018-12) and colour by month or season. The spread across windows is
 the only seasonal axis available.
+
+## 2026-08-07: EO-WM authors replied, K1 fired
+
+Full correspondence in
+[docs/correspondence/2026-08-07-eowm-authors.md](docs/correspondence/2026-08-07-eowm-authors.md).
+Persistence is not a main-table baseline in EO-WM (Appendix A.1 only); their
+Earthformer row is a self-trained 200-epoch baseline, not an official
+checkpoint; they use EarthNet2021-era masks, not the `s2_dlmask` + `s2_SCL`
+allow-list this repo uses; `era5_climatology_all.pt` is a 5-channel weather
+climatology, not an NDVI climatology, so it does not unblock P4. K1's
+pre-registered condition fired: see
+[docs/DECISIONS.md](docs/DECISIONS.md#2026-08-07-k1-fired----eo-wms-published-rows-are-not-a-validation-surface).

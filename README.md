@@ -182,3 +182,9 @@ For Colab, follow [RUNBOOK.md](RUNBOOK.md).
   `data/paths.py`) and READS earlier phases' artefacts in place, so deleting a
   phase subfolder is a complete undo that cannot touch another phase. See
   [RUNBOOK.md](RUNBOOK.md).
+- **K1 fired (2026-08-07).** EO-WM's authors replied with configs and a
+  climatology file, but their Earthformer baseline is self-trained (not an
+  official checkpoint) and the core EO-WM code is unreleased, so we drop
+  "match EO-WM's published rows" as a validation surface and evaluate under
+  our own protocol. See
+  [docs/correspondence/2026-08-07-eowm-authors.md](docs/correspondence/2026-08-07-eowm-authors.md).

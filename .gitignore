@@ -24,5 +24,10 @@ data/phase*/
 # build artifact: rebuild with ./make_zip.sh
 phase1_*_repo.zip
 
+# EO-WM author correspondence bundle: shared privately, unreleased core
+# model code and a climatology artifact with its generation script
+# withheld. See docs/correspondence/2026-08-07-eowm-authors.md.
+vendor/eowm/
+
 # Phase 1.2b: per-cube masks, cached once per cube (not per encoder)
 data/masks/
