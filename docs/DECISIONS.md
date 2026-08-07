@@ -890,4 +890,4 @@ channels, their reconstruction-diagnostic conventions if H3 reaches
 EarthNetScore). This decides the eval surface, not the project -- exactly
 as pre-registered.
 
-**Commit.** (this entry)
+**Commit.** `d380d2a`
