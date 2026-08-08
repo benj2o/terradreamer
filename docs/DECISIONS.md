@@ -928,7 +928,7 @@ an interpreter. And it does not add the 3.10 environment to the repo -- it is a
 one-off to fill a cache, not a supported second toolchain. Anyone reproducing
 this needs Python >= 3.10 and no GPU.
 
-**Commit.** `TBD`
+**Commit.** `03f7cf2`
 
 ---
 
@@ -964,7 +964,7 @@ make the explosion safe, and both are asserted:
   across-fold spread over 20 cubes and never as a bare mean, and why the
   degenerate control is run at cell level too rather than only at frame level.
 
-**Commit.** `TBD`
+**Commit.** `03f7cf2`
 
 ---
 
@@ -1006,7 +1006,7 @@ The Figure 1 panel keeps the same treatment: MI is drawn on the shared axes and
 labelled `(MULTI-IMAGE, variable lookback)` rather than left to look like a
 fifth single-image encoder.
 
-**Commit.** `TBD`
+**Commit.** `03f7cf2`
 
 ---
 
@@ -1044,7 +1044,7 @@ re-encode, which is Phase 1.2 work, not P1's -- and it is recorded as the
 first thing to add if a later phase wants to make a representation-quality
 claim from an appearance probe.
 
-**Commit.** `TBD`
+**Commit.** `03f7cf2`
 
 ---
 
@@ -1100,7 +1100,7 @@ modes, so the surprise the probe was watching for -- an EO model trained to
 appearance-invariance -- did not occur, and P2/P3 are licensed. The control
 narrows what a P1 pass means; it does not withdraw it.
 
-**Commit.** `TBD`
+**Commit.** `03f7cf2`
 
 ---
 
@@ -1138,4 +1138,4 @@ the field exists. **Extend `LOGREG_C_GRID` upward (10, 100) before P2 reuses
 this machinery**, and note that P2's targets may be genuinely p >> n again, in
 which case the low end still earns its place.
 
-**Commit.** `TBD`
+**Commit.** `03f7cf2`
