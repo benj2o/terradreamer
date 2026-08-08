@@ -3,6 +3,265 @@
 Running record of measurements and adopted definitions. Reverse chronological.
 Decisions and their rationale live in [docs/DECISIONS.md](docs/DECISIONS.md).
 
+## 2026-08-08: Phase 1.4 (P1) exit test PASSED, local CPU, 5 encoders
+
+`probes/p1_appearance.py`. Month and season decoded from ONE frame's frozen
+embedding, every encoder, with the not-a-network baseline and a degenerate
+retention control in the same table. Nothing fine-tuned, nothing re-encoded.
+
+```
+Step 5   302 passed, 5 skipped   (307 collected)         12.8 s
+Step 6   manifest (264, 21), 20 cubes, tile ['32UNU'], year [2018]
+Step 7   realised distribution printed, chance DERIVED  (see below)
+Step 8   100 .npz -> 100 usable (20 x 5) at v3; join re-asserted per encoder
+Step 9   30 folds re-derived from the manifest, importing nothing from cv
+Step 10  selected C identical on all 5 folds under a poisoned test set
+Step 11  run_p1: 192 rows in 33.9 min on 7 workers
+Step 13  weakest pairwise Spearman rho across fold modes: +0.400
+Step 14  Figure 1, 5 panels, shared axes
+Step 15  1 CSV (164 kB) + 1 PNG (246 kB) under data/phase1_4/
+```
+
+### The realised class distribution, and the chance level derived from it
+
+Not 12 months and not 4 seasons. The cube windows plus `clear_frac > 0.5`
+decide what exists:
+
+```
+month    264 rows, 8 REALISED classes -- April..November
+   04  29 (11.0%)   05  40 (15.2%)   06  43 (16.3%)   07  63 (23.9%)
+   08  36 (13.6%)   09  29 (11.0%)   10  19 ( 7.2%)   11   5 ( 1.9%)
+   NOT realised: [1, 2, 3, 12]
+   chance  balanced accuracy 0.1250 = 1/8   macro-F1 0.0484
+   majority 07 at 23.9%,  most-frequent dummy 0.132 (measured, cube k=5)
+
+season   264 rows, 3 REALISED classes
+   JJA 142 (53.8%)   MAM 69 (26.1%)   SON 53 (20.1%)
+   NOT realised: ['DJF']
+   chance  balanced accuracy 0.3333 = 1/3   macro-F1 0.2332
+```
+
+**Three recorded figures are corrected by this.** The P1 spec assumed "roughly
+March-December, so month is ~10 classes": it is **8**, April-November. March
+and December have cube windows but no frame survives the clear-fraction filter.
+Season is realised **3-way**, not 4. And the tile has **15** distinct time
+windows, not the 16 recorded since 2026-08-02 -- five window strings appear
+twice across the 20 cubes (`2018-03-19_2018-08-15`, `2018-03-29_2018-08-25`,
+`2018-04-23_2018-09-19`, `2018-04-28_2018-09-24`, `2018-05-03_2018-09-29`).
+The Figure 1 argument is unaffected and slightly strengthened.
+
+### THE HEADLINE: the degenerate control is not a floor, it is a competitor
+
+`[clear_frac, window_span_days]` alone, D=2, **no embedding anywhere in it**:
+
+```
+target  fold mode      est      level   bal-acc         chance   best SI encoder
+season  spatial_block  logreg   cell    0.681 +/-0.119  0.333    0.584 (raw_features)   <- CONTROL WINS
+season  loco           logreg   cell    0.674 +/-0.233  0.333    0.673 (raw_features)   <- CONTROL TIES
+season  cube           logreg   cell    0.627 +/-0.123  0.333    0.654 (raw_features)
+month   spatial_block  logreg   cell    0.328 +/-0.052  0.125    0.351 (raw_features)
+month   loco           logreg   cell    0.315 +/-0.209  0.125    0.460 (raw_features)
+month   cube           logreg   cell    0.282 +/-0.118  0.125    0.425 (raw_features)
+```
+
+Every one of those is far above chance. **Cloud retention on this subset is
+strongly seasonal**, which is not surprising once stated -- Alpine-foreland
+cloud climatology is itself a season -- but the size is: two numbers that
+contain no image at all reach 0.68 balanced accuracy on a 3-class season task,
+beating all five frozen encoders under `spatial_block`.
+
+Encoder margin OVER the control, balanced accuracy, `grid_cell` + logreg
+(negative means the two-number control WINS):
+
+```
+                       raw_features   dinov2   satlas_rgb   imagenet
+month  cube               +0.143      +0.116     +0.111      +0.070
+month  loco               +0.145      +0.099     +0.109      +0.063
+month  spatial_block      +0.023      -0.053     +0.011      -0.060
+season cube               +0.027      -0.012     -0.043      -0.083
+season loco               -0.000      -0.056     -0.071      -0.129
+season spatial_block      -0.097      -0.161     -0.126      -0.224
+```
+
+Consequences, and they bind on how the rest of this table may be read:
+
+* **Only month, and only under `cube` and `loco`, separates any encoder from
+  the control** -- there all four single-image encoders lead it by +0.06 to
+  +0.15. That is the one cell of this table where P1 measures a representation
+  rather than a cloud climatology.
+* **A P1 SEASON score is not evidence of representation quality on this
+  subset.** Every encoder clears chance comfortably and NONE of them clears the
+  control anywhere: on season the margins are at best +0.027 and at worst
+  -0.224. P1's season column cannot separate "the embedding encodes season"
+  from "the embedding encodes how cloudy it was".
+* **`spatial_block` is where it bites hardest**, which is the wrong direction
+  for comfort: it is the strictest split available here, the closest this
+  subset comes to held-out geography, and under it only `raw_features`
+  (+0.023) and `satlas_s2_swinb_rgb` (+0.011) stay above the control on month
+  at all, while `dinov2_vitb14` and `imagenet_vit_b16` fall below it.
+* Eight classes make retention a weaker proxy than three do, which is why month
+  survives where season does not.
+* This is exactly what the control existed to catch. It was specified as "not
+  optional" on the expectation that it would sit near the floor; it does not.
+
+### Per-encoder scores, PRIMARY feature set (grid_cell, 4224 rows, logreg)
+
+Mean +/- sd across folds, `[min, max]`. The spread is the honest uncertainty at
+20 cubes and is routinely larger than the gap between two encoders.
+
+```
+month  (chance 0.125, dummy 0.132/0.199/0.147 for cube/loco/spatial_block)
+                          cube                   loco                   spatial_block
+raw_features           0.425 +/-0.068         0.460 +/-0.096         0.351 +/-0.050
+                       [0.326, 0.491]         [0.239, 0.608]         [0.302, 0.427]
+dinov2_vitb14          0.397 +/-0.086         0.414 +/-0.142         0.275 +/-0.089
+satlas_s2_swinb_rgb    0.393 +/-0.045         0.424 +/-0.145         0.339 +/-0.141
+imagenet_vit_b16       0.352 +/-0.057         0.377 +/-0.142         0.268 +/-0.048
+DEGENERATE CONTROL     0.282 +/-0.118         0.315 +/-0.209         0.328 +/-0.052
+satlas_s2_swinb_mi_rgb 0.320 +/-0.070         0.331 +/-0.131         0.249 +/-0.085   NOT SI-COMPARABLE
+
+season (chance 0.333, dummy 0.333/0.433/0.367)
+raw_features           0.654 +/-0.061         0.673 +/-0.108         0.584 +/-0.072
+dinov2_vitb14          0.616 +/-0.069         0.618 +/-0.167         0.519 +/-0.100
+satlas_s2_swinb_rgb    0.584 +/-0.072         0.603 +/-0.175         0.555 +/-0.100
+imagenet_vit_b16       0.544 +/-0.081         0.544 +/-0.155         0.457 +/-0.105
+DEGENERATE CONTROL     0.627 +/-0.123         0.674 +/-0.233         0.681 +/-0.119
+satlas_s2_swinb_mi_rgb 0.677 +/-0.114         0.704 +/-0.112         0.624 +/-0.109   NOT SI-COMPARABLE
+```
+
+**Read the DUMMY column, not the chance column, under LOCO.** Balanced accuracy
+is scored over the classes present in each test fold, and a fold holding one
+cube holds about 5 of the 8 months, not all 8. Its implicit floor is therefore
+~1/5, which is exactly what the measured most-frequent dummy says: 0.132 under
+`cube` (8 classes, close to the global 1/8 = 0.125), **0.199 under LOCO**,
+0.147 under `spatial_block`. Comparing a LOCO score against the global 0.125
+would credit it with a margin the split never offered. The dummy is refit per
+fold for this reason and is carried in the CSV beside every score.
+
+**No encoder FAILS P1.** Every one clears chance by a wide margin on both
+targets and under all three fold modes, so the surprise this probe was watching
+for -- an EO model trained to appearance-invariance -- did not occur. P1 passes
+as calibration and P2/P3 are licensed.
+
+**`raw_features` wins every single-image comparison.** Read with the caveat
+recorded in `docs/DECISIONS.md`: the baseline reduces all four bands including
+**B8A** and adds NDVI statistics, while every network encoder here is RGB-only.
+That is a statement about the input as much as about the representation, and
+the clean comparisons are network-vs-network and network-vs-control.
+
+**Among the RGB-only networks, the EO-native and the generalist beat the
+ImageNet floor and are indistinguishable from each other**: dinov2 and
+satlas_rgb swap places between fold modes, always inside one standard
+deviation. On this subset P1 does not rank them.
+
+### pooled vs grid_cell: the p >> n correction is worth 0.06-0.13
+
+month / cube / logreg, balanced accuracy:
+
+```
+                        pooled (264 rows)     grid_cell (4224 rows)   difference
+raw_features            0.550 +/-0.135        0.425 +/-0.068          -0.125
+dinov2_vitb14  D=3840   0.454 +/-0.113        0.397 +/-0.086          -0.057
+satlas_s2_swinb_rgb     0.391 +/-0.067        0.393 +/-0.045          +0.002
+imagenet_vit_b16        0.348 +/-0.101        0.352 +/-0.057          +0.004
+satlas_s2_swinb_mi_rgb  0.335 +/-0.073        0.320 +/-0.070          -0.015
+```
+
+The pooled score is HIGHER exactly where p >> n bites hardest -- DINOv2 at
+D=3840 against 264 rows, and raw_features whose 35 hand-built features are
+frame-level summaries that the per-cell version cannot see. The fold spread
+roughly halves under grid_cell for every encoder. Both are reported; the
+grid_cell column is the one to read.
+
+### The multi-image control, conditioned on its own lookback
+
+Terciles of the REALISED `window_span_days`, cut at 35 and 70 days (the nominal
+35-day span for 8 frames at a 5-day revisit is wrong by a factor of three).
+Chance is recomputed on each tercile's own class distribution, because
+subsetting by lookback changes which months are present:
+
+```
+target  tercile  days     rows  classes  chance  bal-acc (cube, logreg)
+month   short     0-30      84      5     0.200  0.402 +/-0.221
+month   medium   35-65      90      7     0.143  0.185 +/-0.043
+month   long     70-105     90      6     0.167  0.296 +/-0.099
+season  short     0-30      84      2     0.500  0.753 +/-0.180
+season  medium   35-65      90      3     0.333  0.531 +/-0.138
+season  long     70-105     90      2     0.500  0.622 +/-0.134
+```
+
+MI is best where its lookback is SHORTEST, i.e. where it is closest to being a
+single-image encoder, and worst in the middle tercile where the label is most
+smeared. That is the caveat behaving exactly as predicted, measured rather than
+argued, and it is why no MI number is placed in a ranked column with the
+single-image encoders.
+
+### Selected regularisation strengths, and one thing to fix next time
+
+Printed per outer fold in `selected_params`. Over all 1920 outer folds:
+
+```
+logreg C      1e-4:5   1e-3:32   1e-2:161   1e-1:212   1:550
+ridge  alpha  0.1:86   1:195     10:131     100:247    1e3:276   1e4:25
+666/1920 folds (34.7%) selected at a GRID EDGE -- 555 of them logreg
+```
+
+**The logreg C grid is too narrow at the weak end.** C=1 is its maximum and is
+chosen in 57% of folds, so for those folds the regularisation was pinned by the
+grid rather than by the data and the reported score is a lower bound. The ridge
+grid is fine (interior modes at 100-1000, only 25/960 at the top edge). Extend
+`LOGREG_C_GRID` upward (to 10, 100) before P2 reuses this machinery; the
+direction of the bias is known -- scores can only go up -- so no conclusion
+above is reversed by it, but "logreg beats ridge" is partly an artefact of
+where the two grids end.
+
+### Fold modes agree in ORDERING, as required
+
+Spearman rho over the four single-image encoders, `grid_cell`:
+
+```
+                        cube-loco   cube-spatial_block   loco-spatial_block
+month  logreg             +0.800          +0.800               +1.000
+month  ridge              +0.800          +0.400               +0.800
+season logreg             +1.000          +0.800               +0.800
+season ridge              +1.000          +0.800               +0.800
+```
+
+Levels differ as expected (LOCO trains on 19 cubes and tests on 1;
+`spatial_block` holds out whole geographic clusters and is uniformly the
+hardest). Ordering holds, with one weak cell: month/ridge cube-vs-spatial_block
+at +0.400, where dinov2 and raw_features change places -- both moves are well
+inside one fold-spread, so it is a tie being resolved differently, not a
+contradiction.
+
+### Figure 1, the latent clock
+
+264 frames pooled across 20 cubes / 15 time windows, coloured by the 8 realised
+months, five panels on shared axes (99th-percentile radius; 5 of 1320 points
+fall outside and the count is printed per panel). PC1+PC2 explained variance:
+
+```
+raw_features            46.4% + 23.2% = 69.6%
+imagenet_vit_b16        26.9% +  9.8% = 36.7%
+dinov2_vitb14           15.6% + 10.2% = 25.9%
+satlas_s2_swinb_rgb     15.3% + 13.4% = 28.7%
+satlas_s2_swinb_mi_rgb  30.0% + 13.0% = 43.0%
+```
+
+Every panel shows a visible month gradient; `imagenet_vit_b16` traces the
+clearest arc (April/May at one end, October/November at the other) despite
+being the weakest decoder in the table -- a reminder that two leading PCs and a
+linear probe over the full space are different questions. **Descriptive only:
+the PCA is fitted on all 264 rows because it estimates nothing, and no score is
+read off it.**
+
+### Cost
+
+`run_p1` 33.9 min on 7 CPU workers for 192 rows = 1920 outer folds, each with a
+3-fold inner tuning loop over a 5- or 6-point grid (~40k model fits). Whole
+notebook, including the 20-cube manifest build and the test suite, ~36 min.
+No GPU, no weights, peak memory well under 4 GB.
+
 ## 2026-08-06: Phase 1.3 exit test PASSED on Colab, and four silent skips closed
 
 The full five-encoder Phase 1.3 run, on the corrected nested Drive layout.

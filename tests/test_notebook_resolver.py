@@ -17,23 +17,45 @@ import os
 
 import pytest
 
-NOTEBOOK = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                        "notebooks", "phase1_3_cv.ipynb")
+_NOTEBOOKS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                          "notebooks")
+NOTEBOOK = os.path.join(_NOTEBOOKS, "phase1_3_cv.ipynb")
+# Every phase notebook from 1.3 on bootstraps the same way, so each carries a
+# copy of the block. A second copy free to drift is worse than no copy, so they
+# are asserted character-identical below.
+RESOLVER_NOTEBOOKS = ("phase1_3_cv.ipynb", "phase1_4_p1_appearance.ipynb")
 _BEGIN = "# === RESOLVER (pinned by tests/test_notebook_resolver.py) -- BEGIN ==="
 _END = "# === RESOLVER -- END ==="
 
 
-def _resolver_source():
-    with open(NOTEBOOK) as fh:
+def _resolver_source(notebook=None):
+    notebook = notebook or NOTEBOOK
+    with open(notebook) as fh:
         nb = json.load(fh)
     for c in nb["cells"]:
         src = "".join(c["source"])
         if _BEGIN in src and _END in src:
             return src.split(_BEGIN, 1)[1].split(_END, 1)[0]
     raise AssertionError(
-        f"no sentinel-fenced resolver block in {NOTEBOOK}. Either the bootstrap "
+        f"no sentinel-fenced resolver block in {notebook}. Either the bootstrap "
         "lost it or the sentinels were renamed; without them the precedence "
         "rule is untested and free to regress to 'first hit wins'."
+    )
+
+
+@pytest.mark.parametrize("name", RESOLVER_NOTEBOOKS[1:])
+def test_every_phase_notebook_carries_the_same_resolver(name):
+    """The block is copied, not imported -- a notebook cannot import from a
+    checkout it is in the middle of unpacking. So the copies are pinned to each
+    other here: fixing the precedence rule in one notebook and not the other is
+    exactly how the 'first hit wins' bug would come back on the phase nobody
+    re-read."""
+    other = _resolver_source(os.path.join(_NOTEBOOKS, name))
+    assert other == _resolver_source(), (
+        f"the resolver in {name} has drifted from the one in "
+        f"{os.path.basename(NOTEBOOK)}. Copy it back verbatim; anything that "
+        "must differ between phases belongs in a variable (PHASE, INPUT_PHASE), "
+        "not in the block."
     )
 
 

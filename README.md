@@ -49,6 +49,15 @@ encoders/manifest.py         (cube, frame) manifest: original_axis_index (horizo
                              weather (8 vars) joined on original_axis_index
 data/paths.py                phase-scoped artefact dirs: phase_dir/describe_phase/
                              reset_phase. data/raw is shared and never reset
+probes/p1_appearance.py      P1, the appearance sanity probe: month / season
+                             from ONE frame's frozen embedding. Reads the Phase
+                             1.2 .npz and nothing else -- no encoder is even
+                             imported. Four feature sets (pooled, grid_cell,
+                             raw_pooled, degenerate), two estimators, three fold
+                             modes, nested CV for the regularisation strength.
+                             Chance is DERIVED from the realised class
+                             distribution, never hard-coded. Also figure1(), the
+                             latent clock
 probes/cv.py                 THE split definition. Six modes over the manifest,
                              each yielding (train_idx, test_idx) row positions:
                                cube          DEFAULT, GroupKFold on cube_id
@@ -83,6 +92,7 @@ tests/                     test_ndvi.py was written before data/ndvi.py existed
 notebooks/phase1_1_data_toy_load.ipynb
 notebooks/phase1_2_encoders.ipynb
 notebooks/phase1_3_cv.ipynb
+notebooks/phase1_4_p1_appearance.ipynb
 notebooks/runs/                the executed exit-test runs, outputs kept, as
                                evidence. Never re-run in place; excluded from
                                the Colab bundle by make_zip.sh
@@ -188,3 +198,42 @@ For Colab, follow [RUNBOOK.md](RUNBOOK.md).
   "match EO-WM's published rows" as a validation surface and evaluate under
   our own protocol. See
   [docs/correspondence/2026-08-07-eowm-authors.md](docs/correspondence/2026-08-07-eowm-authors.md).
+- 1.4 P1 appearance probe: **DONE** (2026-08-08, local CPU, all five encoders;
+  archived at `notebooks/runs/phase1_4_p1_appearance_2026-08-08_localCPU.ipynb`).
+  `probes/p1_appearance.py` + one results CSV (192 rows) + Figure 1 under
+  `data/phase1_4/`. 302 tests pass, 5 skipped.
+  - **Realised, not assumed:** 8 months (April-November), not ~10 and not 12;
+    3 seasons (no DJF), not 4. Chance is 1/8 and 1/3, derived from the labels.
+    The tile has **15** distinct time windows, not the 16 recorded earlier --
+    five window strings appear on two cubes each.
+  - **No encoder FAILS P1.** All five clear chance by a wide margin on both
+    targets under all three fold modes, so the one surprise worth reporting --
+    an EO model trained to appearance-invariance -- did not occur, and P2/P3
+    are licensed.
+  - **But the degenerate control is a competitor, not a floor.**
+    `[clear_frac, window_span_days]` alone, no image, reaches 0.681 +/- 0.119
+    balanced accuracy on 3-class season under `spatial_block` -- beating all
+    five encoders -- against chance 0.333. Cloud retention on this subset is
+    strongly seasonal. **Only month, and only under `cube`/`loco`, separates
+    any encoder from the control** (+0.06 to +0.15); on season no encoder
+    clears it anywhere, and under `spatial_block` all four fall 0.10-0.22
+    BELOW it. So P1's season column cannot separate representation from
+    retention, and every later probe with a time-of-year-correlated target
+    must carry the same control.
+  - `raw_features` wins every single-image comparison, and that is partly an
+    input effect: the baseline reduces all four bands including **B8A** plus
+    NDVI, while every network encoder here is RGB-only. Clean comparisons are
+    network-vs-network and network-vs-control.
+  - Grid-cell rows (264 -> 4224) are the PRIMARY feature set: the only one
+    where the design matrix is not wider than it is tall. Pooled scores run
+    0.06-0.13 higher exactly where p >> n bites hardest, and the fold spread
+    roughly halves under grid_cell.
+  - Two known limits, both recorded rather than papered over: the logreg `C`
+    grid tops out at 1 and is selected there in 57% of folds (scores are a
+    lower bound; "logreg beats ridge" is not supported by this run), and
+    `satlas_s2_swinb_mi_rgb` is reported flagged `si_comparable=False` and
+    conditioned on its 0-105 day lookback, never ranked against the
+    single-image encoders.
+  - The local embedding cache is now the full **100 files**: `dinov2_vitb14`
+    needed Python >= 3.10 for its `torch.hub` code, not a GPU (20 cubes, CPU,
+    42 s). See [docs/DECISIONS.md](docs/DECISIONS.md).

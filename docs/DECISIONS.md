@@ -891,3 +891,251 @@ EarthNetScore). This decides the eval surface, not the project -- exactly
 as pre-registered.
 
 **Commit.** `d380d2a`
+
+---
+
+## 2026-08-08: `dinov2_vitb14` can be encoded locally after all -- it needed Python 3.10, not a GPU
+
+**Assumed.** That `dinov2_vitb14` was a Colab-only encoder. Every local run
+since Phase 1.2 has had FOUR encoders in its cache, and `RUNBOOK.md` recorded
+that as a standing limitation of the dev machine.
+
+**Observed.** The limitation is neither the GPU nor the weights. DINOv2's
+`torch.hub` code annotates a signature with `float | None`, a PEP-604
+expression Python evaluates at class-definition time, and the dev venv is
+3.9.6:
+
+```
+TypeError: unsupported operand type(s) for |: 'type' and 'NoneType'
+  .../dinov2/layers/attention.py:58 in class Attention
+```
+
+Nothing about the model requires a GPU. All 20 cubes encode on CPU in **42
+seconds**.
+
+**Changed.** The 20 missing `.npz` were produced in a throwaway Python 3.10
+virtualenv pinned to the SAME `torch==2.8.0` / `torchvision==0.23.0` as the dev
+venv, driving `encoders.pipeline.encode_cube` and `save_encoded` unchanged --
+no new machinery, no second code path, and every file re-read through
+`load_encoded` before it was trusted. The local cache is now the full 20 x 5 =
+100 files the README describes, so P1 evaluates the whole roster locally
+instead of four fifths of it.
+
+Two things this deliberately does NOT do. It does not change
+`encoders/dinov2_vit.py`: pinning an older hub revision would make the local
+encoder a different encoder from the one the archived Colab run used, to save
+an interpreter. And it does not add the 3.10 environment to the repo -- it is a
+one-off to fill a cache, not a supported second toolchain. Anyone reproducing
+this needs Python >= 3.10 and no GPU.
+
+**Commit.** `TBD`
+
+---
+
+## 2026-08-08: Phase 1.4, P1: grid-cell rows are the PRIMARY feature set
+
+**Assumed.** That the pooled embedding was the natural probe input, with the
+patch grid as an optional extra -- it is the vector each encoder's own
+linear-probe recipe produces.
+
+**Observed.** On this subset the pooled vector is severely p >> n, and not
+marginally so. DINOv2's pooled feature is **D = 3840 against 264 rows**: a
+linear classifier can separate almost any labelling of 264 points in 3840
+dimensions, so a high pooled score is not evidence that month is present, it is
+evidence that the design matrix is wide. Regularisation tuned by nested CV
+controls the damage but does not remove the ambiguity.
+
+The cached `grid` array resolves it without re-encoding anything. Flattening
+the 4x4 patch grid per CELL turns each frame into 16 rows that inherit its
+label: **264 -> 4224 rows at D_grid <= 768**. That is the only feature set here
+where the matrix is taller than it is wide, for every encoder.
+
+**Changed.** `grid_cell` is the feature set the headline table is read from,
+and `pooled` is reported beside it rather than instead of it. Two properties
+make the explosion safe, and both are asserted:
+
+* **Cube grouping survives it.** A cell row carries its frame's manifest row,
+  so all 16 cells of a frame land on the same side of every fold. The folds
+  still come from `probes/cv.py` unchanged -- the explosion happens in the
+  feature matrix, never in the split.
+* **The effective sample size does NOT go up.** 16 cells of one frame share a
+  sky and 13 frames of one cube share a place; 4224 is a fix for the FIT, not
+  4224 independent observations. This is why every metric is reported with its
+  across-fold spread over 20 cubes and never as a bare mean, and why the
+  degenerate control is run at cell level too rather than only at frame level.
+
+**Commit.** `TBD`
+
+---
+
+## 2026-08-08: Phase 1.4, P1: the multi-image encoder is REPORTED, never RANKED
+
+**Assumed.** That `satlas_s2_swinb_mi_rgb` was a fifth column of the same
+table -- it is the positive control, and a control that scores well is the
+point of having it.
+
+**Observed.** The target does not mean the same thing for it. MI aggregates 8
+RETAINED frames, and retained frames are irregularly spaced, so its lookback is
+a variable number of DAYS: measured on this subset **min 0, median 55, max
+105** (`window_span_days`, cached at encode time in `a1a6a12` precisely so a
+probe could condition on it). An MI embedding at time t therefore summarises up
+to three months of history. Asking "which month is this?" of a vector that
+averages August, September and October is not the question the single-image
+encoders are being asked, and the two answers do not belong in one ranked
+column.
+
+The failure mode is specific and would be invisible: MI could score HIGHER than
+a single-image encoder because the extra history disambiguates a cloudy frame,
+or LOWER because the label is smeared across the window -- and either way the
+number would be read as a statement about representation quality.
+
+**Changed.** Three things, none of them "drop the row":
+
+* Every MI row carries `si_comparable=False`, asserted by
+  `assert_results_complete`, and the console output tags it
+  `<- NOT SI-COMPARABLE`.
+* `rank_agreement` excludes MI when it compares encoder orderings across fold
+  modes, so it can never enter a ranking by accident.
+* MI is additionally reported **conditioned on `window_span_days`**, in
+  terciles computed from the realised values rather than at the nominal 35-day
+  span (which is wrong by a factor of three here). Chance is recomputed on each
+  tercile's own class distribution, because subsetting by lookback changes
+  which months are present.
+
+The Figure 1 panel keeps the same treatment: MI is drawn on the shared axes and
+labelled `(MULTI-IMAGE, variable lookback)` rather than left to look like a
+fifth single-image encoder.
+
+**Commit.** `TBD`
+
+---
+
+## 2026-08-08: Phase 1.4, P1: the baseline sees a band the networks do not
+
+**Assumed.** That `raw_features` was a strictly simpler model of the same
+evidence -- "per-frame summary statistics of exactly the input the network
+encoders see", as its own docstring puts it -- so beating it would be a clean
+statement about representation quality.
+
+**Observed.** The docstring is true of the four SPECTRAL bands and false of the
+band set. `raw_features` reduces all of `B02, B03, B04, B8A` and adds seven
+statistics of canonical NDVI, which needs B8A. Every network encoder here is
+RGB-only: `imagenet_vit_b16` and `dinov2_vitb14` by construction, and both
+Satlas wrappers because the RGB variant was chosen over the multi-spectral one
+(2026-08-03, above -- `..._SI_MS` expects nine bands these cubes do not carry,
+and filling the gap would invent data). So `rgb_from_s2` drops B8A before any
+network sees a pixel.
+
+NIR is where the seasonal vegetation signal mostly lives. The baseline is
+therefore not a weaker model of the same evidence in P1; it is a model of MORE
+evidence.
+
+**Changed.** Nothing in the code -- both choices remain right for their own
+reasons. What changes is how the table is read, and that is now stated at the
+top of `probes/p1_appearance.py`, in the log, and here: **a row where
+`raw_features` beats a frozen encoder is a statement about the input as much as
+about the representation.** The comparison that is clean is
+network-vs-network, and network-vs-degenerate-control.
+
+This also sets up the honest version of the missing experiment: an RGB-only
+raw-feature baseline would isolate the representation effect from the band
+effect. It is not run here -- it would mean a new encoder variant and a
+re-encode, which is Phase 1.2 work, not P1's -- and it is recorded as the
+first thing to add if a later phase wants to make a representation-quality
+claim from an appearance probe.
+
+**Commit.** `TBD`
+
+---
+
+## 2026-08-08: Phase 1.4, P1: the degenerate control is a competitor, not a floor
+
+**Assumed.** That `[clear_frac, window_span_days]` -- two numbers, no image --
+would sit near chance, and that the control's job was to let us say so in one
+line and move on. The P1 spec called it "not optional" as a matter of
+discipline, on the expectation that it would be uninformative.
+
+**Observed.** It is not uninformative. Measured on the primary feature set
+(logreg, cell level, full numbers in [log.md](../log.md)):
+
+```
+season  spatial_block   0.681 +/-0.119   vs chance 0.333   BEATS all five encoders
+season  loco            0.674 +/-0.233   vs chance 0.333   ties the best encoder
+season  cube            0.627 +/-0.123   vs chance 0.333
+month   spatial_block   0.328 +/-0.052   vs chance 0.125   within noise of the best
+month   cube            0.282 +/-0.118   vs chance 0.125
+```
+
+**Cloud retention on this subset is strongly seasonal.** That is obvious in
+hindsight -- Alpine-foreland cloud climatology *is* a season -- but the
+magnitude is not: two numbers containing no image reach 0.68 balanced accuracy
+on a 3-class season task and beat every frozen encoder under `spatial_block`.
+
+**Changed.** Three things, in what P1 is allowed to claim rather than in the
+code:
+
+* **A P1 SEASON score is not evidence about representation quality on this
+  subset.** Every encoder clears chance comfortably and none of them clearly
+  clears the retention control, so the season column cannot separate "this
+  embedding encodes season" from "this embedding encodes how cloudy it was".
+  It is reported in full and read as a calibration line only.
+* **MONTH under `cube` or `loco` is the only cell that separates.** There all
+  four single-image encoders lead the control by +0.06 to +0.15. Everywhere
+  else the margin collapses: on month under `spatial_block` only
+  `raw_features` (+0.023) and `satlas_s2_swinb_rgb` (+0.011) stay above it,
+  and on season no encoder clears it under any fold mode (best +0.027, worst
+  -0.224). Eight classes make retention a weaker proxy than three do. Where P1
+  is cited later, cite month under cube or LOCO, and cite it with the margin
+  over the control rather than the margin over chance.
+* **P2 and P3 inherit the control, not just the finding.** Any probe on this
+  subset whose target correlates with time-of-year now has to carry a
+  retention-only row, because the same confound is sitting underneath it. This
+  is cheap -- the covariates are already cached -- and it is the difference
+  between measuring a representation and measuring the weather that decided
+  which frames survived.
+
+**What this does NOT change.** The P1 verdict itself. No encoder fails P1:
+every one clears chance by a wide margin on both targets under all three fold
+modes, so the surprise the probe was watching for -- an EO model trained to
+appearance-invariance -- did not occur, and P2/P3 are licensed. The control
+narrows what a P1 pass means; it does not withdraw it.
+
+**Commit.** `TBD`
+
+---
+
+## 2026-08-08: Phase 1.4, P1: the logistic-regression C grid is too narrow, and it is left that way for this run
+
+**Assumed.** That `C in (1e-4 .. 1)` was a generous range for a p >> n problem,
+where the useful regularisation is strong and the weak end is there only so a
+boundary selection is visible as one.
+
+**Observed.** The boundary selection is not rare. Across all 1920 outer folds,
+`C = 1` -- the maximum -- is chosen **550 times (57%)**, and 555/960 logreg
+folds land on some grid edge against 111/960 for ridge, whose modes are
+interior (alpha 100-1000). The `grid_cell` feature set is the reason: at 4224
+rows against D <= 768 it is no longer p >> n, so the data genuinely wants less
+regularisation than the grid can offer.
+
+For those folds the regularisation was pinned by the grid rather than by the
+data, and the reported score is a LOWER bound.
+
+**Changed.** Nothing, for this run, deliberately. The direction of the bias is
+known and one-sided -- extending the grid can only raise the affected scores --
+so no conclusion in [log.md](../log.md) is reversed by it: every encoder clears
+chance, and the control comparison that the P1 verdict rests on is unaffected
+because the control's own scores would move the same way. Re-running to chase
+it would cost 34 minutes to make some numbers slightly larger without changing
+a claim.
+
+What it DOES contaminate is the estimator comparison. "logreg beats ridge" is
+partly an artefact of where the two grids end, so this run does not support
+that statement and does not make it.
+
+`at_grid_edge` is recorded per fold and `n_at_grid_edge` per row, so this was
+visible in the output rather than inferred afterwards -- which is the reason
+the field exists. **Extend `LOGREG_C_GRID` upward (10, 100) before P2 reuses
+this machinery**, and note that P2's targets may be genuinely p >> n again, in
+which case the low end still earns its place.
+
+**Commit.** `TBD`

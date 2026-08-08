@@ -17,3 +17,8 @@ numpy
 pandas
 matplotlib
 pytest
+# Phase 1.4 - P1: the probes themselves. sklearn on cached arrays, CPU only;
+# scipy carries the rank-agreement statistic, joblib the fold-level parallelism.
+scikit-learn
+scipy
+joblib

@@ -1,12 +1,13 @@
 # Runbook
 
-Phase 1.1 first, then Phase 1.2, then Phase 1.3 at the end of this file. Every
-phase shares the same Colab workflow: one manual file move, one runtime
-restart, one fast download.
+Phase 1.1 first, then Phase 1.2, then Phase 1.3, then Phase 1.4 at the end of
+this file. Every phase shares the same Colab workflow: one manual file move,
+one runtime restart, one fast download.
 
-The upload bundle is now `phase1_3_repo.zip` (built by `make_zip.sh`); it
+The upload bundle is now `phase1_4_repo.zip` (built by `make_zip.sh`); it
 contains everything the earlier notebooks need too, so there is no reason to
-keep an old `phase1_1_repo.zip` or `phase1_2_repo.zip` around.
+keep an old `phase1_1_repo.zip`, `phase1_2_repo.zip` or `phase1_3_repo.zip`
+around.
 
 ## ONE SUBFOLDER PER PHASE
 
@@ -20,8 +21,9 @@ My Drive/
     ├── data/raw/*.nc         SHARED cubes. NOT a phase.
     ├── phase1_1/             checkout + notebook
     ├── phase1_2/             checkout; artefacts at data/phase1_2/{embeddings,masks}
-    └── phase1_3/             checkout
-        └── phase1_3_repo.zip <- drag it here, leave it zipped
+    ├── phase1_3/             checkout; artefacts at data/phase1_3/folds
+    └── phase1_4/             checkout
+        └── phase1_4_repo.zip <- drag it here, leave it zipped
 ```
 
 **`data/raw` is not filed under a phase, and that is deliberate.** The cubes
@@ -69,7 +71,7 @@ Anything else is reported as `TODO ... still loose at the root`. It writes
 own in a fresh runtime whenever you want to see what is actually on Drive.
 
 This matters because of a bootstrap problem the shell scripts have and the
-notebook does not: `scripts/inventory.py` lives *inside* `phase1_3_repo.zip`,
+notebook does not: `scripts/inventory.py` lives *inside* the phase bundle,
 so `python -m scripts.inventory` needs a checkout already extracted into the
 very folder you are trying to reorganise. A tool that tidies the folder a
 checkout lives in cannot depend on that checkout existing.
@@ -433,7 +435,8 @@ after any change to the mask definition or the frame-selection rule.
 
 `probes/cv.py`, the leakage-safe split definition. **CPU is enough** — no GPU,
 no encoder weights, nothing re-encoded. Build the bundle with `./make_zip.sh`
-(it emits `phase1_3_repo.zip`), drag it into a NEW subfolder
+(it emits `phase1_4_repo.zip`; earlier phases extract from it too), drag it
+into a NEW subfolder
 `My Drive/NeurIPS-CCAI-2026/phase1_3/`, leave it zipped, open
 `notebooks/phase1_3_cv.ipynb`, and run top to bottom. Exactly one restart, at
 the end of Step 1.
@@ -504,9 +507,19 @@ should carry the `[inside this checkout]` tag -- that tag means the layout is
 still flat, not that anything is wrong. It writes `tree.txt` beside the folds,
 so two runs can be diffed.
 
-The local run has **four** encoders in Step 10, not five: `dinov2_vitb14`
-cannot be encoded locally (its hub code needs Python >= 3.10, the dev venv is
-3.9.6). On Colab, Step 10 sees all five.
+The archived 2026-08-05 local run has **four** encoders in Step 10, not five:
+`dinov2_vitb14` was missing from the local cache because its `torch.hub` code
+annotates a signature `float | None`, which Python 3.9 evaluates and rejects,
+and the dev venv is 3.9.6.
+
+**No longer a limitation (2026-08-08).** It needed Python >= 3.10, not a GPU:
+all 20 cubes encode on CPU in 42 s. The 20 files were produced in a throwaway
+3.10 virtualenv pinned to the same `torch==2.8.0`, driving
+`encoders.pipeline.encode_cube` unchanged, so the local cache is now the full
+100 files and a local Step 10 sees all five. See
+[docs/DECISIONS.md](docs/DECISIONS.md). Re-running Phase 1.3 locally today
+would print five encoders where the archived run printed four; that is the
+cache being complete, not a change to the phase.
 
 ### When something fails
 
@@ -535,4 +548,101 @@ reset_phase("phase1_3")     # clears ONLY this phase; data/raw is untouched
 
 Deleting the `phase1_3/` subfolder is the coarser version of the same undo.
 Neither can touch Phase 1.2's artefacts or the shared cubes, because this
+notebook only ever reads them.
+
+---
+
+# Phase 1.4 runbook
+
+P1, the appearance sanity probe: month and season from ONE frame's frozen
+embedding. **CPU is enough** — no GPU, no encoder weights, nothing re-encoded
+and nothing fine-tuned; this phase reads Phase 1.2's `.npz` with sklearn.
+Build the bundle with `./make_zip.sh`, drag `phase1_4_repo.zip` into a NEW
+subfolder `My Drive/NeurIPS-CCAI-2026/phase1_4/`, leave it zipped, open
+`notebooks/phase1_4_p1_appearance.ipynb`, and run top to bottom. Exactly one
+restart, at the end of Step 1.
+
+Phase 1.2 must have run first, and its cache must be COMPLETE: Step 8 asserts
+all 20 × 5 pairs, because a cube silently missing one encoder turns a
+per-encoder comparison into a comparison over different cubes.
+
+| step | what | time |
+|---|---|---|
+| 1 | install (adds `scikit-learn`, `scipy`), auto-restart | 2 min |
+| 2 | bootstrap, resolves RAW + EMB_IN read-only, defines `sh()` | 1 min |
+| 3 | environment check; sklearn present, cheap cache audit | instant |
+| 4 | cubes (skips ones already on Drive) | 15 s |
+| 5 | unit tests, expect `302 passed, 5 skipped` | 15 s |
+| 6 | build the REAL manifest from `data/raw/*.nc` | 1 min |
+| 7 | realised class distribution, chance DERIVED from it | instant |
+| 8 | audit + join all 100 pairs, re-asserted against the `.npz` | 20 s |
+| 9 | fold disjointness re-derived from the manifest, not from `cv` | 5 s |
+| 10 | poisoned test fold: selected `C` must not move | 1 min |
+| 11 | **the run** — 192 rows, 1920 outer folds, nested inner loop | 30–60 min |
+| 12 | table invariants: baseline row, degenerate control, MI flags | instant |
+| 13 | rank agreement between the three fold modes | instant |
+| 14 | Figure 1, five panels on shared axes | 20 s |
+| 15 | write + re-read the CSV, list what the phase wrote | 5 s |
+
+Step 11 dominates. It is the only long cell; `N_JOBS` is set in Step 3 from
+`os.cpu_count() - 1`, and parallelism changes wall-clock only — every estimator
+here is exact and the folds carry no RNG, so the CSV is identical at any
+`N_JOBS`.
+
+### What the numbers should look like
+
+Full detail in [log.md](log.md); the archived run is
+`notebooks/runs/phase1_4_p1_appearance_2026-08-08_localCPU.ipynb`.
+
+```
+Step 5   302 passed, 5 skipped        (307 collected)
+Step 7   month  8 REALISED classes (Apr..Nov), chance 1/8 = 0.1250, NOT 1/12
+         season 3 REALISED classes (no DJF),   chance 1/3 = 0.3333, NOT 1/4
+Step 8   100 .npz -> 100 usable (20 x 5) at v3
+         MI window_span_days min 0 median 55 max 105 d; SI encoders exactly 0
+Step 9   30 folds, every manifest row tested exactly once in each mode
+Step 10  selected C identical on all 5 folds; test score moves
+Step 11  192 rows in ~34 min on 7 workers
+Step 12  month/cube/logreg/grid_cell:
+           raw_features 0.425 > dinov2 0.397 > satlas_rgb 0.393 > imagenet 0.352
+           DEGENERATE CONTROL 0.282   (chance 0.125)
+Step 13  weakest pairwise Spearman rho +0.400
+Step 14  PC1+PC2 explained variance 26% (dinov2) .. 70% (raw_features)
+```
+
+**Two results to read, not skim.** The degenerate control
+(`[clear_frac, window_span_days]`, no image) reaches **0.681** on 3-class
+season under `spatial_block` and beats every encoder there. Cloud retention on
+this subset is seasonal, and only month under `cube`/`loco` separates any
+encoder from the control (+0.06 to +0.15); on season none of them clears it
+anywhere. And `raw_features` wins every single-image comparison partly because
+it sees **B8A** while every network encoder here is RGB-only. Both are recorded
+in [docs/DECISIONS.md](docs/DECISIONS.md).
+
+### When something fails
+
+- Step 3 `No Phase 1.2 embeddings found`: run
+  `notebooks/phase1_2_encoders.ipynb` first. Read the `EMB_IN` line Step 2
+  prints to see what it resolved.
+- Step 8 `N of 100 (cube, encoder) pairs have no current embedding`: the cache
+  has holes. The `[audit]` lines above it name the defect and its remedy —
+  usually `python -m scripts.restamp_cache` (no GPU) or a Phase 1.2 re-encode.
+  Do not continue with a partial roster.
+- Step 10 failing means the tuning loop saw test data. Nothing downstream of it
+  is reportable; fix `select_hyperparameter` before re-running Step 11.
+- Step 11 running much longer than an hour: check `N_JOBS` in Step 3. On a
+  single-core runtime the run is roughly 4 hours.
+- Step 5 collecting a different number of tests than you get locally means the
+  bundle is stale. `make_zip.sh` lists files with `git ls-files`, so an
+  uncommitted file is silently absent. **Commit before `make_zip.sh`.**
+
+### Re-running cleanly
+
+```python
+from data.paths import reset_phase
+reset_phase("phase1_4")     # clears ONLY this phase; data/raw is untouched
+```
+
+Deleting the `phase1_4/` subfolder is the coarser version of the same undo.
+Neither can touch Phase 1.2's embeddings or Phase 1.3's folds, because this
 notebook only ever reads them.
