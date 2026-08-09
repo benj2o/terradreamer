@@ -62,19 +62,37 @@ cube share a place. The honest uncertainty is the fold-to-fold spread over 20
 cubes, which is why every metric here is reported with its spread and never
 as a bare mean.
 
-THE BASELINE SEES A BAND THE NETWORKS DO NOT
---------------------------------------------
+THE BASELINE SEES A BAND THE NETWORKS DO NOT, SO THE TABLE CARRIES A
+BAND-MATCHED BASELINE TOO
+--------------------------------------------------------------------
 ``raw_features`` is computed over all four bands the cubes carry, B02/B03/B04
 and **B8A**, and includes seven statistics of canonical NDVI. All four network
 encoders are RGB-only -- ``imagenet_vit_b16`` and ``dinov2_vitb14`` by
 construction, and both Satlas wrappers because the RGB variant was chosen over
 the multi-spectral one (which expects nine bands these cubes do not have; see
 docs/DECISIONS.md). NIR is where the seasonal vegetation signal mostly lives,
-so the baseline is not merely a simpler model of the same evidence here: it is
-a model of MORE evidence. Any row in which ``raw_features`` beats a frozen
-encoder is therefore a statement about the input, not only about the
-representation, and must be read that way. It is stated here, at the top,
-because it is the first thing the results table shows.
+so ``raw_features`` is not a simpler model of the same evidence: it is a model
+of MORE evidence, and comparing a network to it is not a like-for-like test of
+the representation.
+
+The fix costs nothing, because ``raw_features`` stores its per-band statistics
+in a KNOWN COLUMN ORDER (``encoders.raw_features.RAW_FEATURE_NAMES``). The
+band-matched baseline is a column slice of an array already on disk -- no
+re-encode, no new weights:
+
+    raw_rgb_only    B02/B03/B04 statistics only. THE FAIR COMPARISON: the same
+                    bands the networks get, reduced by hand instead of by a
+                    network.
+    raw_nir_ndvi    B8A statistics plus canonical NDVI. What the networks are
+                    denied.
+
+The column indices are DERIVED from ``RAW_FEATURE_NAMES`` at import and
+asserted to partition it, never hard-coded, so a change to the baseline's
+feature order cannot silently repoint these slices at the wrong bands.
+
+Read ``raw_rgb_only``, not ``raw_features``, when the question is whether a
+frozen representation beats hand-crafted features. Read ``raw_features`` when
+the question is what the best available summary of this cube achieves.
 
 THE MULTI-IMAGE ENCODER IS NOT IN THE SAME COLUMN
 -------------------------------------------------
@@ -111,6 +129,7 @@ from __future__ import annotations
 
 import os
 import warnings
+from dataclasses import dataclass, replace
 from typing import NamedTuple, Sequence
 
 import numpy as np
@@ -130,11 +149,14 @@ __all__ = [
     "FoldResult",
     "month_labels", "season_labels", "target_labels",
     "class_distribution", "chance_level", "print_class_distribution",
-    "embeddings_dir", "load_encoder_arrays", "feature_matrix",
+    "embeddings_dir", "load_encoder_arrays", "FeatureBlock", "feature_matrix",
+    "RGB_BANDS", "NIR_BANDS", "RAW_BAND_COLUMNS",
     "subset_arrays", "degenerate_arrays", "wsd_bin_labels",
+    "assert_window_span_days_informative",
     "make_estimator", "param_grid", "param_name",
     "select_hyperparameter", "evaluate_fold", "evaluate",
-    "summarise", "run_p1", "rank_agreement", "figure1",
+    "summarise", "add_margin_over_control", "run_p1", "rank_agreement",
+    "figure1",
     "assert_baseline_view_consistent", "assert_results_complete",
     "results_path", "figure_path",
 ]
@@ -145,8 +167,11 @@ PHASE = "phase1_4"
 
 TARGETS = ("month", "season")
 FOLD_MODES = ("cube", "loco", "spatial_block")
-ESTIMATORS = ("logreg", "ridge")
-FEATURE_SETS = ("pooled", "grid_cell", "raw_pooled", "degenerate")
+# Both weightings of both estimators. See make_estimator for why the pair is
+# reported rather than one of them chosen.
+ESTIMATORS = ("logreg", "logreg_balanced", "ridge", "ridge_balanced")
+FEATURE_SETS = ("pooled", "grid_cell", "raw_pooled", "degenerate",
+                "raw_rgb_only", "raw_nir_ndvi")
 
 # The 4-way meteorological season. Defined over all twelve months on purpose:
 # the map is the definition, the REALISATION is measured. On this subset only
@@ -164,17 +189,53 @@ ENCODER_ORDER = ("raw_features", "imagenet_vit_b16", "dinov2_vitb14",
 BASELINE_ENCODER = "raw_features"
 MI_ENCODER = "satlas_s2_swinb_mi_rgb"
 
-# Regularisation grids. Centred on STRONG regularisation because every feature
-# set here is at least mildly p >> n and the pooled ones are severely so; the
-# weak end is kept only so a selected value at the boundary is visible as such.
-LOGREG_C_GRID = (1e-4, 1e-3, 1e-2, 1e-1, 1.0)
-RIDGE_ALPHA_GRID = (1e-1, 1.0, 1e1, 1e2, 1e3, 1e4)
+# Regularisation grids. The strong end exists because the POOLED sets are
+# severely p >> n (DINOv2 is D=3840 against 264 rows); the weak end exists
+# because the PRIMARY grid_cell set is not p >> n at all (4224 rows against
+# D <= 768) and genuinely wants less regularisation.
+#
+# The first Phase 1.4 run stopped at C=1 and selected there in 57% of folds --
+# the regularisation was pinned by the grid rather than chosen by the data, so
+# those scores were a lower bound of unknown tightness. Extending upward costs
+# almost nothing: larger C separates sooner, so lbfgs converges in FEWER
+# iterations (measured on dinov2 grid_cell: 67 iters at C=1, 30 at C=100).
+# Both grids now bracket their interior modes on both sides.
+LOGREG_C_GRID = (1e-4, 1e-3, 1e-2, 1e-1, 1.0, 1e1, 1e2)
+RIDGE_ALPHA_GRID = (1e-1, 1.0, 1e1, 1e2, 1e3, 1e4, 1e5)
 
 # The multi-image lookback strata. Terciles of window_span_days, computed from
 # the realised values rather than fixed at nominal day counts -- the nominal
 # 35-day span for 8 frames at a 5-day revisit is wrong by a factor of three
 # here (measured median 55, max 105).
 WSD_BINS = ("short", "medium", "long")
+
+# The band-matched baselines, as COLUMN GROUPS of raw_features. Derived from
+# the baseline's own feature names rather than hard-coded, and asserted to
+# partition them, so reordering RAW_FEATURE_NAMES cannot silently repoint these
+# at the wrong bands. See the module docstring for why they exist.
+RGB_BANDS = ("B02", "B03", "B04")
+NIR_BANDS = ("B8A", "NDVI")
+
+
+def _raw_band_columns() -> dict:
+    from encoders.raw_features import RAW_FEATURE_NAMES
+
+    groups = {"raw_rgb_only": RGB_BANDS, "raw_nir_ndvi": NIR_BANDS}
+    out = {k: np.array([i for i, n in enumerate(RAW_FEATURE_NAMES)
+                        if n.split("_")[0] in bands], dtype=int)
+           for k, bands in groups.items()}
+    covered = np.concatenate(list(out.values()))
+    assert sorted(covered.tolist()) == list(range(len(RAW_FEATURE_NAMES))), (
+        f"the band groups {groups} do not partition RAW_FEATURE_NAMES "
+        f"({len(RAW_FEATURE_NAMES)} features); a band was renamed or added and "
+        "the band-matched baseline would silently be over the wrong columns"
+    )
+    for k, cols in out.items():
+        assert cols.size, f"{k} selected no columns"
+    return out
+
+
+RAW_BAND_COLUMNS = _raw_band_columns()
 
 _INNER_K = 3          # inner folds for the nested tuning loop
 _GRID_CELLS = 16      # encoders.base.GRID_CELLS; asserted against the arrays
@@ -348,13 +409,109 @@ def load_encoder_arrays(manifest, encoder: str, emb_dir: str | None = None,
     return out
 
 
-def feature_matrix(arrays: dict, feature_set: str, level: str = "auto") -> tuple:
-    """(X, row_idx) for one feature set. ``row_idx[i]`` is the MANIFEST row
-    that X row i belongs to -- one-to-one for frame-level sets, 16-to-one for
-    cell-level ones.
+@dataclass(frozen=True)
+class FeatureBlock:
+    """A design matrix, the manifest row of each of its rows, and its labels --
+    bound together so they cannot be sliced apart.
 
-    Carrying row_idx rather than assuming alignment is what lets a fold defined
-    on manifest rows select cell rows without a second, hand-rolled index.
+    WHY THIS IS A TYPE AND NOT THREE VARIABLES. The cell-level feature set puts
+    16 X rows on every manifest row, so ``X``, ``row_idx`` and ``y`` have a
+    length that is not the manifest's and not each other's business to
+    remember. Any code that slices one and forgets another produces an index
+    that points at the wrong rows -- and for the FRAME-level sets, where all
+    three happen to be 264 long, the mistake does not even change a shape. It
+    returns a confident wrong number.
+
+    That is not hypothetical: it happened once during Phase 1.4, when
+    ``select_hyperparameter`` was handed a sliced ``X_tr`` next to the FULL
+    ``row_idx``. It surfaced as an ``IndexError`` -- and the reconstruction says
+    that was luck, not detection. Replaying the bad call over the real manifest:
+
+        cube k=5          15/15 inner folds raise
+        spatial_block     13/15 raise, 2 return a WRONG NUMBER
+        LOCO              51/60 raise, 9 return a WRONG NUMBER
+
+    **11 of 90 inner folds, 12%, would have silently selected a
+    regularisation strength from the wrong rows** -- and they cluster in LOCO,
+    where the training fold is largest and its row positions therefore most
+    likely to fit inside the sliced array. The first probe run happened to
+    exercise ``cube`` mode, where the bug is 100% fatal. Had it started with
+    LOCO it would have produced a plausible table.
+
+    An assertion at that call site would have fixed that call site; the hazard
+    is a property of the PATTERN, and P2, P3 and P4 all consume cell-level rows
+    and will write the pattern again.
+
+    So the arrays travel as one value. ``take`` and ``select`` slice all three
+    or none, ``with_labels`` is the only way labels get attached (via
+    ``row_idx``, which is the one correct way to index them), and the
+    length agreement is asserted on EVERY construction, including every slice.
+    """
+
+    X: np.ndarray            # (n_rows, D) float64
+    row_idx: np.ndarray      # (n_rows,) manifest row position of each X row
+    y: np.ndarray = None     # (n_rows,) labels, or None until with_labels
+    name: str = ""
+
+    def __post_init__(self):
+        assert self.X.ndim == 2, f"{self.name}: X must be 2-D, got {self.X.shape}"
+        assert self.row_idx.shape == (self.X.shape[0],), (
+            f"{self.name}: row_idx {self.row_idx.shape} does not describe X "
+            f"{self.X.shape}. These two must be sliced together, always."
+        )
+        assert self.y is None or self.y.shape == (self.X.shape[0],), (
+            f"{self.name}: y {None if self.y is None else self.y.shape} does "
+            f"not describe X {self.X.shape}"
+        )
+
+    @property
+    def n_rows(self) -> int:
+        return int(self.X.shape[0])
+
+    @property
+    def D(self) -> int:
+        return int(self.X.shape[1])
+
+    def with_labels(self, y_frame: np.ndarray) -> "FeatureBlock":
+        """Attach per-MANIFEST-ROW labels, expanded through ``row_idx``.
+
+        The only supported way to get labels onto a block. ``y_frame`` is one
+        label per manifest row; the expansion to feature rows is this class's
+        job precisely so no caller writes ``y_frame[row_idx]`` by hand against
+        a row_idx that may not be the one belonging to this X.
+        """
+        y_frame = np.asarray(y_frame)
+        assert y_frame.ndim == 1, y_frame.shape
+        assert self.row_idx.max() < y_frame.shape[0], (
+            f"{self.name}: row_idx reaches row {self.row_idx.max()} but only "
+            f"{y_frame.shape[0]} labels were given"
+        )
+        return replace(self, y=y_frame[self.row_idx])
+
+    def take(self, positions: np.ndarray) -> "FeatureBlock":
+        """Slice X, row_idx and y together. There is no way to slice one."""
+        positions = np.asarray(positions, dtype=int)
+        return replace(self, X=self.X[positions], row_idx=self.row_idx[positions],
+                       y=None if self.y is None else self.y[positions])
+
+    def rows_for(self, manifest_rows) -> np.ndarray:
+        """Positions of the feature rows belonging to a set of manifest rows."""
+        keep = np.flatnonzero(np.isin(self.row_idx, np.asarray(manifest_rows)))
+        assert keep.size, f"{self.name}: a fold side selected zero feature rows"
+        return keep
+
+    def select(self, manifest_rows) -> "FeatureBlock":
+        """The sub-block belonging to a set of manifest rows."""
+        return self.take(self.rows_for(manifest_rows))
+
+
+def feature_matrix(arrays: dict, feature_set: str, level: str = "auto") -> FeatureBlock:
+    """The FeatureBlock for one feature set.
+
+    ``row_idx[i]`` is the MANIFEST row that X row i belongs to -- one-to-one for
+    frame-level sets, 16-to-one for cell-level ones. Carrying it (bound to X, in
+    a FeatureBlock) rather than assuming alignment is what lets a fold defined on
+    manifest rows select cell rows without a second, hand-rolled index.
     """
     n = arrays["pooled"].shape[0]
     frame_rows = np.arange(n)
@@ -365,6 +522,16 @@ def feature_matrix(arrays: dict, feature_set: str, level: str = "auto") -> tuple
     elif feature_set == "grid_cell":
         g = arrays["grid"]
         X, row_idx = g.reshape(n * _GRID_CELLS, g.shape[-1]), cell_rows
+    elif feature_set in RAW_BAND_COLUMNS:
+        g = arrays["grid"]
+        assert g.shape[-1] == 35, (
+            f"{feature_set} is a column slice of the raw_features grid "
+            f"(D=35), but this array has D={g.shape[-1]}. It is only defined "
+            "for the raw_features encoder."
+        )
+        cols = RAW_BAND_COLUMNS[feature_set]
+        X = g[:, :, cols].reshape(n * _GRID_CELLS, cols.size)
+        row_idx = cell_rows
     elif feature_set == "degenerate":
         assert level in ("frame", "cell"), (
             f"the degenerate control needs an explicit level, got {level!r}"
@@ -382,16 +549,9 @@ def feature_matrix(arrays: dict, feature_set: str, level: str = "auto") -> tuple
         raise AssertionError(f"unknown feature set {feature_set!r}")
 
     X = np.ascontiguousarray(X, dtype=np.float64)
-    assert X.ndim == 2 and X.shape[0] == row_idx.shape[0], (X.shape, row_idx.shape)
     assert np.isfinite(X).all(), f"{feature_set}: non-finite feature"
-    return X, row_idx
-
-
-def _rows_for(row_idx: np.ndarray, manifest_positions: np.ndarray) -> np.ndarray:
-    """X-row positions belonging to a set of manifest rows."""
-    keep = np.flatnonzero(np.isin(row_idx, manifest_positions))
-    assert keep.size, "a fold side selected zero feature rows"
-    return keep
+    label = feature_set if feature_set != "degenerate" else f"degenerate/{level}"
+    return FeatureBlock(X=X, row_idx=row_idx, name=label)
 
 
 # ---------------------------------------------------------------------------
@@ -401,31 +561,38 @@ def _rows_for(row_idx: np.ndarray, manifest_positions: np.ndarray) -> np.ndarray
 def make_estimator(name: str, param: float):
     """One estimator at one regularisation strength. No RNG, no warm start.
 
-    ``logreg`` is multinomial by construction: sklearn's lbfgs solver fits a
-    single multinomial model whenever there are more than two classes, and the
-    explicit ``multi_class`` argument that used to say so is deprecated, so
-    passing it would emit a FutureWarning while changing nothing.
+    The ``logreg`` variants are multinomial by construction: sklearn's lbfgs
+    solver fits a single multinomial model whenever there are more than two
+    classes, and the explicit ``multi_class`` argument that used to say so is
+    deprecated, so passing it would emit a FutureWarning while changing nothing.
 
-    Neither estimator is class-weighted. The metric IS balanced accuracy, so
-    weighting would move the estimator toward the metric and inflate exactly
-    the number this probe exists to establish a floor for. The unweighted fit
-    is the conservative choice: if month is recoverable anyway, the conclusion
-    survives the imbalance rather than being rescued from it.
+    BOTH weightings are run, and the pair is the point. An UNWEIGHTED fit is the
+    conservative reading: the metric is balanced accuracy, so weighting moves
+    the estimator toward the metric, and a conclusion that survives without it
+    survives the imbalance rather than being rescued from it. But unweighted is
+    also the WRONG estimator for the metric in the ordinary sense -- November
+    has 5 frames of 264, and a loss that never pays to predict it forfeits 1/8
+    of balanced accuracy outright -- so reporting only the unweighted number
+    understates every row by an unknown amount. Reporting both bounds it, and
+    the control is weighted the same way, so the margin over the control (the
+    number P1 is actually read on) is fair either way.
     """
     from sklearn.linear_model import LogisticRegression, RidgeClassifier
 
     assert name in ESTIMATORS, f"estimator {name!r} not in {ESTIMATORS}"
-    if name == "logreg":
-        return LogisticRegression(C=float(param), max_iter=2000, tol=1e-4)
-    return RidgeClassifier(alpha=float(param))
+    weight = "balanced" if name.endswith("_balanced") else None
+    if name.startswith("logreg"):
+        return LogisticRegression(C=float(param), max_iter=2000, tol=1e-4,
+                                  class_weight=weight)
+    return RidgeClassifier(alpha=float(param), class_weight=weight)
 
 
 def param_grid(estimator: str) -> tuple:
-    return LOGREG_C_GRID if estimator == "logreg" else RIDGE_ALPHA_GRID
+    return LOGREG_C_GRID if estimator.startswith("logreg") else RIDGE_ALPHA_GRID
 
 
 def param_name(estimator: str) -> str:
-    return "C" if estimator == "logreg" else "alpha"
+    return "C" if estimator.startswith("logreg") else "alpha"
 
 
 def _score(y_true, y_pred, macro_f1: bool = False) -> float:
@@ -468,29 +635,29 @@ def _fit_predict(estimator: str, param: float, X_tr, y_tr, X_te):
     return clf.predict(Z_te)
 
 
-def select_hyperparameter(X_tr, y_tr, manifest, train_rows, row_idx_tr,
+def select_hyperparameter(train: FeatureBlock, manifest, train_rows,
                           estimator: str, inner_k: int = _INNER_K,
                           verbose: bool = False) -> dict:
     """Tune the regularisation strength on the TRAINING fold only.
 
     THE SIGNATURE IS THE GUARANTEE. There is no test argument to leak: this
-    function is handed the training design matrix, the training labels, and
-    the manifest rows the training fold occupies, and nothing else. The
-    tests exercise that by poisoning the test fold and asserting the selection
-    is bit-identical, and by inspecting this signature for any parameter that
-    could carry test data.
+    function is handed the training block (design matrix, its manifest rows and
+    its labels, bound together and already sliced to the training fold) and the
+    manifest rows that fold occupies, and nothing else. The tests exercise that
+    by poisoning the test fold and asserting the selection is bit-identical, and
+    by inspecting this signature for any parameter that could carry test data.
 
-    ``row_idx_tr`` is the manifest row of each row OF X_tr -- the training
-    slice of the full row index, not the full array. Handing in the full one
-    would silently index past the end of X_tr for cell-level features, which
-    is exactly the sort of off-by-a-subset that turns into a wrong number
-    rather than an error when the arrays happen to be the same length.
+    Taking a ``FeatureBlock`` rather than loose arrays is the fix for a real
+    Phase 1.4 bug: this function was once handed a sliced ``X_tr`` beside the
+    UNSLICED row index. See FeatureBlock for why an assertion here would not
+    have been enough.
 
     The inner split is ``probes.cv.folds`` on the TRAINING sub-manifest, mode
     "cube": cube grouping is the strictest rule any outer mode here obeys, so
     an inner fold can never put a training cube on both sides either.
     """
     grid = param_grid(estimator)
+    assert train.y is not None, "the training block carries no labels"
     sub = manifest.iloc[train_rows]
     n_cubes = int(sub["cube_id"].nunique())
     k = min(inner_k, n_cubes)
@@ -501,21 +668,17 @@ def select_hyperparameter(X_tr, y_tr, manifest, train_rows, row_idx_tr,
     )
     inner = list(cv.folds(sub, "cube", k=k, verbose=False))
     assert inner, "the inner split produced no folds"
-    row_idx_tr = np.asarray(row_idx_tr, dtype=int)
-    assert row_idx_tr.shape[0] == X_tr.shape[0], (
-        f"row_idx_tr {row_idx_tr.shape} does not describe X_tr {X_tr.shape}"
-    )
 
     scores = np.zeros((len(grid), len(inner)))
     for j, (itr, ite) in enumerate(inner):
         # Inner positions index the SUB-manifest; map back to manifest rows,
-        # then to rows OF X_tr. Both hops are explicit so neither can drift.
+        # then let the block slice itself. Neither hop can drop an array.
         tr_rows, te_rows = train_rows[itr], train_rows[ite]
         assert not np.intersect1d(tr_rows, te_rows).size
-        a, b = _rows_for(row_idx_tr, tr_rows), _rows_for(row_idx_tr, te_rows)
+        a, b = train.select(tr_rows), train.select(te_rows)
         for i, p in enumerate(grid):
-            pred = _fit_predict(estimator, p, X_tr[a], y_tr[a], X_tr[b])
-            scores[i, j] = _score(y_tr[b], pred)
+            pred = _fit_predict(estimator, p, a.X, a.y, b.X)
+            scores[i, j] = _score(b.y, pred)
 
     mean = scores.mean(axis=1)
     # Ties break toward STRONGER regularisation. Both grids are ascending, and
@@ -558,48 +721,54 @@ class FoldResult(NamedTuple):
     log: str
 
 
-def evaluate_fold(X, y, row_idx, manifest, train_rows, test_rows,
+def evaluate_fold(block: FeatureBlock, manifest, train_rows, test_rows,
                   estimator: str, fold: int = 0, inner_k: int = _INNER_K,
                   verbose: bool = True) -> FoldResult:
     """One outer fold, end to end: tune on train, fit on train, score on test.
 
     Public because it is the seam the leakage test needs: it is called twice
-    with identical training arguments and DIFFERENT (poisoned) test arguments,
-    and the selected regularisation strength must be identical.
+    with an identical training side and a DIFFERENT (poisoned) test side, and
+    the selected regularisation strength must be identical.
     """
     from sklearn.dummy import DummyClassifier
 
+    assert block.y is not None, "the block carries no labels; call with_labels"
     train_rows = np.asarray(train_rows, dtype=int)
     test_rows = np.asarray(test_rows, dtype=int)
     assert not np.intersect1d(train_rows, test_rows).size, (
         f"fold {fold}: manifest rows appear on both sides"
     )
-    a, b = _rows_for(row_idx, train_rows), _rows_for(row_idx, test_rows)
-    assert not np.intersect1d(a, b).size, f"fold {fold}: feature rows overlap"
-    X_tr, y_tr, X_te, y_te = X[a], y[a], X[b], y[b]
+    a_pos, b_pos = block.rows_for(train_rows), block.rows_for(test_rows)
+    assert not np.intersect1d(a_pos, b_pos).size, f"fold {fold}: rows overlap"
+    train, test = block.take(a_pos), block.take(b_pos)
 
-    sel = select_hyperparameter(X_tr, y_tr, manifest, train_rows, row_idx[a],
-                                estimator, inner_k=inner_k, verbose=False)
-    pred = _fit_predict(estimator, sel["param"], X_tr, y_tr, X_te)
+    sel = select_hyperparameter(train, manifest, train_rows, estimator,
+                                inner_k=inner_k, verbose=False)
+    pred = _fit_predict(estimator, sel["param"], train.X, train.y, test.X)
 
     # Metrics over the classes present in THIS test fold; see _score.
-    labels = np.unique(y_te)
-    ba, f1 = _score(y_te, pred), _score(y_te, pred, macro_f1=True)
-    dpred = DummyClassifier(strategy="most_frequent").fit(X_tr, y_tr).predict(X_te)
-    dba, df1 = _score(y_te, dpred), _score(y_te, dpred, macro_f1=True)
+    labels = np.unique(test.y)
+    ba, f1 = _score(test.y, pred), _score(test.y, pred, macro_f1=True)
+    dpred = (DummyClassifier(strategy="most_frequent")
+             .fit(train.X, train.y).predict(test.X))
+    dba, df1 = _score(test.y, dpred), _score(test.y, dpred, macro_f1=True)
 
     cubes = manifest["cube_id"].to_numpy()
     edge = " [GRID EDGE]" if sel["at_grid_edge"] else ""
-    log = (f"[p1]   fold {fold + 1}: train {a.size} rows / "
-           f"{len(set(cubes[train_rows]))} cubes, test {b.size} rows / "
+    # The dummy is printed as a MARGIN, not as a second number to be eyeballed
+    # against the global chance line. A fold holding one cube holds ~5 of the 8
+    # months, so its implicit floor is ~1/5, not 1/8; bal-acc minus this fold's
+    # own dummy is the only quantity that means the same thing in every fold.
+    log = (f"[p1]   fold {fold + 1}: train {train.n_rows} rows / "
+           f"{len(set(cubes[train_rows]))} cubes, test {test.n_rows} rows / "
            f"{len(set(cubes[test_rows]))} cubes, {labels.size} classes in test | "
            f"{param_name(estimator)}={sel['param']:g}{edge} | "
-           f"bal-acc {ba:.3f} (dummy {dba:.3f})  macro-F1 {f1:.3f} "
-           f"(dummy {df1:.3f})")
+           f"bal-acc {ba:.3f} = dummy {dba:.3f} {ba - dba:+.3f} | "
+           f"macro-F1 {f1:.3f} = dummy {df1:.3f} {f1 - df1:+.3f}")
     if verbose:
         print(log)
     return FoldResult(
-        fold=fold, n_train=int(a.size), n_test=int(b.size),
+        fold=fold, n_train=train.n_rows, n_test=test.n_rows,
         n_train_cubes=len(set(cubes[train_rows])),
         n_test_cubes=len(set(cubes[test_rows])),
         n_classes_test=int(labels.size),
@@ -618,7 +787,7 @@ def _outer_folds(manifest, mode: str, k: int = 5, verbose: bool = False) -> list
     return list(cv.folds(manifest, mode, k=k, verbose=verbose))
 
 
-def evaluate(X, y, row_idx, manifest, mode: str, estimator: str, k: int = 5,
+def evaluate(block: FeatureBlock, manifest, mode: str, estimator: str, k: int = 5,
              inner_k: int = _INNER_K, n_jobs: int = 1,
              verbose: bool = True) -> list:
     """Every outer fold of one mode. Deterministic; ``n_jobs`` only changes
@@ -633,14 +802,13 @@ def evaluate(X, y, row_idx, manifest, mode: str, estimator: str, k: int = 5,
     call = dict(estimator=estimator, inner_k=inner_k, verbose=False)
 
     if n_jobs == 1:
-        results = [evaluate_fold(X, y, row_idx, manifest, tr, te, fold=i, **call)
+        results = [evaluate_fold(block, manifest, tr, te, fold=i, **call)
                    for i, (tr, te) in enumerate(outer)]
     else:
         from joblib import Parallel, delayed, parallel_config
         with parallel_config(backend="loky", inner_max_num_threads=1):
             results = Parallel(n_jobs=n_jobs)(
-                delayed(evaluate_fold)(X, y, row_idx, manifest, tr, te,
-                                       fold=i, **call)
+                delayed(evaluate_fold)(block, manifest, tr, te, fold=i, **call)
                 for i, (tr, te) in enumerate(outer))
     if verbose:
         for r in results:
@@ -679,9 +847,67 @@ def _wsd_bin_edges(wsd: np.ndarray) -> np.ndarray:
 
 
 def wsd_bin_labels(wsd: np.ndarray) -> np.ndarray:
+    """Tercile label per frame, REFUSING a degenerate cut.
+
+    An all-zero (or near-constant) lookback gives identical quantiles, and
+    ``np.digitize`` then drops every frame into one bin while the caller still
+    prints three tercile rows. Nothing raises: zeros are finite, in range and
+    the right shape. So the non-degeneracy is asserted here rather than left to
+    be noticed in the bin counts.
+    """
+    wsd = np.asarray(wsd, dtype=float)
     edges = _wsd_bin_edges(wsd)
-    idx = np.digitize(np.asarray(wsd, dtype=float), edges, right=False)
-    return np.array([WSD_BINS[min(int(i), 2)] for i in idx])
+    assert edges[0] < edges[1], (
+        f"window_span_days terciles are degenerate (both cuts at {edges[0]:.0f} "
+        f"days over {wsd.size} frames, min {wsd.min():.0f} max {wsd.max():.0f}). "
+        "The lookback covariate is constant, so conditioning on it measures "
+        "nothing -- see assert_window_span_days_informative."
+    )
+    idx = np.digitize(wsd, edges, right=False)
+    out = np.array([WSD_BINS[min(int(i), 2)] for i in idx])
+    counts = {b: int((out == b).sum()) for b in WSD_BINS}
+    assert min(counts.values()) > 0, f"an empty lookback tercile: {counts}"
+    return out
+
+
+def assert_window_span_days_informative(arrays_by_encoder: dict) -> None:
+    """The multi-image lookback must actually vary, and the SI ones must not.
+
+    WHY THIS GUARD EXISTS. ``window_span_days`` is identically 0 for a
+    single-image encoder BY DESIGN -- that is the honest value, not a missing
+    one -- so "all zeros" is a legitimate state for four of the five caches and
+    no shape, dtype or finiteness check can tell a correct zero from a lost
+    covariate. If the MI cache also came back zero (a pre-v3 file, a re-encode
+    at ``window_len=1``, a join that dropped the field), two things would fail
+    SILENTLY while still printing full output: the degenerate control would
+    quietly become ``clear_frac`` alone, half the control it claims to be, and
+    the MI lookback strata would collapse into one bin.
+
+    The retention control is currently the most defensible result in this
+    phase. It does not get to degrade quietly.
+    """
+    for enc, a in arrays_by_encoder.items():
+        w = np.asarray(a["window_span_days"], dtype=float)
+        if enc == MI_ENCODER:
+            assert w.max() > 0 and np.unique(w).size >= 3, (
+                f"{enc} is MULTI-IMAGE but its window_span_days is constant "
+                f"(min {w.min():.0f} max {w.max():.0f}, "
+                f"{np.unique(w).size} distinct value(s)). Expected a variable "
+                "lookback (measured on this subset: 0-105 days). The covariate "
+                "was not cached, or the cache predates schema v3 -- re-encode "
+                "Phase 1.2 rather than reporting a control that is really "
+                "clear_frac alone."
+            )
+        elif enc in ENCODER_ORDER:
+            assert (w == 0).all(), (
+                f"{enc} is single-image, so window_span_days must be exactly 0 "
+                f"(got min {w.min():.0f} max {w.max():.0f}). A non-zero value "
+                "means the roster and the cache disagree about window_len."
+            )
+    w = arrays_by_encoder[MI_ENCODER]["window_span_days"]
+    print(f"[p1] window_span_days INFORMATIVE: {MI_ENCODER} varies over "
+          f"{np.unique(w).size} distinct values, {w.min():.0f}-{w.max():.0f} d; "
+          f"all single-image encoders exactly 0")
 
 
 def subset_arrays(arrays: dict, rows: np.ndarray) -> dict:
@@ -723,7 +949,14 @@ def degenerate_arrays(arrays_by_encoder: dict, verbose: bool = True) -> dict:
                                    atol=1e-6, err_msg="grid_clear_frac differs "
                                                       f"between {encs[0]} and {e}")
     src = MI_ENCODER if MI_ENCODER in arrays_by_encoder else encs[0]
-    wsd = arrays_by_encoder[src]["window_span_days"]
+    wsd = np.asarray(arrays_by_encoder[src]["window_span_days"], dtype=float)
+    assert src != MI_ENCODER or wsd.max() > 0, (
+        "the degenerate control was asked for window_span_days from "
+        f"{MI_ENCODER} and got a column of zeros. The control would silently "
+        "become [clear_frac] alone -- half the control it reports -- while "
+        "still printing a two-column D=2 row. See "
+        "assert_window_span_days_informative."
+    )
     if verbose:
         print(f"[p1] degenerate control: clear_frac (identical across "
               f"{len(encs)} encoders) + window_span_days from {src} "
@@ -743,9 +976,76 @@ def degenerate_arrays(arrays_by_encoder: dict, verbose: bool = True) -> dict:
 # The run
 # ---------------------------------------------------------------------------
 
+def add_margin_over_control(df, verbose: bool = True):
+    """Attach the two margins P1 should actually be read on.
+
+    ``margin_over_dummy`` -- balanced accuracy minus THIS row's own per-fold
+    most-frequent dummy. A cube-grouped test fold holds a subset of the classes
+    (one cube covers about 5 of the 8 months), so its implicit floor is not the
+    global 1/K, and comparing a LOCO score against the flat chance line credits
+    it with a margin the split never offered. Measured here: the dummy is 0.132
+    under ``cube`` but 0.199 under ``loco``. The margin is the only quantity
+    that means the same thing in every fold mode.
+
+    ``margin_over_band_matched`` -- balanced accuracy minus ``raw_rgb_only``,
+    the hand-crafted baseline over the SAME three bands every network encoder
+    receives. This is the like-for-like representation-quality number; the
+    margin over full ``raw_features`` is not, because that baseline additionally
+    sees B8A and NDVI.
+
+    ``margin_over_control`` -- balanced accuracy minus the DEGENERATE control
+    for the same (target, fold_mode, estimator), matched at cell level. On this
+    subset cloud retention is strongly seasonal, so distance from chance
+    overstates what a representation contributed; distance from the control is
+    the part that needed an image. Encoder and control are scored on the same
+    folds with the same available classes, so this margin is also immune to the
+    per-fold class-count effect above.
+
+    Both are attached rather than left to the reader, because a column that has
+    to be computed by hand is a column that gets read wrong.
+    """
+    key = ["target", "fold_mode", "estimator"]
+    ctrl = df[(df.feature_set == "degenerate") & (df.feature_level == "cell")]
+    assert len(ctrl) == len(ctrl.drop_duplicates(key)), "control rows not unique"
+    lookup = ctrl.set_index(key)["balanced_accuracy_mean"]
+    band = df[df.feature_set == "raw_rgb_only"]
+    band_lookup = (band.set_index(key)["balanced_accuracy_mean"]
+                   if len(band) else None)
+    df = df.copy()
+    # Recomputed here even though _rows_dict already set it (the per-row print
+    # needs it before the table exists). Same arithmetic, so the two cannot
+    # disagree, and this helper then works on any table with the base columns.
+    df["margin_over_dummy"] = (df.balanced_accuracy_mean
+                               - df.dummy_balanced_accuracy_mean)
+    df["margin_over_control"] = (
+        df.balanced_accuracy_mean
+        - df.set_index(key).index.map(lookup).to_numpy()
+    )
+    assert df.margin_over_control.notna().all(), (
+        "some row has no matching degenerate control; the control is not "
+        "optional and every row must be comparable to it"
+    )
+    if band_lookup is not None:
+        df["margin_over_band_matched"] = (
+            df.balanced_accuracy_mean
+            - df.set_index(key).index.map(band_lookup).to_numpy()
+        )
+        assert df.margin_over_band_matched.notna().all(), (
+            "some row has no matching raw_rgb_only baseline"
+        )
+    if verbose:
+        beaten = df[(df.feature_set == "grid_cell")
+                    & (df.margin_over_control <= 0)]
+        print(f"[p1] margins attached. {len(beaten)}/"
+              f"{int((df.feature_set == 'grid_cell').sum())} grid_cell rows are "
+              "AT OR BELOW the retention-only control")
+    return df
+
+
 def _rows_dict(target, mode, estimator, encoder, feature_set, level, wsd_bin,
-               X, manifest, results, chance, comparable, note):
+               block, manifest, results, chance, comparable, note):
     s = summarise(results)
+    X = block.X
     return {
         "target": target, "fold_mode": mode, "estimator": estimator,
         "encoder": encoder, "feature_set": feature_set, "feature_level": level,
@@ -759,6 +1059,10 @@ def _rows_dict(target, mode, estimator, encoder, feature_set, level, wsd_bin,
         "majority_frac": float(chance["majority_frac"]),
         "si_comparable": bool(comparable),
         "note": note,
+        # Row-local, so the per-row print can use it; margin_over_control needs
+        # the whole table and is attached by add_margin_over_control.
+        "margin_over_dummy": float(s["balanced_accuracy_mean"]
+                                   - s["dummy_balanced_accuracy_mean"]),
         **s,
     }
 
@@ -795,6 +1099,7 @@ def run_p1(manifest, encoders: Sequence[str] = ENCODER_ORDER,
         print()
     arrays = {e: load_encoder_arrays(manifest, e, emb_dir, verbose=verbose)
               for e in encoders}
+    assert_window_span_days_informative(arrays)
     arrays["__degenerate__"] = degenerate_arrays(arrays, verbose=verbose)
     wsd = arrays["__degenerate__"]["window_span_days"]
     bins = wsd_bin_labels(wsd)
@@ -824,13 +1129,20 @@ def run_p1(manifest, encoders: Sequence[str] = ENCODER_ORDER,
                     jobs.append((enc, enc, "grid_cell", "cell"))
                 jobs.append((BASELINE_ENCODER, BASELINE_ENCODER,
                              "raw_pooled", "frame"))
+                # The BAND-MATCHED baseline and its complement. Same rows, same
+                # folds, same estimator as the grid_cell networks -- the only
+                # difference is which of the cube's four bands the features saw.
+                jobs.append((BASELINE_ENCODER, BASELINE_ENCODER,
+                             "raw_rgb_only", "cell"))
+                jobs.append((BASELINE_ENCODER, BASELINE_ENCODER,
+                             "raw_nir_ndvi", "cell"))
                 jobs.append(("__degenerate__", "none", "degenerate", "frame"))
                 jobs.append(("__degenerate__", "none", "degenerate", "cell"))
 
                 for src, enc_label, fs, level in jobs:
-                    X, row_idx = feature_matrix(arrays[src], fs, level=level)
-                    y = y_frame[row_idx]
-                    res = evaluate(X, y, row_idx, manifest, mode, estimator,
+                    block = feature_matrix(arrays[src], fs,
+                                           level=level).with_labels(y_frame)
+                    res = evaluate(block, manifest, mode, estimator,
                                    k=k, inner_k=inner_k, n_jobs=n_jobs,
                                    verbose=False)
                     comparable, note = src != MI_ENCODER, ""
@@ -838,23 +1150,30 @@ def run_p1(manifest, encoders: Sequence[str] = ENCODER_ORDER,
                         note = ("aggregates 8 retained frames over a variable "
                                 "lookback (0-105 d); NOT directly comparable "
                                 "to the single-image encoders")
+                    elif fs == "raw_rgb_only":
+                        note = ("BAND-MATCHED baseline: B02/B03/B04 statistics "
+                                "only, the same bands every network encoder "
+                                "sees. This is the like-for-like comparison")
+                    elif fs == "raw_nir_ndvi":
+                        note = ("B8A statistics + canonical NDVI: the evidence "
+                                "the RGB-only network encoders are denied")
                     elif fs == "degenerate":
                         note = ("retention only: "
                                 + ("[clear_frac, window_span_days]" if level == "frame"
                                    else "[grid_clear_frac, window_span_days]")
                                 + f", NO embedding; window_span_days from {MI_ENCODER}")
                     r = _rows_dict(target, mode, estimator, enc_label, fs, level,
-                                   "all", X, manifest, res, chance, comparable,
-                                   note)
+                                   "all", block, manifest, res, chance,
+                                   comparable, note)
                     rows.append(r)
                     if verbose:
                         print(f"[p1]   {enc_label:<24} {fs:<11} {level:<5} "
-                              f"n={X.shape[0]:<5} D={X.shape[1]:<5} "
+                              f"n={block.n_rows:<5} D={block.D:<5} "
                               f"bal-acc {r['balanced_accuracy_mean']:.3f} "
                               f"+/-{r['balanced_accuracy_std']:.3f} "
                               f"(spread {r['balanced_accuracy_spread']:.3f}) "
-                              f"macro-F1 {r['macro_f1_mean']:.3f} "
-                              f"| dummy {r['dummy_balanced_accuracy_mean']:.3f} "
+                              f"| over dummy {r['margin_over_dummy']:+.3f} "
+                              f"| macro-F1 {r['macro_f1_mean']:.3f} "
                               f"| {param_name(estimator)} "
                               f"[{r['selected_params']}]"
                               + ("  <- NOT SI-COMPARABLE" if not comparable else ""))
@@ -876,15 +1195,15 @@ def run_p1(manifest, encoders: Sequence[str] = ENCODER_ORDER,
                                       "a fold would hold out almost everything")
                             continue
                         a = subset_arrays(arrays[MI_ENCODER], keep)
-                        X, row_idx = feature_matrix(a, "pooled")
-                        ysub = target_labels(sub, target)[row_idx]
-                        ch = chance_level(ysub)
-                        res = evaluate(X, ysub, row_idx, sub, mode, estimator,
+                        block = feature_matrix(a, "pooled").with_labels(
+                            target_labels(sub, target))
+                        ch = chance_level(block.y)
+                        res = evaluate(block, sub, mode, estimator,
                                        k=min(k, n_cubes), inner_k=inner_k,
                                        n_jobs=n_jobs, verbose=False)
                         r = _rows_dict(target, mode, estimator, MI_ENCODER,
-                                       "pooled", "frame", wbin, X, sub, res, ch,
-                                       False,
+                                       "pooled", "frame", wbin, block, sub, res,
+                                       ch, False,
                                        f"window_span_days tercile {wbin!r} = "
                                        f"{a['window_span_days'].min():.0f}-"
                                        f"{a['window_span_days'].max():.0f} days, "
@@ -893,7 +1212,7 @@ def run_p1(manifest, encoders: Sequence[str] = ENCODER_ORDER,
                         rows.append(r)
                         if verbose:
                             print(f"[p1]   {MI_ENCODER:<24} pooled      "
-                                  f"wsd={wbin:<7} n={X.shape[0]:<5} "
+                                  f"wsd={wbin:<7} n={block.n_rows:<5} "
                                   f"bal-acc {r['balanced_accuracy_mean']:.3f} "
                                   f"+/-{r['balanced_accuracy_std']:.3f} "
                                   f"(chance {ch['balanced_accuracy']:.3f} = 1/"
@@ -901,7 +1220,7 @@ def run_p1(manifest, encoders: Sequence[str] = ENCODER_ORDER,
 
     df = pd.DataFrame(rows)
     assert len(df), "run_p1 produced no rows"
-    return df
+    return add_margin_over_control(df, verbose=verbose)
 
 
 # ---------------------------------------------------------------------------
@@ -965,6 +1284,12 @@ def assert_results_complete(df, encoders: Sequence[str] = ENCODER_ORDER,
                 assert (sub.feature_set == "raw_pooled").any(), (
                     f"{target}/{mode}/{est}: the mandatory raw_features "
                     "baseline row is missing"
+                )
+                assert (sub.feature_set == "raw_rgb_only").any(), (
+                    f"{target}/{mode}/{est}: no band-matched baseline. Every "
+                    "network encoder here is RGB-only, so a comparison against "
+                    "full raw_features (which also sees B8A and NDVI) is not a "
+                    "statement about the representation."
                 )
                 assert (sub.feature_set == "degenerate").any(), (
                     f"{target}/{mode}/{est}: the degenerate control row is "

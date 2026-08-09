@@ -1139,3 +1139,118 @@ this machinery**, and note that P2's targets may be genuinely p >> n again, in
 which case the low end still earns its place.
 
 **Commit.** `03f7cf2`
+
+---
+
+## 2026-08-09: the design matrix, its manifest index and its labels become one type
+
+**Assumed.** That `feature_matrix` returning `(X, row_idx)` was fine, and that
+the one place they got separated -- `select_hyperparameter`, handed a sliced
+`X_tr` beside the UNSLICED `row_idx` -- was a typo caught by an `IndexError`.
+
+**Observed.** The `IndexError` was luck, not detection. Replaying the bad call
+over the real manifest, per inner fold:
+
+```
+cube k=5        15/15 raise
+spatial_block   13/15 raise,  2 return a WRONG NUMBER
+LOCO            51/60 raise,  9 return a WRONG NUMBER
+```
+
+**11 of 90 inner folds -- 12% -- would have silently tuned the regularisation
+strength on the wrong rows**, and they cluster in LOCO, where the training fold
+is largest and its row positions are therefore most likely to fall inside the
+sliced array. The first probe run happened to exercise `cube` mode first, where
+the bug is 100% fatal. Had it started with LOCO it would have produced a
+plausible, wrong table and nothing would have looked out of place.
+
+The hazard is not that one call site was wrong. It is that the CELL-level
+feature sets put 16 X rows on every manifest row, so `X`, `row_idx` and `y`
+have three different lengths that no single function is responsible for keeping
+in step -- and for the FRAME-level sets, where all three are 264 long, the same
+mistake does not even change a shape.
+
+**Changed.** `FeatureBlock`: a frozen dataclass holding `X`, `row_idx` and `y`,
+whose length agreement is asserted on EVERY construction, including every
+slice. `take` and `select` slice all three or none; `with_labels` is the only
+way labels get attached, and it expands them through `row_idx` rather than by
+position. `select_hyperparameter` and `evaluate_fold` take a block, so there is
+no longer a pair of arguments that can disagree -- the leakage-relevant
+signature check in the tests now also asserts the parameter is the bound type.
+
+Chosen over adding an assertion at the call site because P2, P3 and P4 all
+consume cell-level rows and will write this pattern again. An assertion
+protects one site; a type protects the pattern. This is also why it is worth
+doing BEFORE scale-up rather than after: the same slicing runs at twenty times
+the volume there, and a wrong number costs a full re-run to discover.
+
+**Commit.** `TBD`
+
+---
+
+## 2026-08-09: both class weightings are reported, because one of them was understating every row
+
+**Assumed** (2026-08-08, above). That leaving both estimators unweighted was
+the conservative choice: the metric is balanced accuracy, so weighting moves
+the estimator toward the metric, and a conclusion that survives without it
+survives the imbalance rather than being rescued from it.
+
+**Observed.** Conservative, but also simply the wrong estimator for the metric,
+and by an amount that is not small. November holds 5 frames of 264. An
+unweighted multinomial loss has almost no incentive to ever predict it, and a
+class never predicted contributes 0 recall to a metric that averages recall
+over classes -- so it forfeits up to 1/8 of balanced accuracy outright, before
+any question of what the representation contains. Measured directly
+(month, cube k=5, grid_cell, C=1):
+
+```
+                     unweighted            class_weight="balanced"
+raw_features         0.425 +/-0.068        0.455 +/-0.056
+  recall on Oct+Nov  0.332                 0.528
+dinov2_vitb14        0.392 +/-0.084        0.395 +/-0.084
+```
+
+Note what that says: weighting helps the BASELINE most, and barely moves the
+network. It is not a cosmetic improvement to the encoders' numbers -- it widens
+the gap the baseline already had. That is the honest reason to run it, and the
+reason it was worth measuring before deciding.
+
+**Changed.** `ESTIMATORS` becomes four: `logreg`, `logreg_balanced`, `ridge`,
+`ridge_balanced`. Both weightings of both estimators are reported, and neither
+is "the" answer. The unweighted rows are the conservative floor; the weighted
+rows are the estimator that matches the metric. The DEGENERATE CONTROL is
+weighted the same way in each pair, so `margin_over_control` -- the number P1
+is actually read on -- is a like-for-like comparison under either.
+
+Nothing is retracted from the earlier entry: the reasoning for wanting an
+unweighted row stands, and that row is still there. What was wrong was
+reporting ONLY it.
+
+**Commit.** `TBD`
+
+---
+
+## 2026-08-09: the logreg C grid is extended, because "a known lower bound" is not a table
+
+**Assumed** (2026-08-08, above). That leaving `C` capped at 1 was acceptable
+for this run: the bias is one-sided and known, so no conclusion is reversed,
+and re-running to chase it would cost 34 minutes to make some numbers slightly
+larger.
+
+**Observed.** Two things make that the wrong trade after all. The scale of it:
+`C = 1` was selected in 550 of 960 logreg folds, so the majority of the
+headline table was reporting a bound rather than a measurement -- "no
+conclusion is reversed" is true and is not the same as "this table can be
+published". And the cost was mis-estimated in the wrong direction: larger `C`
+separates sooner, so lbfgs converges in FEWER iterations. Measured on dinov2
+grid_cell, 4224 x 768: 67 iterations at `C=1`, 47 at `C=10`, **30 at `C=100`**.
+Extending the grid upward makes the run faster per fit, not slower.
+
+A grid that has to be defended in prose is a grid that should have been wider.
+
+**Changed.** `LOGREG_C_GRID` gains `10` and `100`; `RIDGE_ALPHA_GRID` gains
+`1e5`. Both grids now bracket their interior modes on both sides, so a
+selection at an edge means the data wants an extreme value rather than that the
+grid ran out. `n_at_grid_edge` stays in the CSV as the check that this is so.
+
+**Commit.** `TBD`

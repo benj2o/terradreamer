@@ -171,16 +171,61 @@ def test_feature_rows_of_a_cell_level_set_never_straddle_a_fold():
     """The 16 cells of a frame must move together, or the grid feature set
     leaks a cube across the split it was grouped by."""
     df = _manifest(n_cubes=6)
-    arrays = _arrays(df)
-    X, row_idx = p1.feature_matrix(arrays, "grid_cell")
-    assert X.shape == (len(df) * 16, arrays["grid"].shape[-1])
+    block = p1.feature_matrix(_arrays(df), "grid_cell")
+    assert block.X.shape == (len(df) * 16, 5)
     for tr, te in p1._outer_folds(df, "cube", k=3):
-        a = p1._rows_for(row_idx, tr)
-        b = p1._rows_for(row_idx, te)
-        assert not np.intersect1d(a, b).size
-        assert a.size == len(tr) * 16 and b.size == len(te) * 16
-        assert not (_independent_cube_of(df, row_idx[a])
-                    & _independent_cube_of(df, row_idx[b]))
+        a, b = block.select(tr), block.select(te)
+        assert not np.intersect1d(block.rows_for(tr), block.rows_for(te)).size
+        assert a.n_rows == len(tr) * 16 and b.n_rows == len(te) * 16
+        assert not (_independent_cube_of(df, a.row_idx)
+                    & _independent_cube_of(df, b.row_idx))
+
+
+# --- the structural fix for item 1: X, row_idx and y cannot be separated ----
+
+def test_feature_block_refuses_a_row_index_that_does_not_describe_x():
+    with pytest.raises(AssertionError, match="does not describe X"):
+        p1.FeatureBlock(X=np.zeros((10, 3)), row_idx=np.arange(4))
+
+
+def test_feature_block_refuses_labels_that_do_not_describe_x():
+    with pytest.raises(AssertionError, match="does not describe X"):
+        p1.FeatureBlock(X=np.zeros((10, 3)), row_idx=np.arange(10),
+                        y=np.zeros(4))
+
+
+def test_taking_a_slice_slices_every_array_or_none_of_them():
+    """The bug this type exists to make unwritable: X sliced, row_idx not."""
+    df = _manifest(n_cubes=4)
+    block = p1.feature_matrix(_arrays(df), "grid_cell").with_labels(
+        p1.month_labels(df))
+    sub = block.take(np.array([0, 1, 40, 41]))
+    assert sub.X.shape[0] == sub.row_idx.shape[0] == sub.y.shape[0] == 4
+    assert np.array_equal(sub.X, block.X[[0, 1, 40, 41]])
+    assert np.array_equal(sub.row_idx, block.row_idx[[0, 1, 40, 41]])
+    assert np.array_equal(sub.y, block.y[[0, 1, 40, 41]])
+    # and a slice is itself re-validated, so a bad one cannot survive
+    assert isinstance(sub, p1.FeatureBlock)
+
+
+def test_labels_are_expanded_through_row_idx_not_by_position():
+    """A cell-level block has 16 rows per label; attaching labels by position
+    would silently truncate to the first 264 cells."""
+    df = _manifest(n_cubes=4)
+    block = p1.feature_matrix(_arrays(df), "grid_cell")
+    y_frame = p1.month_labels(df)
+    labelled = block.with_labels(y_frame)
+    assert labelled.y.shape == (len(df) * 16,)
+    assert labelled.y.tolist() == np.repeat(y_frame, 16).tolist()
+
+
+def test_selecting_by_manifest_rows_round_trips_to_those_rows():
+    df = _manifest(n_cubes=5)
+    block = p1.feature_matrix(_arrays(df), "grid_cell")
+    want = np.array([3, 4, 17])
+    sub = block.select(want)
+    assert sorted(set(sub.row_idx.tolist())) == want.tolist()
+    assert sub.n_rows == want.size * 16
 
 
 # ---------------------------------------------------------------------------
@@ -191,9 +236,14 @@ def test_select_hyperparameter_has_no_parameter_that_could_carry_test_data():
     """Prevention by signature, checked as such: there is no test argument to
     pass, so no amount of caller discipline is being relied on."""
     params = set(inspect.signature(p1.select_hyperparameter).parameters)
-    assert params == {"X_tr", "y_tr", "manifest", "train_rows", "row_idx_tr",
-                      "estimator", "inner_k", "verbose"}
+    assert params == {"train", "manifest", "train_rows", "estimator",
+                      "inner_k", "verbose"}
     assert not [p for p in params if "test" in p or p.endswith("_te")]
+    # and the one array-bearing parameter is the bound type, not loose arrays.
+    # The module uses `from __future__ import annotations`, so the annotation is
+    # the NAME rather than the class.
+    ann = inspect.signature(p1.select_hyperparameter).parameters["train"]
+    assert ann.annotation == "FeatureBlock"
 
 
 @pytest.mark.parametrize("estimator", p1.ESTIMATORS)
@@ -203,26 +253,27 @@ def test_poisoned_test_fold_does_not_change_the_selected_alpha(estimator,
     """Corrupt the TEST side beyond recognition; the tuned regularisation
     strength must be bit-identical, because the inner loop never saw it."""
     df = _manifest(n_cubes=8)
-    arrays = _arrays(df)
-    X, row_idx = p1.feature_matrix(arrays, feature_set)
-    y = p1.month_labels(df)[row_idx]
+    block = p1.feature_matrix(_arrays(df), feature_set).with_labels(
+        p1.month_labels(df))
     folds_ = list(p1._outer_folds(df, "cube", k=4))
 
-    clean = [p1.evaluate_fold(X, y, row_idx, df, tr, te, estimator, fold=i,
+    clean = [p1.evaluate_fold(block, df, tr, te, estimator, fold=i,
                               verbose=False)
              for i, (tr, te) in enumerate(folds_)]
 
     rng = np.random.default_rng(1234)
     poisoned = []
     for i, (tr, te) in enumerate(folds_):
-        Xp, yp = X.copy(), y.copy()
-        rows = p1._rows_for(row_idx, te)
+        Xp, yp = block.X.copy(), block.y.copy()
+        rows = block.rows_for(te)
         # Not noise: a deliberately informative poison. If any of it reached
         # the inner loop, the selected strength would move.
-        Xp[rows] = rng.normal(0, 50, size=(rows.size, X.shape[1]))
+        Xp[rows] = rng.normal(0, 50, size=(rows.size, block.D))
         Xp[rows, 0] = yp[rows] * 1000.0
         yp[rows] = yp[rows][::-1]
-        poisoned.append(p1.evaluate_fold(Xp, yp, row_idx, df, tr, te, estimator,
+        bad = p1.FeatureBlock(X=Xp, row_idx=block.row_idx, y=yp,
+                              name="poisoned")
+        poisoned.append(p1.evaluate_fold(bad, df, tr, te, estimator,
                                          fold=i, verbose=False))
 
     assert [r.selected for r in clean] == [r.selected for r in poisoned], (
@@ -283,6 +334,8 @@ def _fake_results(**overrides):
                         for e in p1.ENCODER_ORDER
                         for fs, lv in (("pooled", "frame"), ("grid_cell", "cell"))]
                 jobs += [(p1.BASELINE_ENCODER, "raw_pooled", "frame", "all"),
+                         (p1.BASELINE_ENCODER, "raw_rgb_only", "cell", "all"),
+                         (p1.BASELINE_ENCODER, "raw_nir_ndvi", "cell", "all"),
                          ("none", "degenerate", "frame", "all"),
                          ("none", "degenerate", "cell", "all")]
                 jobs += [(p1.MI_ENCODER, "pooled", "frame", b) for b in p1.WSD_BINS]
@@ -293,6 +346,7 @@ def _fake_results(**overrides):
                         "wsd_bin": wb, "si_comparable": enc != p1.MI_ENCODER,
                         "balanced_accuracy_mean": 0.5, "macro_f1_mean": 0.5,
                         "balanced_accuracy_spread": 0.1,
+                        "dummy_balanced_accuracy_mean": 0.2,
                         "selected_params": "1;1;1;1;1",
                     })
     df = pd.DataFrame(rows)
@@ -314,6 +368,64 @@ def test_results_table_must_carry_the_mandatory_baseline_feature_set():
     df = _fake_results()
     with pytest.raises(AssertionError, match="raw_features baseline row"):
         p1.assert_results_complete(df[df.feature_set != "raw_pooled"])
+
+
+def test_results_table_must_carry_the_band_matched_baseline():
+    """Every network encoder here is RGB-only, so a comparison against full
+    raw_features (which also sees B8A and NDVI) is not a representation
+    claim."""
+    df = _fake_results()
+    with pytest.raises(AssertionError, match="band-matched baseline"):
+        p1.assert_results_complete(df[df.feature_set != "raw_rgb_only"])
+
+
+def test_raw_band_columns_partition_the_baseline_and_are_derived_not_hardcoded():
+    from encoders.raw_features import RAW_FEATURE_NAMES
+
+    cols = p1.RAW_BAND_COLUMNS
+    assert set(cols) == {"raw_rgb_only", "raw_nir_ndvi"}
+    covered = sorted(np.concatenate(list(cols.values())).tolist())
+    assert covered == list(range(len(RAW_FEATURE_NAMES))), "not a partition"
+    # and each group holds exactly the bands it claims
+    for i in cols["raw_rgb_only"]:
+        assert RAW_FEATURE_NAMES[i].split("_")[0] in p1.RGB_BANDS
+    for i in cols["raw_nir_ndvi"]:
+        assert RAW_FEATURE_NAMES[i].split("_")[0] in p1.NIR_BANDS
+    assert cols["raw_rgb_only"].size == 21 and cols["raw_nir_ndvi"].size == 14
+
+
+def test_band_matched_feature_sets_slice_the_right_columns():
+    df = _manifest(n_cubes=3)
+    arrays = _arrays(df)
+    arrays["grid"] = np.arange(len(df) * 16 * 35, dtype=np.float32).reshape(
+        len(df), 16, 35)
+    rgb = p1.feature_matrix(arrays, "raw_rgb_only", level="cell")
+    nir = p1.feature_matrix(arrays, "raw_nir_ndvi", level="cell")
+    assert rgb.D == 21 and nir.D == 14
+    full = arrays["grid"].reshape(len(df) * 16, 35)
+    assert np.allclose(rgb.X, full[:, :21])
+    assert np.allclose(nir.X, full[:, 21:])
+
+
+def test_band_matched_feature_sets_refuse_a_non_raw_encoder():
+    """They are column groups of raw_features; on a D=768 grid they would slice
+    arbitrary channels and report a plausible number."""
+    with pytest.raises(AssertionError, match="only defined"):
+        p1.feature_matrix(_arrays(_manifest()), "raw_rgb_only", level="cell")
+
+
+def test_margin_over_band_matched_is_attached():
+    df = _fake_results()
+    df["balanced_accuracy_mean"] = 0.5
+    df.loc[df.feature_set == "raw_rgb_only", "balanced_accuracy_mean"] = 0.33
+    df.loc[(df.feature_set == "degenerate")
+           & (df.feature_level == "cell"), "balanced_accuracy_mean"] = 0.28
+    df["dummy_balanced_accuracy_mean"] = 0.2
+    out = p1.add_margin_over_control(df, verbose=False)
+    enc = out[out.feature_set == "grid_cell"]
+    assert np.allclose(enc.margin_over_band_matched, 0.17)
+    base = out[out.feature_set == "raw_rgb_only"]
+    assert np.allclose(base.margin_over_band_matched, 0.0)
 
 
 def test_results_table_must_carry_the_degenerate_control():
@@ -356,13 +468,13 @@ def test_run_p1_refuses_a_roster_without_the_baseline_encoder():
 def test_degenerate_control_is_two_columns_and_holds_no_embedding():
     df = _manifest()
     arrays = _arrays(df)
-    X, row_idx = p1.feature_matrix(arrays, "degenerate", level="frame")
-    assert X.shape == (len(df), 2)
-    assert np.allclose(X[:, 0], arrays["clear_frac"])
-    assert np.allclose(X[:, 1], arrays["window_span_days"])
-    Xc, rc = p1.feature_matrix(arrays, "degenerate", level="cell")
-    assert Xc.shape == (len(df) * 16, 2)
-    assert rc.tolist() == np.repeat(np.arange(len(df)), 16).tolist()
+    b = p1.feature_matrix(arrays, "degenerate", level="frame")
+    assert b.X.shape == (len(df), 2)
+    assert np.allclose(b.X[:, 0], arrays["clear_frac"])
+    assert np.allclose(b.X[:, 1], arrays["window_span_days"])
+    c = p1.feature_matrix(arrays, "degenerate", level="cell")
+    assert c.X.shape == (len(df) * 16, 2)
+    assert c.row_idx.tolist() == np.repeat(np.arange(len(df)), 16).tolist()
 
 
 def test_degenerate_control_needs_an_explicit_level():
@@ -390,6 +502,83 @@ def test_degenerate_arrays_refuses_caches_with_different_clear_fractions():
     b["clear_frac"] = b["clear_frac"] * 0.5
     with pytest.raises(AssertionError, match="clear_frac"):
         p1.degenerate_arrays({"x": a, "y": b}, verbose=False)
+
+
+def test_a_constant_lookback_is_refused_rather_than_binned_into_one_tercile():
+    """The item-2 hazard: all-zero window_span_days is LEGITIMATE for the four
+    single-image encoders, so no shape/dtype/finiteness check can catch a lost
+    covariate. np.digitize would drop every frame into one bin while the caller
+    still printed three tercile rows."""
+    with pytest.raises(AssertionError, match="degenerate"):
+        p1.wsd_bin_labels(np.zeros(100))
+    with pytest.raises(AssertionError, match="degenerate"):
+        p1.wsd_bin_labels(np.array([55.0] * 99 + [105.0]))
+
+
+def test_multi_image_lookback_must_actually_vary():
+    df = _manifest()
+    si, mi = _arrays(df), _arrays(df)
+    si["window_span_days"] = np.zeros(len(df))
+    mi["window_span_days"] = np.zeros(len(df))          # the silent failure
+    with pytest.raises(AssertionError, match="MULTI-IMAGE"):
+        p1.assert_window_span_days_informative(
+            {"raw_features": si, p1.MI_ENCODER: mi})
+
+
+def test_single_image_lookback_must_be_exactly_zero():
+    df = _manifest()
+    si, mi = _arrays(df), _arrays(df)
+    si["window_span_days"] = np.full(len(df), 7.0)      # roster/cache disagree
+    mi["window_span_days"] = np.linspace(0, 105, len(df))
+    with pytest.raises(AssertionError, match="single-image"):
+        p1.assert_window_span_days_informative(
+            {"raw_features": si, p1.MI_ENCODER: mi})
+
+
+def test_informative_lookback_passes_and_says_so(capsys):
+    df = _manifest()
+    si, mi = _arrays(df), _arrays(df)
+    si["window_span_days"] = np.zeros(len(df))
+    mi["window_span_days"] = np.linspace(0, 105, len(df))
+    p1.assert_window_span_days_informative(
+        {"raw_features": si, p1.MI_ENCODER: mi})
+    assert "INFORMATIVE" in capsys.readouterr().out
+
+
+def test_degenerate_control_refuses_a_zeroed_lookback():
+    """The control must not silently become [clear_frac] alone."""
+    df = _manifest()
+    si, mi = _arrays(df), _arrays(df)
+    si["window_span_days"] = np.zeros(len(df))
+    mi["window_span_days"] = np.zeros(len(df))
+    with pytest.raises(AssertionError, match="column of zeros"):
+        p1.degenerate_arrays({"raw_features": si, p1.MI_ENCODER: mi},
+                             verbose=False)
+
+
+# --- item 3: the margins, attached rather than left to the reader ----------
+
+def test_margin_over_control_is_attached_and_matches_a_hand_computation():
+    df = _fake_results()
+    df["balanced_accuracy_mean"] = 0.5
+    df.loc[(df.feature_set == "degenerate")
+           & (df.feature_level == "cell"), "balanced_accuracy_mean"] = 0.42
+    df["dummy_balanced_accuracy_mean"] = 0.2
+    out = p1.add_margin_over_control(df, verbose=False)
+    enc = out[out.feature_set == "grid_cell"]
+    assert np.allclose(enc.margin_over_control, 0.08)
+    assert np.allclose(enc.margin_over_dummy, 0.30)
+    ctrl = out[(out.feature_set == "degenerate") & (out.feature_level == "cell")]
+    assert np.allclose(ctrl.margin_over_control, 0.0)
+
+
+def test_margin_over_control_refuses_a_table_with_no_control():
+    df = _fake_results()
+    df["balanced_accuracy_mean"] = 0.5
+    df["dummy_balanced_accuracy_mean"] = 0.2
+    with pytest.raises(AssertionError):
+        p1.add_margin_over_control(df[df.feature_set != "degenerate"],
+                                   verbose=False)
 
 
 def test_window_span_day_bins_are_terciles_of_the_realised_values():
@@ -431,12 +620,11 @@ def test_summarise_reports_spread_not_just_a_mean():
 def test_a_probe_with_real_signal_beats_its_own_dummy_floor():
     df = _manifest(n_cubes=8)
     arrays = _arrays(df, signal=6.0)
-    X, row_idx = p1.feature_matrix(arrays, "pooled")
-    y = p1.month_labels(df)[row_idx]
-    res = p1.evaluate(X, y, row_idx, df, "cube", "ridge", k=4, verbose=False)
+    block = p1.feature_matrix(arrays, "pooled").with_labels(p1.month_labels(df))
+    res = p1.evaluate(block, df, "cube", "ridge", k=4, verbose=False)
     s = p1.summarise(res)
     assert s["balanced_accuracy_mean"] > s["dummy_balanced_accuracy_mean"]
-    assert s["balanced_accuracy_mean"] > p1.chance_level(y)["balanced_accuracy"]
+    assert s["balanced_accuracy_mean"] > p1.chance_level(block.y)["balanced_accuracy"]
 
 
 def test_a_probe_with_no_signal_does_not_beat_chance():
@@ -444,21 +632,18 @@ def test_a_probe_with_no_signal_does_not_beat_chance():
     something: pure noise must land at the floor, not above it."""
     df = _manifest(n_cubes=8)
     arrays = _arrays(df, signal=0.0, seed=7)
-    X, row_idx = p1.feature_matrix(arrays, "pooled")
-    y = p1.month_labels(df)[row_idx]
-    res = p1.evaluate(X, y, row_idx, df, "cube", "ridge", k=4, verbose=False)
-    ch = p1.chance_level(y)["balanced_accuracy"]
+    block = p1.feature_matrix(arrays, "pooled").with_labels(p1.month_labels(df))
+    res = p1.evaluate(block, df, "cube", "ridge", k=4, verbose=False)
+    ch = p1.chance_level(block.y)["balanced_accuracy"]
     assert p1.summarise(res)["balanced_accuracy_mean"] < ch + 0.15
 
 
 def test_evaluate_is_deterministic_and_n_jobs_changes_nothing():
     df = _manifest(n_cubes=6)
     arrays = _arrays(df)
-    X, row_idx = p1.feature_matrix(arrays, "pooled")
-    y = p1.month_labels(df)[row_idx]
-    a = p1.evaluate(X, y, row_idx, df, "cube", "ridge", k=3, verbose=False)
-    b = p1.evaluate(X, y, row_idx, df, "cube", "ridge", k=3, n_jobs=2,
-                    verbose=False)
+    block = p1.feature_matrix(arrays, "pooled").with_labels(p1.month_labels(df))
+    a = p1.evaluate(block, df, "cube", "ridge", k=3, verbose=False)
+    b = p1.evaluate(block, df, "cube", "ridge", k=3, n_jobs=2, verbose=False)
     assert [r.balanced_accuracy for r in a] == [r.balanced_accuracy for r in b]
     assert [r.selected for r in a] == [r.selected for r in b]
 
@@ -466,9 +651,8 @@ def test_evaluate_is_deterministic_and_n_jobs_changes_nothing():
 def test_fold_result_records_the_selected_strength_per_fold():
     df = _manifest(n_cubes=6)
     arrays = _arrays(df)
-    X, row_idx = p1.feature_matrix(arrays, "pooled")
-    y = p1.month_labels(df)[row_idx]
-    res = p1.evaluate(X, y, row_idx, df, "cube", "logreg", k=3, verbose=False)
+    block = p1.feature_matrix(arrays, "pooled").with_labels(p1.month_labels(df))
+    res = p1.evaluate(block, df, "cube", "logreg", k=3, verbose=False)
     assert all(r.selected in p1.LOGREG_C_GRID for r in res)
     assert all("C=" in r.log for r in res)
     assert len(p1.summarise(res)["selected_params"].split(";")) == len(res)
@@ -479,16 +663,16 @@ def test_ties_break_toward_stronger_regularisation():
     intercept-only model, so the inner scores tie EXACTLY and the stated tie
     rule alone decides: smallest C for logreg, largest alpha for ridge."""
     df = _manifest(n_cubes=6)
-    X = np.zeros((len(df), 4))
-    row_idx = np.arange(len(df))
     y = (df["cube_id"].str[-4].to_numpy().astype(int) % 2).astype(int)
+    block = p1.FeatureBlock(X=np.zeros((len(df), 4)),
+                            row_idx=np.arange(len(df)), y=y, name="flat")
     train_rows = np.arange(len(df))
 
-    sel = p1.select_hyperparameter(X, y, df, train_rows, row_idx, "logreg")
+    sel = p1.select_hyperparameter(block, df, train_rows, "logreg")
     assert np.allclose(sel["inner_scores"], sel["inner_scores"][0]), \
         "the inner scores must actually tie for this to test the tie rule"
     assert sel["param"] == min(p1.LOGREG_C_GRID)
-    assert p1.select_hyperparameter(X, y, df, train_rows, row_idx,
+    assert p1.select_hyperparameter(block, df, train_rows,
                                     "ridge")["param"] == max(p1.RIDGE_ALPHA_GRID)
 
 
