@@ -1738,3 +1738,62 @@ wrong, and the plan built on it reserved a subset that was never these cubes.
    split is untouched.
 
 **Commit.** `13d079d`
+
+---
+
+## 2026-08-10: H1 is year-limited, so the paper reports the proxy ceiling and the leave-year-out check as structurally underpowered
+
+**Assumed.** That Stage B's wide interval on the 25-cube pilot was a sample-size
+problem of the ordinary kind -- pull more cubes, the interval tightens, the
+proxy gets validated or refuted. The whole point of scaling 30TVN from 25 to 87
+cubes was to settle it.
+
+**Observed.** It does not tighten, and it cannot. `probes.cv.crossed_folds`
+clamps the fold count to `min(n_years, n_cubes)`; GreenEarthNet's seasonal cubes
+span 2017-2020, so **k = 4 whatever the cube count**. 3.5x the cubes moved the
+interval width from 1.611 to 1.433, 11%.
+
+```
+                  folds   weather r2_vs_clim          CI width   per-fold sd    MDE
+PROXY  (cube)         5   +0.192 [+0.139, +0.245]       0.105       0.042      0.053
+REAL   (crossed)      4   -0.136 [-0.852, +0.581]       1.433       0.450      0.631
+Stage B per fold: -0.385  -0.642  +0.192  +0.292   (one held-out year each)
+```
+
+The per-fold values are four draws of interannual variability and they disagree
+in sign. That spread is the quantity being averaged, a t interval on 3 df around
+it is irreducibly wide, and detecting the observed effect at 80% power would
+need ~87 folds against a supply of 4.
+
+This is not specific to our probe or our tile. Any leave-target-year-out
+evaluation on this benchmark, scored under a protocol that holds the year out
+honestly, inherits a 4-sample interannual denominator.
+
+**Changed.** The claim structure, in three parts:
+
+1. **The reported ceiling is the within-season PROXY**, on 32UNU, with the
+   dataset limitation stated. It is well-powered and cube-limited: 87 cubes give
+   a CI width of 0.105 against 20 cubes' 0.450, so **scaling 32UNU from 20 to
+   its available 192 is the highest-value cheap action left for P4**, and it is
+   now unblocked (the cubes reserved for P3 were never these).
+2. **The leave-year-out run is reported as a consistency check that is
+   structurally underpowered**, with the fold-count mechanism and the power
+   calculation shown, not as a validation that passed. The proxy and the real
+   climatology differ by 0.328 in point estimate; their intervals overlap only
+   because one of them is enormous. `scripts/validate_proxy_climatology.py`
+   prints "that is NOT evidence the proxy is sound" in its own output, so the
+   overlap cannot be quietly read as agreement.
+3. **H1 as originally scoped is retired** as a precise deliverable on this
+   benchmark. What replaces it is a bound plus an explicit statement of why a
+   point estimate is not available -- which is a stronger contribution than a
+   number whose error bars nobody computed.
+
+**Why this is worth the block it cost.** The result arrived from running the
+experiment that was supposed to be routine. Had we scaled 32UNU first and
+reported a precise proxy ceiling without ever running Stage B at scale, the
+obvious reviewer question -- "how do you know your proxy approximates the
+standard baseline?" -- would have had no answer, and the honest answer turns out
+to be interesting: on this benchmark, nobody can know, and here is the
+arithmetic.
+
+**Commit.** `e5b7f43`

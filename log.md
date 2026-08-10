@@ -235,6 +235,71 @@ fails. Under `spatial_block` nothing replicates.
 3.0 min on 7 CPU workers for 270 rows = 2700 outer folds. No GPU, and none would
 help. Peak memory under 2 GB.
 
+## 2026-08-10: H1's precision is bounded by the number of YEARS, not cubes -- and GreenEarthNet has four
+
+`scripts/validate_proxy_climatology.py --tile 30TVN --n 87`. Stage A (proxy)
+and Stage B (real leave-target-year-out) over the SAME 87 cubes, 7574 rows,
+17 min. This was run to ask "is the proxy any good"; it answered a different and
+more important question first.
+
+```
+                      folds  eff n   weather r2_vs_clim        CI width  per-fold sd   MDE
+PROXY   (cube folds)      5   87 cu  +0.192 [+0.139, +0.245]     0.105      0.042      0.053
+REAL    (crossed)         4   87 cu  -0.136 [-0.852, +0.581]     1.433      0.450      0.631
+```
+
+**Stage B's interval did not tighten with 3.5x the cubes.** The pilot at 25
+cubes gave [-1.024, +0.587], width 1.611; 87 cubes gives width 1.433 -- 11%
+narrower for 3.5x the data. The reason is structural and is one line of
+`probes/cv.py`:
+
+```python
+k = _clamp_k(int(k), min(uniq_years.size, np.unique(cubes).size), ...)
+```
+
+**In `crossed` mode the fold count is clamped by the number of YEARS.**
+GreenEarthNet's seasonal cubes span 2017-2020, so k = 4 and no cube count
+changes that. Each fold holds out one year, and the per-fold scores ARE the
+interannual spread:
+
+```
+Stage B per-fold r2_vs_clim:  -0.385  -0.642  +0.192  +0.292
+```
+
+Those are four draws of "how well does weather explain the anomaly in a year the
+model has never seen", and they disagree in SIGN. A t interval on 4 replicates
+(3 df, t = 3.18) around that spread is irreducibly wide. The power calculation
+makes it concrete: detecting the observed -0.136 at 80% power would need **~87
+folds, and the dataset can supply 4.** Off by more than an order of magnitude,
+structurally, on the axis that cannot be bought with more downloads.
+
+**So H1 -- the leave-target-year-out ceiling, evaluated under the only fold mode
+that agrees with its own climatology -- is not precisely estimable on
+GreenEarthNet at all.** Not on 32UNU (no seasonal coverage), and not on a
+seasonal tile either (4 years). That is a property of the benchmark, not of this
+probe, and it is worth stating plainly rather than discovering at review.
+
+**The proxy, by contrast, scales.** Stage A at 87 cubes has a CI width of 0.105
+and a per-fold sd of 0.042 -- it is well-powered, and its MDE (0.053) is a
+quarter of the effect it measured. Compare 32UNU's Stage A at 20 cubes: width
+0.450. The proxy's uncertainty is cube-limited, and cubes are cheap.
+
+**What this does NOT establish.** The proxy and the real climatology give
+different point estimates (+0.192 vs -0.136, gap 0.328) and their intervals
+overlap only because Stage B's is enormous. **That is the absence of evidence,
+not evidence of agreement**, and the script says so in its own output rather
+than letting the overlap be read as validation. The proxy remains unvalidated;
+what changed is that we now know validating it against this benchmark is not
+achievable by scaling.
+
+Two secondary observations, both confounded and neither load-bearing. On 30TVN
+the observation control sits at -0.000, so the full +0.192 is weather rather
+than retention -- unlike 32UNU, where +0.028 of +0.066 was retention. And the
+semi-arid tile's weather-attributability is roughly 3x the Alpine foreland's,
+which is the direction water-limitation predicts. Both compare across different
+tiles, cube counts AND feature sets (6 variables vs 8), so they are hypotheses
+for a later controlled run, not results.
+
 ## 2026-08-10: `year` was the filename's window-start, and it had blocked Stage B on every tile
 
 Found the moment a real seasonal cube was first run through the manifest.
