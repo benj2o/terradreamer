@@ -3,7 +3,189 @@
 Running record of measurements and adopted definitions. Reverse chronological.
 Decisions and their rationale live in [docs/DECISIONS.md](docs/DECISIONS.md).
 
-## 2026-08-08: Phase 1.4 (P1) exit test PASSED, local CPU, 5 encoders
+## 2026-08-09: Phase 1.4 (P1) exit test PASSED -- 432 rows, and the band-matched baseline reverses the headline
+
+`probes/p1_appearance.py`. Month and season decoded from ONE frame's frozen
+embedding, five encoders, with the not-a-network baseline, a BAND-MATCHED
+baseline, and a degenerate retention control in the same table. Nothing
+fine-tuned, nothing re-encoded.
+
+Supersedes the 2026-08-08 entry (192 rows), which is retained below for the
+record. Four things changed and all four were forced by that run's own
+diagnostics: the band-matched baseline, both class weightings, wider grids, and
+the `FeatureBlock` refactor.
+
+```
+                              local (canonical)     Colab (reproduction)
+Step 5   tests                323 passed, 5 skip    322 passed, 6 skip
+Step 11  run_p1               432 rows, 85.4 min    432 rows, 83.8 min
+Step 12  invariants           COMPLETE              COMPLETE
+Step 13  weakest Spearman     +0.400                +0.400
+Step 15  artefacts            432 x 48 CSV + PNG    same
+```
+
+The two environments are Python 3.9.6 / 3.12 with different sklearn, scipy and
+BLAS. **Agreement to +/-0.003** on every score; Figure 1's explained variance is
+identical to the decimal (PCA is an exact SVD). The one Colab skip is
+`test_real_cache_joins_...`, which globs `data/raw` relative to cwd and
+self-skips inside a phase checkout; Step 8 asserts the equivalent against the
+resolved path.
+
+### The realised class distribution, and the chance level derived from it
+
+Unchanged from 2026-08-08 and repeated because everything below is read against
+it: **8 realised months (April-November), not 12**, chance 1/8 = 0.1250;
+**3 realised seasons (no DJF), not 4**, chance 1/3 = 0.3333. Counts
+04:29 05:40 06:43 07:63 08:36 09:29 10:19 11:5, and JJA 142 / MAM 69 / SON 53.
+The tile has **15** distinct time windows, not the 16 recorded since
+2026-08-02: five window strings appear on two cubes each.
+
+### THE CORRECTION: given the same bands, the networks WIN
+
+2026-08-08 reported "raw_features wins every single-image comparison" and read
+it as an input effect that could not be separated. It can be separated, for
+free: `raw_features` stores its per-band statistics in a known column order, so
+the band-matched baseline is a COLUMN SLICE of an array already on disk.
+
+month / cube k=5 / logreg / grid_cell, balanced accuracy:
+
+```
+                                bal-acc      vs CONTROL   vs BAND-MATCHED
+raw_features (all four bands)  0.430 +/-0.064   +0.148        +0.102
+dinov2_vitb14                  0.387 +/-0.092   +0.105        +0.059
+satlas_s2_swinb_rgb            0.386 +/-0.046   +0.104        +0.058
+imagenet_vit_b16               0.350 +/-0.054   +0.068        +0.021
+satlas_s2_swinb_mi_rgb         0.342 +/-0.058   +0.060        +0.014   NOT-SI
+raw_nir_ndvi   (B8A + NDVI)    0.339 +/-0.034   +0.057        +0.011
+raw_rgb_only   BAND-MATCHED    0.328 +/-0.065   +0.046         0.000
+DEGENERATE CONTROL             0.282 +/-0.118    0.000        -0.046
+```
+
+**Every network beats hand-crafted percentiles of the same three bands.**
+`raw_features` led only because it also sees B8A and NDVI, and neither half
+alone (0.328 RGB, 0.339 NIR+NDVI) approaches the combination (0.430) -- the win
+is in having both, not in either.
+
+Margin over the band-matched baseline, all cells (logreg, grid_cell):
+
+```
+                      raw_features  dinov2  satlas  imagenet     MI
+month  cube              +0.102     +0.059  +0.058   +0.021    +0.014
+month  loco              +0.092     +0.038  +0.046   +0.003    -0.041
+month  spatial_block     +0.059     -0.017  +0.049   -0.020    -0.041
+season cube              +0.145     +0.095  +0.062   +0.025    +0.200
+season loco              +0.137     +0.067  +0.047   +0.006    +0.173
+season spatial_block     +0.071     -0.016  +0.015   -0.060    +0.154
+```
+
+The representation advantage is real but **not robust to the strictest split**:
+under `spatial_block`, `dinov2_vitb14` and `imagenet_vit_b16` fall BELOW
+hand-crafted features on the same bands.
+
+### The retention control, by cell
+
+Of 120 grid_cell rows, **42 sit at or below** `[clear_frac, window_span_days]`
+-- two numbers, no image. Where they sit is the finding:
+
+```
+month  cube            0/20 at or below the control
+month  loco            0/20
+month  spatial_block   6/20
+season cube           10/20
+season loco            9/20
+season spatial_block  17/20
+```
+
+**Month under `cube` and `loco` is clean** -- every row clears the control, by
++0.05 to +0.15. **Season is not** -- and under `spatial_block` almost nothing
+clears it. Cloud retention on this subset is strongly seasonal, three classes
+make it an easy proxy, and holding out geography removes the appearance signal
+faster than it removes the retention signal. Where P1 is cited, cite **month
+under cube or LOCO**, and cite the margin over the control.
+
+### The positive control behaves like a positive control
+
+`satlas_s2_swinb_mi_rgb` is the only encoder that can represent change, and it
+is the only one that beats the retention control on SEASON: +0.092 (cube),
++0.041 (loco), and +0.154 to +0.209 over the band-matched baseline in every
+mode. It is simultaneously the WORST single-image-comparable performer on
+month (-0.041 vs band-matched under loco and spatial_block).
+
+That is exactly the predicted signature and it is why the row is flagged
+`si_comparable=False`: MI aggregates 8 retained frames over 0-105 days, so it
+is answering "which season is this stretch" while the others answer "which
+month is this frame". Conditioned on its own lookback tercile it is best where
+the lookback is SHORTEST, i.e. where it is closest to single-image.
+
+### Regularisation, and the grid edge closed out
+
+Widening `C` to 100 and `alpha` to 1e5 cut edge selection from **34.7% to
+21.3%** of 4320 outer folds. Plain `logreg` still selects the top edge in 27.5%
+(297/1080), which raised the obvious question of whether the grid is STILL
+truncating. Measured, on satlas grid_cell, cube fold 1:
+
+```
+C=100    test bal-acc 0.4492
+C=1000   test bal-acc 0.4527   98.9% of predictions identical to C=100
+C=10000  test bal-acc 0.4533   99.9% identical to C=1000
+```
+
+**The fit has saturated.** Selecting the top edge here means "the data wants
+essentially no regularisation", which is the honest answer for a 4224-row by
+768-column design matrix, and extending further moves the score by ~0.004
+against a fold spread of +/-0.044. The grid is adequate; `n_at_grid_edge`
+stays in the CSV.
+
+`ridge` is now bracketed on both sides (25/1080 at 1e4, none at 1e5).
+`logreg_balanced` uses the whole grid (85 folds at 1e-4, 189 at 100), which is
+the imbalance correction doing visible work.
+
+### Class weighting helps the BASELINE most
+
+Both weightings run. Under `logreg_balanced`, month/cube: raw_features
+0.430 -> 0.450, while `imagenet_vit_b16` and MI drop BELOW the band-matched
+baseline. November is 5 frames of 264 and an unweighted loss forfeits up to 1/8
+of balanced accuracy by never predicting it -- hand-crafted percentiles have
+the signal to recover it and the weakest networks do not. Reported as a pair;
+neither is "the" answer, and the control is weighted identically in each, so
+`margin_over_control` is like-for-like under both.
+
+### Fold modes agree in ORDERING -- and the ordering is not stable to a version bump
+
+Weakest pairwise Spearman rho across all comparisons: **+0.400**, in both
+environments. But the individual cells differ BETWEEN environments: month /
+logreg / cube-vs-spatial_block is +0.800 locally and +0.400 on Colab, because
+`dinov2_vitb14` and `satlas_s2_swinb_rgb` land at 0.387/0.386 on one machine
+and 0.389/0.389 on the other.
+
+**Two encoders separated by less than floating-point noise cannot be ranked.**
+That is not a defect in the protocol; it is the sample size, and it is the
+sharpest available argument that 20 cubes / 1 tile / 1 year cannot support a
+comparative claim. Recorded as a limit, not worked around.
+
+### Figure 1, the latent clock
+
+264 frames pooled across 20 cubes / 15 time windows, 8 realised months, five
+panels on shared axes (99th-percentile radius; 5 of 1320 points outside, counted
+per panel). PC1+PC2 explained variance: raw_features 69.6%, MI 43.0%,
+imagenet 36.7%, satlas_rgb 28.7%, dinov2 25.9%. Every panel shows a month
+gradient; `imagenet_vit_b16` traces the clearest arc despite being the weakest
+decoder, which is a reminder that two leading PCs and a linear probe over the
+full space are different questions. Descriptive only.
+
+### Cost
+
+85.4 min on 7 CPU workers: 432 rows = 4320 outer folds, each with a 3-fold
+inner loop over a 7-point grid, ~95,000 fits. No GPU, and none would help --
+these are sklearn solvers. Peak memory under 4 GB.
+
+## 2026-08-08: Phase 1.4 (P1) first run, 192 rows -- SUPERSEDED by 2026-08-09
+
+> **Superseded.** Kept for the record. Its headline ("raw_features wins")
+> was an artefact of comparing RGB-only networks against a baseline that
+> also sees B8A; the 2026-08-09 entry above measures that and reverses it.
+> Its estimator set (2, unweighted) and C grid (capped at 1) are also
+> superseded. Numbers below are correct for what they measured.
 
 `probes/p1_appearance.py`. Month and season decoded from ONE frame's frozen
 embedding, every encoder, with the not-a-network baseline and a degenerate

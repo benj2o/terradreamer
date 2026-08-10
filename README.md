@@ -52,12 +52,17 @@ data/paths.py                phase-scoped artefact dirs: phase_dir/describe_phas
 probes/p1_appearance.py      P1, the appearance sanity probe: month / season
                              from ONE frame's frozen embedding. Reads the Phase
                              1.2 .npz and nothing else -- no encoder is even
-                             imported. Four feature sets (pooled, grid_cell,
-                             raw_pooled, degenerate), two estimators, three fold
-                             modes, nested CV for the regularisation strength.
+                             imported. SIX feature sets -- pooled, grid_cell
+                             (PRIMARY), raw_pooled, raw_rgb_only (the
+                             BAND-MATCHED baseline: the networks are RGB-only),
+                             raw_nir_ndvi, and degenerate (retention only, no
+                             image) -- x 4 estimators x 3 fold modes, nested CV
+                             for the regularisation strength. FeatureBlock binds
+                             X / row_idx / y so they cannot be sliced apart.
                              Chance is DERIVED from the realised class
-                             distribution, never hard-coded. Also figure1(), the
-                             latent clock
+                             distribution, never hard-coded; margin_over_control
+                             and margin_over_band_matched are the columns to
+                             read. Also figure1(), the latent clock
 probes/cv.py                 THE split definition. Six modes over the manifest,
                              each yielding (train_idx, test_idx) row positions:
                                cube          DEFAULT, GroupKFold on cube_id
@@ -198,42 +203,39 @@ For Colab, follow [RUNBOOK.md](RUNBOOK.md).
   "match EO-WM's published rows" as a validation surface and evaluate under
   our own protocol. See
   [docs/correspondence/2026-08-07-eowm-authors.md](docs/correspondence/2026-08-07-eowm-authors.md).
-- 1.4 P1 appearance probe: **DONE** (2026-08-08, local CPU, all five encoders;
-  archived at `notebooks/runs/phase1_4_p1_appearance_2026-08-08_localCPU.ipynb`).
-  `probes/p1_appearance.py` + one results CSV (192 rows) + Figure 1 under
-  `data/phase1_4/`. 302 tests pass, 5 skipped.
-  - **Realised, not assumed:** 8 months (April-November), not ~10 and not 12;
-    3 seasons (no DJF), not 4. Chance is 1/8 and 1/3, derived from the labels.
-    The tile has **15** distinct time windows, not the 16 recorded earlier --
-    five window strings appear on two cubes each.
+- 1.4 P1 appearance probe: **DONE** (2026-08-09; canonical run local CPU,
+  independently reproduced on Colab to +/-0.003; archived under
+  `notebooks/runs/`). `probes/p1_appearance.py` + a 432-row results CSV +
+  Figure 1 under `data/phase1_4/`. 323 tests pass, 5 skipped.
+  - **Realised, not assumed:** 8 months (April-November), 3 seasons (no DJF),
+    **15** distinct time windows (not the 16 recorded earlier). Chance is 1/8
+    and 1/3, derived from the labels.
+  - **Given the same bands, the frozen networks beat hand-crafted features.**
+    Every network encoder here is RGB-only, so the table carries a BAND-MATCHED
+    baseline (`raw_rgb_only`, a column slice of `raw_features` -- no re-encode).
+    On month/cube the networks clear it by +0.02 to +0.06. Full `raw_features`
+    leads only because it additionally sees B8A and NDVI, and neither half
+    alone approaches the combination.
   - **No encoder FAILS P1.** All five clear chance by a wide margin on both
-    targets under all three fold modes, so the one surprise worth reporting --
-    an EO model trained to appearance-invariance -- did not occur, and P2/P3
-    are licensed.
-  - **But the degenerate control is a competitor, not a floor.**
-    `[clear_frac, window_span_days]` alone, no image, reaches 0.681 +/- 0.119
-    balanced accuracy on 3-class season under `spatial_block` -- beating all
-    five encoders -- against chance 0.333. Cloud retention on this subset is
-    strongly seasonal. **Only month, and only under `cube`/`loco`, separates
-    any encoder from the control** (+0.06 to +0.15); on season no encoder
-    clears it anywhere, and under `spatial_block` all four fall 0.10-0.22
-    BELOW it. So P1's season column cannot separate representation from
-    retention, and every later probe with a time-of-year-correlated target
-    must carry the same control.
-  - `raw_features` wins every single-image comparison, and that is partly an
-    input effect: the baseline reduces all four bands including **B8A** plus
-    NDVI, while every network encoder here is RGB-only. Clean comparisons are
-    network-vs-network and network-vs-control.
-  - Grid-cell rows (264 -> 4224) are the PRIMARY feature set: the only one
-    where the design matrix is not wider than it is tall. Pooled scores run
-    0.06-0.13 higher exactly where p >> n bites hardest, and the fold spread
-    roughly halves under grid_cell.
-  - Two known limits, both recorded rather than papered over: the logreg `C`
-    grid tops out at 1 and is selected there in 57% of folds (scores are a
-    lower bound; "logreg beats ridge" is not supported by this run), and
-    `satlas_s2_swinb_mi_rgb` is reported flagged `si_comparable=False` and
-    conditioned on its 0-105 day lookback, never ranked against the
-    single-image encoders.
-  - The local embedding cache is now the full **100 files**: `dinov2_vitb14`
-    needed Python >= 3.10 for its `torch.hub` code, not a GPU (20 cubes, CPU,
-    42 s). See [docs/DECISIONS.md](docs/DECISIONS.md).
+    targets under all three fold modes, so the surprise worth reporting -- an
+    EO model trained to appearance-invariance -- did not occur. P2/P3 licensed.
+  - **The degenerate control is a competitor, not a floor.**
+    `[clear_frac, window_span_days]` alone, no image, is at or above 42 of 120
+    grid-cell rows. Where it sits is the finding: month under `cube`/`loco` is
+    clean (0/20 and 0/20 at or below), season is not (10/20, 9/20), and under
+    `spatial_block` season collapses (17/20). **Cite P1 as month under cube or
+    LOCO, and cite the margin over the control**, not the distance from chance.
+  - **The positive control works.** `satlas_s2_swinb_mi_rgb`, the only encoder
+    that can represent change, is the only one that beats the retention control
+    on season (+0.092 cube, +0.041 loco) -- and the worst on month. Exactly the
+    signature its 0-105 day lookback predicts; flagged `si_comparable=False`
+    and reported conditioned on that lookback.
+  - **Two encoders cannot be ranked here.** `dinov2_vitb14` and
+    `satlas_s2_swinb_rgb` land 0.387/0.386 locally and 0.389/0.389 on Colab, so
+    the fold-mode rank agreement itself changes with a scipy version. Recorded
+    as the sample-size limit it is: 20 cubes, 1 tile, 1 year.
+  - Grid-cell rows (264 -> 4224) are the PRIMARY feature set. Regularisation
+    grid-edge selection fell 34.7% -> 21.3% after widening, and the residual is
+    saturation, not truncation (C=10^4 changes 0.1% of predictions).
+  - The local embedding cache is the full **100 files**: `dinov2_vitb14` needed
+    Python >= 3.10 for its `torch.hub` code, not a GPU (20 cubes, CPU, 42 s).

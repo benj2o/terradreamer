@@ -1254,3 +1254,127 @@ selection at an edge means the data wants an extreme value rather than that the
 grid ran out. `n_at_grid_edge` stays in the CSV as the check that this is so.
 
 **Commit.** `TBD`
+
+---
+
+## 2026-08-09: the band asymmetry, MEASURED -- the networks win the fair comparison
+
+**Assumed** (2026-08-08, above). That `raw_features` beating every frozen
+encoder was an input effect that could be stated but not separated, because
+isolating it "would mean a new encoder variant and a re-encode, which is Phase
+1.2 work, not P1's".
+
+**Observed.** It costs a column slice. `raw_features` stores its per-band
+statistics in a KNOWN ORDER (`encoders.raw_features.RAW_FEATURE_NAMES`), so the
+band-matched baseline is 21 columns of an array already on disk. Measured, month
+/ cube k=5 / logreg / grid_cell:
+
+```
+raw_ALL      (35: RGB + B8A + NDVI)   0.430    <- what we had been comparing to
+dinov2_vitb14        (RGB-only net)   0.387
+satlas_s2_swinb_rgb  (RGB-only net)   0.386
+imagenet_vit_b16     (RGB-only net)   0.350
+raw_NIR+NDVI (14)                     0.339
+raw_RGB-ONLY (21)    BAND-MATCHED     0.328
+DEGENERATE CONTROL   (2)              0.282
+```
+
+**The conclusion reverses.** Given the same three bands, every frozen network
+beats hand-crafted percentiles (+0.02 to +0.06). `raw_features` led only because
+it also sees B8A and NDVI -- and neither half alone (0.328, 0.339) approaches
+the combination (0.430), so its advantage is the pair, not the extra band by
+itself.
+
+**Changed.** `raw_rgb_only` and `raw_nir_ndvi` are first-class feature sets,
+`margin_over_band_matched` is a column, and `assert_results_complete` refuses a
+table without the band-matched row. The column indices are DERIVED from
+`RAW_FEATURE_NAMES` and asserted to partition it, so reordering the baseline's
+features cannot silently repoint the slice; `feature_matrix` refuses the slice
+on any encoder whose grid is not D=35.
+
+**What survives from the earlier entry.** The mechanism, and the reading rule:
+`raw_features` is still a model of more evidence, so it is still not the
+comparison to make a representation claim against. What was wrong was calling
+the separation expensive and deferring it. The correction cost ten minutes and
+changed the headline, which is the argument for running the cheap control
+BEFORE writing the interpretation, not after.
+
+**One caveat that does not go away.** The advantage is not robust to the
+strictest split: under `spatial_block`, `dinov2_vitb14` (-0.017) and
+`imagenet_vit_b16` (-0.020) fall BELOW the band-matched baseline on month. The
+more honest the geography holdout, the less of the representation advantage
+survives. Reported, not smoothed.
+
+**Commit.** `TBD`
+
+---
+
+## 2026-08-09: the C grid, closed out -- the residual edge is saturation, not truncation
+
+**Assumed** (2026-08-09, above). That widening `C` to 100 would move the grid
+edge from "the grid ran out" to "the data wants an extreme value", and that
+`n_at_grid_edge` would then be small.
+
+**Observed.** Half right. Edge selection fell from **34.7% to 21.3%** of 4320
+outer folds, and `ridge` is now bracketed on both sides (25/1080 at 1e4, none at
+1e5). But plain `logreg` still selects the TOP edge in 27.5% of folds
+(297/1080), which is the same complaint one order of magnitude further out.
+
+So the question was tested rather than argued. satlas grid_cell, cube fold 1:
+
+```
+C=100     test bal-acc 0.4492
+C=1000    test bal-acc 0.4527    98.9% of predictions identical to C=100
+C=10000   test bal-acc 0.4533    99.9% identical to C=1000
+```
+
+**The fit has saturated.** On a 4224 x 768 design matrix the data genuinely
+wants essentially no regularisation, and past C=100 the decision rule stops
+moving: extending the grid two more decades changes 0.1% of predictions and
+0.004 of balanced accuracy, against a fold spread of +/-0.044.
+
+**Changed.** Nothing further. The grid stays at 1e-4..1e2 and this measurement
+is the reason the remaining 27.5% is reported rather than chased. Note the
+asymmetry that makes it interpretable: `logreg_balanced` uses the whole grid
+(85 folds at 1e-4, 189 at 1e2), so the concentration at the top is a property of
+the unweighted objective on a near-separable problem, not of the grid.
+
+**Commit.** `TBD`
+
+---
+
+## 2026-08-09: two encoders cannot be ranked at this sample size, and we can prove it
+
+**Assumed.** That the fold-to-fold spread was the honest uncertainty, and that
+reporting it was sufficient caution around the encoder ordering.
+
+**Observed.** It is not sufficient, because the ordering is unstable to
+something smaller than the spread. The same commit, the same 100 `.npz`, run on
+Python 3.9.6 locally and 3.12 on Colab -- different sklearn, scipy and BLAS:
+
+```
+month / cube / logreg / grid_cell     local     Colab
+dinov2_vitb14                         0.387     0.389
+satlas_s2_swinb_rgb                   0.386     0.389
+```
+
+Every score agrees to +/-0.003. But those two encoders are separated by 0.001
+locally and 0.000 on Colab, so **the rank agreement statistic itself changes**:
+month / logreg / cube-vs-spatial_block is Spearman +0.800 locally and +0.400 on
+Colab.
+
+**Changed.** Nothing in the code -- there is nothing to fix. This is recorded as
+a claim boundary: on this subset P1 supports "every encoder clears the
+band-matched baseline / the retention control by X" and does NOT support "encoder
+A is better than encoder B". Any ordering in the tables is presentation, not a
+result, and the cross-environment reproduction is kept in `notebooks/runs/` as
+the evidence.
+
+It is also the strongest available argument for scale-up, and a cheap one to
+have made: it did not need a new experiment, only running the existing one
+twice. 20 cubes / 1 tile / 1 year cannot separate two encoders. Three of six
+fold modes (`year`, `tile`, `crossed`) additionally refuse to run at all here,
+so the evaluation contribution cannot be demonstrated in the modes that matter
+most. Both are fixed by the same download.
+
+**Commit.** `TBD`

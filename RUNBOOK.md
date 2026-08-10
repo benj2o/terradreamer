@@ -572,13 +572,13 @@ per-encoder comparison into a comparison over different cubes.
 | 2 | bootstrap, resolves RAW + EMB_IN read-only, defines `sh()` | 1 min |
 | 3 | environment check; sklearn present, cheap cache audit | instant |
 | 4 | cubes (skips ones already on Drive) | 15 s |
-| 5 | unit tests, expect `302 passed, 5 skipped` | 15 s |
+| 5 | unit tests, expect `323 passed, 5 skipped` | 20 s |
 | 6 | build the REAL manifest from `data/raw/*.nc` | 1 min |
 | 7 | realised class distribution, chance DERIVED from it | instant |
 | 8 | audit + join all 100 pairs, re-asserted against the `.npz` | 20 s |
 | 9 | fold disjointness re-derived from the manifest, not from `cv` | 5 s |
-| 10 | poisoned test fold: selected `C` must not move | 1 min |
-| 11 | **the run** — 192 rows, 1920 outer folds, nested inner loop | 30–60 min |
+| 10 | poisoned test fold: selected `C` must not move (EXHIBIT; the gate is Step 5) | 10 s |
+| 11 | **the run** — 432 rows, 4320 outer folds, ~95k fits | 85 min |
 | 12 | table invariants: baseline row, degenerate control, MI flags | instant |
 | 13 | rank agreement between the three fold modes | instant |
 | 14 | Figure 1, five panels on shared axes | 20 s |
@@ -595,29 +595,31 @@ Full detail in [log.md](log.md); the archived run is
 `notebooks/runs/phase1_4_p1_appearance_2026-08-08_localCPU.ipynb`.
 
 ```
-Step 5   302 passed, 5 skipped        (307 collected)
+Step 5   323 passed, 5 skipped        (328 collected)
 Step 7   month  8 REALISED classes (Apr..Nov), chance 1/8 = 0.1250, NOT 1/12
          season 3 REALISED classes (no DJF),   chance 1/3 = 0.3333, NOT 1/4
 Step 8   100 .npz -> 100 usable (20 x 5) at v3
          MI window_span_days min 0 median 55 max 105 d; SI encoders exactly 0
 Step 9   30 folds, every manifest row tested exactly once in each mode
-Step 10  selected C identical on all 5 folds; test score moves
-Step 11  192 rows in ~34 min on 7 workers
-Step 12  month/cube/logreg/grid_cell:
-           raw_features 0.425 > dinov2 0.397 > satlas_rgb 0.393 > imagenet 0.352
-           DEGENERATE CONTROL 0.282   (chance 0.125)
+Step 10  selected C identical on all 5 folds; test score moves (~10 s)
+Step 11  432 rows in ~85 min on 7 workers
+Step 12  month/cube/logreg/grid_cell, margin over the BAND-MATCHED baseline:
+           raw_features +0.102 > dinov2 +0.059 ~ satlas_rgb +0.058
+           > imagenet +0.021 > MI +0.014 > raw_rgb_only 0.000
+           DEGENERATE CONTROL -0.046   (all five networks clear it here)
 Step 13  weakest pairwise Spearman rho +0.400
 Step 14  PC1+PC2 explained variance 26% (dinov2) .. 70% (raw_features)
 ```
 
-**Two results to read, not skim.** The degenerate control
-(`[clear_frac, window_span_days]`, no image) reaches **0.681** on 3-class
-season under `spatial_block` and beats every encoder there. Cloud retention on
-this subset is seasonal, and only month under `cube`/`loco` separates any
-encoder from the control (+0.06 to +0.15); on season none of them clears it
-anywhere. And `raw_features` wins every single-image comparison partly because
-it sees **B8A** while every network encoder here is RGB-only. Both are recorded
-in [docs/DECISIONS.md](docs/DECISIONS.md).
+**Two results to read, not skim.** Against the BAND-MATCHED baseline
+(`raw_rgb_only` — the same three bands every network gets) the frozen encoders
+**win** on month/cube by +0.02 to +0.06; full `raw_features` leads only because
+it also sees B8A and NDVI. Against the degenerate control
+(`[clear_frac, window_span_days]`, no image at all) they win on month under
+`cube`/`loco` (0 of 20 rows at or below) and **lose on season** (10/20, 9/20,
+and 17/20 under `spatial_block`). Cite P1 as month under cube or LOCO, and cite
+the margin over the control. Both are recorded in
+[docs/DECISIONS.md](docs/DECISIONS.md).
 
 ### When something fails
 
