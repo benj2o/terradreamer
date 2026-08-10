@@ -1,0 +1,47 @@
+# Archived run: scripts/scale_p4.py --tile 32UNU --n 115
+#
+# 2026-08-11, local CPU, 37 min on 7 workers. Verbatim stdout, kept as EVIDENCE
+# for the numbers in log.md and docs/DECISIONS.md. Cubes (379 MB) and the
+# results CSV are gitignored and reproducible by re-running the command above.
+#
+# 17/54 weather rows exclude zero (0/54 at 20 cubes). The defensible cell is
+# cell_mean under HGB: +0.130 [+0.063,+0.197] cube, +0.085 [+0.007,+0.162] loco,
+# clearing BOTH the observation control and the day-of-year control. Note that
+# cube_p90's larger +0.320 is 80% day-of-year (its DOY control is +0.256) --
+# see log.md. Cite cell_mean.
+[dl] 32UNU/train: 192 listed, 115 non-overlapping selected (asked 115)
+[dl] 115 cubes on disk (115 new), 379 MB, 65s -> data/scaled_32UNU/raw
+[manifest] weather join VERIFIED against the cubes: 1580 rows x 8 E-OBS variables over 115 cubes, max abs difference 0 (tolerance 1e-9)
+[build] manifest (1580, 22), 115 cubes, years [2018], 31s
+
+==============================================================================
+[p4] STAGE B DEFERRED -- pending the seasonal download.
+[p4] The manifest spans [2018] over 115 cubes and 0 cube(s) span more than one year.
+[p4] Stage B needs the REAL leave-target-year-out climatology
+[p4]   (data.climatology.ndvi_climatology, which raises SingleYearError here BY DESIGN)
+[p4] and probes.cv mode 'crossed', which holds cube AND year out jointly and
+[p4] therefore agrees with that climatology's own structure. Both correctly
+[p4] REFUSE a single-year manifest. Neither is weakened, and Stage A's
+[p4] within-season proxy number is NOT substituted for H1: Stage A de-risks
+[p4] the code and establishes the controls, and that is all it does.
+[p4] H1 is produced by Stage B, on the seasonal split, and nowhere else.
+==============================================================================
+[run] run_p4: 270 rows in 37.2 min on 7 workers
+[p4] results table COMPLETE: 270 rows, 1 stage(s) x 3 targets x 3 fold modes x 3 estimators x 2 feature sets x 5 model kinds
+[p4] Stage B: DEFERRED, explicitly, and NOT substituted
+[run] wrote data/scaled_32UNU/p4_scaled_results.csv (270 rows x 95 cols)
+
+==============================================================================
+P4 Stage A at 115 cubes -- cube_mean / cube / linear / weather_full8
+==============================================================================
+  weather                   r2_vs_clim +0.078  [-0.030, +0.186]  width 0.216  margin +0.076
+  observation               r2_vs_clim +0.002  [-0.010, +0.014]  width 0.025  margin +0.000
+  doy                       r2_vs_clim +0.002  [-0.001, +0.006]  width 0.007  margin +0.000
+  weather_plus_observation  r2_vs_clim +0.082  [-0.028, +0.192]  width 0.220  margin +0.080
+  permutation               r2_vs_clim -0.028  [-0.042, -0.014]  width 0.028  margin -0.030
+
+weather rows whose interval still includes zero: 37/54   (20-cube run: 54/54)
+weather rows at or below the observation control: 21/54   (20-cube run: 33/54)
+
+linear day-of-year sanity control, worst |r2_vs_clim|: 0.011   (20-cube run: 0.019)
+permutation control, max r2_vs_clim: -0.007   (must stay <= 0: the pipeline never invents skill)

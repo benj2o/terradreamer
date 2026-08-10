@@ -235,6 +235,93 @@ fails. Under `spatial_block` nothing replicates.
 3.0 min on 7 CPU workers for 270 rows = 2700 outer folds. No GPU, and none would
 help. Peak memory under 2 GB.
 
+## 2026-08-11: P4 at 115 cubes -- the first measured ceiling, and capacity stops hurting
+
+`scripts/scale_p4.py --tile 32UNU --n 115`. 5.75x the cubes (192 listed, 115
+after the 64 px non-overlap rule), 1580 manifest rows, 270 rows in 37 min. Cubes
+live under `data/scaled_32UNU/` and NOT `data/raw`, which stays the 20-cube set
+Phase 1.2's embedding cache is keyed to.
+
+**17 of 54 weather rows now exclude zero, against 0 of 54 at 20 cubes.** Median
+fold-clustered CI width, weather rows: linear 0.236 -> 0.166, hgb 0.616 ->
+0.419, mlp 7.35 -> 1.61. The proxy ceiling is cube-limited and cubes are cheap,
+exactly as the 30TVN scaling predicted.
+
+### THE HEADLINE: `cell_mean` under HGB, and it survives both controls
+
+```
+target/mode        weather   [CI]              vs OBSERVATION   vs DOY control
+cell_mean cube     +0.130  [+0.063, +0.197]        +0.137           +0.094
+cell_mean loco     +0.085  [+0.007, +0.162]        +0.109           +0.086
+```
+
+This is **the first cell in this project to clear zero and both controls at
+once**. The day-of-year control on those rows is +0.036 and -0.002, so the
+signal is not residual phenology, and the margin over the observation-process
+control is +0.137 / +0.109, so it is not cloud retention either.
+
+### The estimator ordering REVERSED, and that is a sample-size result
+
+At 20 cubes: "capacity hurts, only the linear model is positive, HGB is around
+zero". At 115 cubes HGB is the strongest estimator everywhere and linear is the
+weak one (+0.078 on the primary cell, interval still spanning zero). Boosted
+trees needed the data; 264 rows was not enough for them and 1580 is. The earlier
+conclusion was true of the earlier sample size and is now superseded rather than
+contradicted.
+
+### A caveat that only the DOY control could have caught
+
+HGB's largest raw number is `cube_p90 / cube` at **+0.320**, which looks like the
+headline until it is read against its own day-of-year control at **+0.256**:
+
+```
+HGB weather MINUS HGB day-of-year control, weather_full8
+cube_mean cube          +0.222 - 0.092 = +0.130
+cube_mean loco          -0.068 - 0.038 = -0.106
+cube_p90  cube          +0.320 - 0.256 = +0.063   <- most of it is the calendar
+cube_p90  loco          +0.106 - 0.012 = +0.094
+cube_p90  spatial_block -0.279 - 0.091 = -0.370
+cell_mean cube          +0.130 - 0.036 = +0.094
+cell_mean loco          +0.085 + 0.002 = +0.086
+```
+
+**Four fifths of HGB's best-looking number is day-of-year.** The 36-date orbit
+lattice measured at 20 cubes is still there at 115 (more cubes add rows per
+date, not new dates), so a flexible learner can still fit a per-date mean.
+`cell_mean` is the target where it cannot: 16 cells per frame share a date, so
+per-date memorisation buys much less. **Cite `cell_mean`, not `cube_p90`.**
+
+The LINEAR day-of-year control is clean everywhere, worst |r2| **0.011** across
+all nine target x mode cells (0.019 at 20 cubes). The H=4 harmonic order chosen
+against that control at 20 cubes holds at 5.75x the data, unchanged.
+
+### What did NOT change
+
+* **`spatial_block` still kills it.** Every estimator goes negative or to zero
+  under the strictest geography holdout, as in P1. Nothing here survives it.
+* **The MLP is still catastrophic** (-0.98 to -5.35) and now excludes zero on the
+  WRONG side in 8 rows -- confidently wrong rather than merely noisy.
+* **The observation control did not systematically weaken.** It fell in the
+  primary cell (+0.028 -> +0.002) but across all cells the mean is flat
+  (-0.087 -> -0.092, max +0.031 -> +0.035). The retention confound is not a
+  small-sample artefact; it is real and it stays.
+* **The permutation control stays negative everywhere** (max -0.007), and is
+  much tighter than at 20 cubes ([-0.042, -0.014] on the primary cell). The
+  pipeline still never invents skill from a destroyed association.
+* **Stage B is still deferred**, correctly: 115 cubes, all 2018.
+
+### The claim this supports
+
+"On tile 32UNU, weather explains **0.09 to 0.13** of the within-season
+post-climatology NDVI anomaly at the grid-cell level, above both a
+cloud-retention control and a day-of-year control, under cube- and
+leave-one-cube-out holdout -- and nothing survives a strict spatial-block
+holdout." That is a bounded, controlled, replicated number where four days ago
+there was an interval spanning zero.
+
+It remains a PROXY-climatology ceiling, not H1. See the year-limit entry below
+for why H1 is not obtainable on this benchmark at all.
+
 ## 2026-08-10: H1's precision is bounded by the number of YEARS, not cubes -- and GreenEarthNet has four
 
 `scripts/validate_proxy_climatology.py --tile 30TVN --n 87`. Stage A (proxy)

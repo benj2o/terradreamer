@@ -305,3 +305,27 @@ For Colab, follow [RUNBOOK.md](RUNBOOK.md).
     does nearly all the cross-cube work here.
   - **The 5-variable EO-WM subset is worse than the full 8** (−0.044 vs +0.038
     on the primary cell). Reported for commensurability, not as our number.
+- 1.5b P4 scaled to **115 cubes** (2026-08-11, 37 min; `scripts/scale_p4.py`,
+  cubes under `data/scaled_32UNU/` so `data/raw` stays the 20-cube set Phase
+  1.2's cache is keyed to). **17 of 54 weather rows now exclude zero, against
+  0 of 54 at 20 cubes.**
+  - **The first measured ceiling in this project.** `cell_mean` under HGB:
+    **+0.130 [+0.063, +0.197]** (cube) and **+0.085 [+0.007, +0.162]** (LOCO),
+    clearing the observation control by +0.137/+0.109 **and** the day-of-year
+    control by +0.094/+0.086. So: weather explains ~0.09–0.13 of the
+    within-season post-climatology anomaly at grid-cell level.
+  - **Cite `cell_mean`, not `cube_p90`.** HGB's larger +0.320 on `cube_p90` is
+    four fifths day-of-year (its own DOY control is +0.256) — the 36-date orbit
+    lattice is unchanged by adding cubes, so a flexible learner still fits a
+    per-date mean. 16 cells share a date, which is why the cell-level target
+    resists it.
+  - **The estimator ordering reversed, and that is a sample-size result.** At 20
+    cubes "capacity hurts, only linear is positive"; at 115 HGB is strongest and
+    linear is weak. Boosted trees needed the data. The earlier conclusion is
+    superseded, not contradicted.
+  - Unchanged: `spatial_block` kills everything; the MLP is still catastrophic
+    (now confidently wrong, excluding zero on the wrong side in 8 rows); the
+    permutation control stays negative (max −0.007); the retention confound is
+    **not** a small-sample artefact (mean across cells flat at −0.087 → −0.092);
+    Stage B still correctly deferred. The linear DOY control is clean at 0.011,
+    so the H=4 harmonic order holds at 5.75× the data.
