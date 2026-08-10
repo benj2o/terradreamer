@@ -1184,7 +1184,7 @@ protects one site; a type protects the pattern. This is also why it is worth
 doing BEFORE scale-up rather than after: the same slicing runs at twenty times
 the volume there, and a wrong number costs a full re-run to discover.
 
-**Commit.** `TBD`
+**Commit.** `3256748`
 
 ---
 
@@ -1226,7 +1226,7 @@ Nothing is retracted from the earlier entry: the reasoning for wanting an
 unweighted row stands, and that row is still there. What was wrong was
 reporting ONLY it.
 
-**Commit.** `TBD`
+**Commit.** `3256748`
 
 ---
 
@@ -1253,7 +1253,7 @@ A grid that has to be defended in prose is a grid that should have been wider.
 selection at an edge means the data wants an extreme value rather than that the
 grid ran out. `n_at_grid_edge` stays in the CSV as the check that this is so.
 
-**Commit.** `TBD`
+**Commit.** `3256748`
 
 ---
 
@@ -1305,7 +1305,7 @@ strictest split: under `spatial_block`, `dinov2_vitb14` (-0.017) and
 more honest the geography holdout, the less of the representation advantage
 survives. Reported, not smoothed.
 
-**Commit.** `TBD`
+**Commit.** `3256748`
 
 ---
 
@@ -1339,7 +1339,7 @@ asymmetry that makes it interpretable: `logreg_balanced` uses the whole grid
 (85 folds at 1e-4, 189 at 1e2), so the concentration at the top is a property of
 the unweighted objective on a near-separable problem, not of the grid.
 
-**Commit.** `TBD`
+**Commit.** `8ebee9c`
 
 ---
 
@@ -1377,4 +1377,4 @@ fold modes (`year`, `tile`, `crossed`) additionally refuse to run at all here,
 so the evaluation contribution cannot be demonstrated in the modes that matter
 most. Both are fixed by the same download.
 
-**Commit.** `TBD`
+**Commit.** `8ebee9c`
