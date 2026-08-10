@@ -1438,7 +1438,7 @@ to contain only what we put there. This adds a third: **a derived column cannot
 be validated against the table it lives in.** Its plausibility there is exactly
 what makes it dangerous.
 
-**Commit.** `TBD`
+**Commit.** `13d079d`
 
 ---
 
@@ -1497,7 +1497,7 @@ order was leftover seasonal cycle.**
    `SingleYearError`; the proxy lives in the probe, under its own name, and the
    two cannot be confused in the CSV.
 
-**Commit.** `TBD`
+**Commit.** `13d079d`
 
 ---
 
@@ -1545,7 +1545,7 @@ Two further findings recorded with it:
   mean/min/max temperature; dropping wind, humidity and radiation costs the whole
   margin. Reported for commensurability, not as our number.
 
-**Commit.** `TBD`
+**Commit.** `13d079d`
 
 ---
 
@@ -1603,7 +1603,7 @@ which is a management decision and not a weather response -- so the one stratum
 where a weather-only ceiling should be expected to fail is the one that fails.
 That is a check on the probe passing, not a defect.
 
-**Commit.** `TBD`
+**Commit.** `13d079d`
 
 ---
 
@@ -1637,7 +1637,7 @@ A's number gets quoted as H1 six weeks later by someone reading a table.
   there must be no Stage B rows at all and every row must be labelled as the
   proxy. Relabelling Stage A as Stage B raises.
 
-**Commit.** `TBD`
+**Commit.** `13d079d`
 
 ---
 
@@ -1688,7 +1688,7 @@ four phases, because the input that would trigger them did not exist in the
 repo. Exercising every guard against real data of the shape it was written for
 is a task in its own right.
 
-**Commit.** `TBD`
+**Commit.** `13d079d`
 
 ---
 
@@ -1737,4 +1737,4 @@ wrong, and the plan built on it reserved a subset that was never these cubes.
    `phase1_3_cv.md` reserved for P3 was never these cubes and the real extreme
    split is untouched.
 
-**Commit.** `TBD`
+**Commit.** `13d079d`

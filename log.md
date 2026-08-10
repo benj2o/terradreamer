@@ -235,6 +235,61 @@ fails. Under `spatial_block` nothing replicates.
 3.0 min on 7 CPU workers for 270 rows = 2700 outer folds. No GPU, and none would
 help. Peak memory under 2 GB.
 
+## 2026-08-10: `year` was the filename's window-start, and it had blocked Stage B on every tile
+
+Found the moment a real seasonal cube was first run through the manifest.
+
+`manifest_rows` parsed `year` from the cube FILENAME's window-start field and
+stamped it on every row of that cube. On tile 32UNU that is indistinguishable
+from the truth -- one 2018 window per cube, so the id-derived year and each
+frame's calendar year always agree -- and it survived four phases. On a real
+seasonal cube (one file spanning 2017-2020) they disagree on **1666 of 2092
+rows**.
+
+`probes.cv._row_years` refused it instantly and named the fix in its own error
+message. `tests/test_cv_folds.py::test_year_mode_rejects_a_lying_year_column`
+had tested for exactly this since Phase 1.3, with a docstring reading
+"build_manifest CURRENTLY derives year from the cube id". The guard, the test
+and the written diagnosis were all correct and none had ever executed, because
+nothing in the repo had handed them a multi-year cube.
+
+**The consequence was larger than the bug.** `crossed` is the only fold mode
+that agrees with a leave-target-year-out climatology, so **P4's Stage B could
+not have run on any tile until this was fixed** -- it was written, gated on a
+detector that correctly reported `multi_year=True`, and had simply never met
+real seasonal data. It ran for the first time on 2026-08-10.
+
+Fixed: `year` now comes from each frame's own timestamp.
+`tests/test_encoders.py::test_manifest_year_is_per_row_not_the_cube_id_window_start`
+builds a synthetic cube whose frames straddle 31 December while its filename
+says 2018, and was verified to FAIL against the previous code before being kept.
+
+## 2026-08-10: tile 32UNU has no seasonal coverage; H1 is not computable there
+
+Read from the bucket rather than assumed:
+
+```
+seasonal split, 15 tiles:  29SQC 29TPF 29UMV 30TVK 30TVN 31TCF 31TFK 31UCS
+                           31UEQ 31UGQ 31UGU 32VNM 32VPN 33TWN 33VXK
+32UNU: NO      32TPT: NO      33TUN: NO    (no Bavaria-area tile at all)
+extreme split, 4 tiles:    32UMC 32UNC 32UPC 32UQC   (32UNU NOT among them)
+```
+
+Two corrections follow. **H1 as originally scoped is unavailable on 32UNU** --
+not pending a download, not obtainable. And the 20 working cubes are **not "the
+extreme split"** as called since 2026-08-02: they came from `--split train`,
+where 32UNU holds 192 cubes. Nothing measured changes (every property actually
+used was verified from the files), but `docs/specs/phase1_3_cv.md` reserved
+"the 20 extreme cubes" for P3 on a false premise, and the real extreme split is
+untouched -- so growing the 32UNU pool is unblocked.
+
+Seasonal cubes are schema-identical where they do exist (same 4 bands, same 8
+E-OBS variables, 1-day axis, `esawc_lc`, `cop_dem`), but E-OBS completeness is
+not guaranteed off 32UNU: on 30TVN `eobs_fg` is **absent from 20 of 25 cubes**
+and `eobs_qq` misses the same trailing 13 days in every one. Nothing is filled;
+`weather_finite6` is the registered fully-finite intersection, and numbers from
+it are not directly comparable with 32UNU's 8-variable ones.
+
 ## 2026-08-10: the manifest's E-OBS columns were joined to the wrong day
 
 Found while building P4, whose entire input is the weather. **0 of 264 manifest
