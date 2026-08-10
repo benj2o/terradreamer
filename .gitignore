@@ -17,6 +17,9 @@ data/greenearthnet/
 data/embeddings/
 data/masks/
 data/phase*/
+# Validation-experiment artefacts (cubes + results). Reproducible with
+# scripts/validate_proxy_climatology.py; the cubes alone are ~2 GB.
+data/validation_*/
 *.nc
 *.nc.partial
 *.zarr/

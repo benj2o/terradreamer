@@ -42,11 +42,17 @@ encoders/                    Tier A frozen encoders, one interface:
                                                      window_len=8, caches window_span_days
                              pipeline.py cube -> saved .npz (pooled/grid/variants/
                              grid_clear_frac/window_span_days) + per-cube mask cache
-encoders/manifest.py         (cube, frame) manifest: original_axis_index (horizons
-                             are DAYS on the original axis, never retained frames),
-                             pixel_bbox, per-cube AND per-grid-cell landcover_stratum
-                             (esawc_lc), per-cell elevation (cop_dem), in-cube E-OBS
-                             weather (8 vars) joined on original_axis_index
+encoders/manifest.py         (cube, frame) manifest. TWO TIME AXES, and they are
+                             not the same axis: original_axis_index counts
+                             ACQUISITIONS and is the embedding join key;
+                             daily_axis_index is the position on the cube's
+                             ORIGINAL DAILY axis, from the frame's timestamp, and
+                             is what horizons and weather windows are defined on.
+                             Also pixel_bbox, per-cube AND per-grid-cell
+                             landcover_stratum (esawc_lc), per-cell elevation
+                             (cop_dem), and in-cube E-OBS weather (8 vars) joined
+                             on daily_axis_index. assert_weather_join re-derives
+                             that join from the cubes and refuses a disagreement
 data/paths.py                phase-scoped artefact dirs: phase_dir/describe_phase/
                              reset_phase. data/raw is shared and never reset
 probes/p1_appearance.py      P1, the appearance sanity probe: month / season
@@ -63,6 +69,23 @@ probes/p1_appearance.py      P1, the appearance sanity probe: month / season
                              distribution, never hard-coded; margin_over_control
                              and margin_over_band_matched are the columns to
                              read. Also figure1(), the latent clock
+probes/p4_ceiling.py         P4, the weather-attributability ceiling: how much of
+                             the post-climatology NDVI anomaly is explainable
+                             from weather alone. Reads CUBES only -- no
+                             embedding, no weights. TWO STAGES: Stage A uses an
+                             explicitly named PROXY climatology
+                             (doy_climatology_within_fold, fitted on TRAINING
+                             cubes inside each fold -- the signature takes a
+                             training index set, so the nested leak is prevented
+                             by the type rather than by discipline) and does NOT
+                             produce H1; Stage B uses the real leave-year-out
+                             data/climatology.py under mode "crossed" and is
+                             DEFERRED, explicitly, until the seasonal split.
+                             3 targets x 3 fold modes x 3 estimators x 2 feature
+                             sets x 5 model kinds. FOUR mandatory controls --
+                             observation-process, day-of-year sanity, both
+                             jointly, and a permutation null. The headline is
+                             margin_over_control, never the raw R-squared
 probes/cv.py                 THE split definition. Six modes over the manifest,
                              each yielding (train_idx, test_idx) row positions:
                                cube          DEFAULT, GroupKFold on cube_id
@@ -98,6 +121,7 @@ notebooks/phase1_1_data_toy_load.ipynb
 notebooks/phase1_2_encoders.ipynb
 notebooks/phase1_3_cv.ipynb
 notebooks/phase1_4_p1_appearance.ipynb
+notebooks/phase1_5_p4_ceiling.ipynb
 notebooks/runs/                the executed exit-test runs, outputs kept, as
                                evidence. Never re-run in place; excluded from
                                the Colab bundle by make_zip.sh
@@ -239,3 +263,45 @@ For Colab, follow [RUNBOOK.md](RUNBOOK.md).
     saturation, not truncation (C=10^4 changes 0.1% of predictions).
   - The local embedding cache is the full **100 files**: `dinov2_vitb14` needed
     Python >= 3.10 for its `torch.hub` code, not a GPU (20 cubes, CPU, 42 s).
+- 1.5 P4 weather-attributability ceiling: **Stage A DONE, Stage B DEFERRED**
+  (2026-08-10; local CPU, 3.0 min). `probes/p4_ceiling.py` + a 270-row results
+  CSV under `data/phase1_5/`. 382 tests pass, 5 skipped.
+  - **A manifest defect was found and fixed first.** The in-cube E-OBS columns
+    were indexed with `original_axis_index` (which counts ACQUISITIONS, ~29 per
+    cube) into arrays on the DAILY axis (~150 steps), so **0 of 264 rows carried
+    the weather of their own day** — offset 4–122 steps, median 53;
+    mean-temperature MAE 6.26 K. Nothing could have caught it from inside the
+    manifest: the values were finite, in range and internally consistent, and
+    simply belonged to another day. `daily_axis_index` and
+    `assert_weather_join` fix and pin it; `original_axis_index` is unchanged, so
+    Phase 1.2–1.4 are unaffected.
+  - **Stage A does not produce H1, and says so on every row.** The 20 cubes are
+    single-year, so a leave-target-year-out climatology is not computable;
+    Stage A uses a within-season PROXY, labelled as such in the CSV's
+    `climatology_def` column. `data/climatology.py` still raises
+    `SingleYearError` and was not weakened. **Stage B is deferred, explicitly,
+    and the code refuses to let Stage A be relabelled as it.**
+  - **The ceiling is not measurable at this sample size.** The fold-clustered
+    95% CI includes zero for all 54 weather rows. Primary cell
+    (`cube_mean`/`cube`/linear/8 vars): weather **+0.066 [−0.159, +0.291]**
+    against an observation-process control of **+0.028**, so the headline
+    **`margin_over_control` = +0.038**. Effective n is **20 CUBES**, not 264
+    frames and not 4195 cells, and it is on every row of the CSV.
+  - **33 of 54 weather rows sit at or below the retention control** — P1's
+    finding propagating exactly as predicted. Cite the margin, never the R².
+  - **Capacity hurts.** The small MLP scores −2.6 to −17.9 and loses to its own
+    permutation null; only the linear model is positive on the primary target.
+  - **The day-of-year sanity control chose the climatology's smoothness.** At 2
+    harmonics, day-of-year alone still explained 4.0% of the "anomaly" (10.6% of
+    the 90th percentile) and the weather number was inflated to match; 4
+    harmonics is the lowest order that zeroes it on all three targets, and
+    raising the order only ever LOWERS the headline, so the selection is
+    conservative.
+  - **36 days of year, one orbit lattice.** All 264 rows satisfy `doy % 5 == 2`
+    and 261 share a date with another cube, so ~63% of a typical weather feature
+    is recoverable from the date alone — temperature/pressure/radiation vary
+    9–19% across cubes within a date, **precipitation 77%**. That is why only
+    the *linear* day-of-year control is a sanity check, and why precipitation
+    does nearly all the cross-cube work here.
+  - **The 5-variable EO-WM subset is worse than the full 8** (−0.044 vs +0.038
+    on the primary cell). Reported for commensurability, not as our number.

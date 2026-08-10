@@ -23,7 +23,8 @@ NOTEBOOK = os.path.join(_NOTEBOOKS, "phase1_3_cv.ipynb")
 # Every phase notebook from 1.3 on bootstraps the same way, so each carries a
 # copy of the block. A second copy free to drift is worse than no copy, so they
 # are asserted character-identical below.
-RESOLVER_NOTEBOOKS = ("phase1_3_cv.ipynb", "phase1_4_p1_appearance.ipynb")
+RESOLVER_NOTEBOOKS = ("phase1_3_cv.ipynb", "phase1_4_p1_appearance.ipynb",
+                      "phase1_5_p4_ceiling.ipynb")
 _BEGIN = "# === RESOLVER (pinned by tests/test_notebook_resolver.py) -- BEGIN ==="
 _END = "# === RESOLVER -- END ==="
 

@@ -648,3 +648,98 @@ reset_phase("phase1_4")     # clears ONLY this phase; data/raw is untouched
 Deleting the `phase1_4/` subfolder is the coarser version of the same undo.
 Neither can touch Phase 1.2's embeddings or Phase 1.3's folds, because this
 notebook only ever reads them.
+
+---
+
+# Phase 1.5 runbook
+
+P4, the weather-attributability ceiling: how much of the post-climatology NDVI
+anomaly is explainable from weather alone. **CPU is enough** — ~4 minutes, no
+GPU, no encoder weights, **no embeddings at all**. This phase reads the cubes
+and nothing else. Build the bundle with `./make_zip.sh`, drag
+`phase1_5_repo.zip` into a NEW subfolder `My Drive/NeurIPS-CCAI-2026/phase1_5/`,
+leave it zipped, open `notebooks/phase1_5_p4_ceiling.ipynb`, run top to bottom.
+Exactly one restart, at the end of Step 1.
+
+Phase 1.2 does **not** need to have run. Step 2 resolves `EMB_IN` because the
+bootstrap block is shared verbatim with Phases 1.3 and 1.4, and then prints that
+it is deliberately unused — `window_span_days` is recomputed from the manifest
+via `encoders.pipeline.window_span_days` rather than read from a cache.
+
+| step | what | time |
+|---|---|---|
+| 1 | install (adds `scikit-learn`, `scipy`, `joblib`), auto-restart | 2 min |
+| 2 | bootstrap, resolves RAW read-only, defines `sh()` | 1 min |
+| 3 | environment check, `N_JOBS` from `os.cpu_count() - 1` | instant |
+| 4 | cubes (skips ones already on Drive) | 15 s |
+| 5 | unit tests, expect `382 passed, 5 skipped` | 50 s |
+| 6 | the REAL manifest + **the E-OBS join VERIFIED against the cubes** | 1 min |
+| 7 | day-of-year vs weather structure; severity bin edges and counts | 30 s |
+| 8 | poisoned held-out NDVI: the climatology must not move (EXHIBIT; the gate is Step 5) | 5 s |
+| 9 | fold disjointness re-derived; weather constant across the 16 cells | 10 s |
+| 10 | **the run** — 270 rows, 2700 outer folds | 3 min |
+| 11 | table invariants: four controls, effective n, Stage B ran-or-deferred | instant |
+| 12 | the headline — margin over the observation control | instant |
+| 13 | write + re-read the CSV, list what the phase wrote | 5 s |
+
+### What the numbers should look like
+
+Full detail in [log.md](log.md); the archived run is
+`notebooks/runs/phase1_5_p4_ceiling_2026-08-10_localCPU.ipynb`.
+
+```
+Step 5   382 passed, 5 skipped
+Step 6   264 rows x 22 cols; the two axes differ on 264/264 rows by 4..122
+         steps (median 53); weather join max abs difference 0
+Step 7   36 DISTINCT days of year over 235 days, every row doy % 5 == 2
+         across-cube spread of the windowed features: median 0.375
+         severity edges (cube_mean) -0.1006 / -0.0329 / +0.0398 / +0.1013
+Step 8   curve bit-identical on all 5 folds when only TEST rows are poisoned,
+         and it moves when a TRAIN row is
+Step 10  270 rows in ~3 min on 7 workers
+Step 11  linear day-of-year control, worst |r2| = 0.019
+         permutation control negative everywhere
+         Stage B: DEFERRED, explicitly, and NOT substituted
+Step 12  cube_mean / cube / linear / weather_full8:
+           weather              +0.066  [-0.159, +0.291]
+           OBSERVATION CONTROL  +0.028
+           margin_over_control  +0.038      effective n = 20 CUBES
+```
+
+**Three results to read, not skim.** (1) The fold-clustered CI **includes zero
+for all 54 weather rows** — at 20 cubes, one tile and one year, this subset
+cannot measure a ceiling, and that is the finding. (2) **33 of 54 weather rows
+sit at or below the observation-process control**, so cite `margin_over_control`
+and never the raw R². (3) **Stage A is not H1** — it is a within-season proxy
+climatology on a single year, and every row says so in `climatology_def`. H1
+comes from Stage B, on the seasonal split.
+
+### When something fails
+
+- Step 6 `AssertionError: ... wrong-axis bug`: the manifest was built by code
+  predating 2026-08-10, so its E-OBS columns are indexed by the acquisition axis
+  and hold another day's weather. Rebuild it with `build_manifest`; do not
+  continue, because weather is this probe's entire input.
+- Step 8 failing means the climatology saw the test fold. **Nothing downstream
+  of it is reportable** — not the weather number and not any control, because a
+  leaked target definition inflates all of them together. Fix
+  `doy_climatology_within_fold` before re-running Step 10.
+- Step 9 `the feature varies ... ACROSS THE CELLS OF A SINGLE FRAME`: the cell
+  expansion is indexing the wrong frames. Weather is one value per (cube, frame)
+  by construction, so this is a join bug and every number below it would be a
+  confident wrong number of the same shape.
+- Step 11 `missing [...]`: the run was truncated. The four controls are not
+  optional — without the observation control the headline margin does not exist.
+- Step 11 reporting Stage B rows on this subset means the proxy was relabelled
+  as the real climatology. That is the one substitution this phase exists to
+  prevent.
+- Step 5 collecting a different number of tests than you get locally means the
+  bundle is stale. `make_zip.sh` lists files with `git ls-files`, so an
+  uncommitted file is silently absent. **Commit before `make_zip.sh`.**
+
+### Re-running cleanly
+
+```python
+from data.paths import reset_phase
+reset_phase("phase1_5")     # clears ONLY this phase; data/raw is untouched
+```

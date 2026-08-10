@@ -576,6 +576,83 @@ def test_elevation_is_cached_per_cell():
     print(f"[test] cell elevation {e.min():.0f}-{e.max():.0f} m")
 
 
+def _seasonal_synthetic_cube(path, seed=0):
+    """A cube spanning a YEAR BOUNDARY, the seasonal-split shape none of the
+    real cubes in this repo have (tile 32UNU is single-year). Modelled on
+    conftest.make_synthetic_cube but with acquisitions either side of 31 Dec,
+    which is the one condition that makes the id-derived year and the
+    per-row calendar year disagree.
+    """
+    import pandas as pd
+    import xarray as xr
+
+    rng = np.random.default_rng(seed)
+    times = [np.datetime64("2018-12-01") + np.timedelta64(d, "D")
+             for d in (0, 15, 30, 45, 60, 75)]   # 2018-12-01 .. 2019-02-14
+    T, H, W = len(times), 8, 8
+
+    data = {}
+    for b in ("B02", "B03", "B04", "B8A"):
+        arr = rng.uniform(0.02, 0.45, size=(T, H, W)).astype(np.float32)
+        if b == "B8A":
+            arr += 0.25
+        data[f"s2_{b}"] = (("time", "lat", "lon"), arr)
+    data["s2_dlmask"] = (("time", "lat", "lon"), np.zeros((T, H, W), np.uint8))
+    data["s2_SCL"] = (("time", "lat", "lon"), np.full((T, H, W), 4, np.uint8))
+
+    ds = xr.Dataset(
+        data,
+        coords={"time": pd.to_datetime(times),
+                "lat": np.linspace(48.15, 48.13, H),
+                "lon": np.linspace(11.55, 11.57, W)},
+    )
+    # A window-start year of 2018 in the FILENAME, matching real GreenEarthNet
+    # naming, while the frames themselves span 2018 into 2019 -- this is
+    # exactly what a real seasonal cube's id vs. timestamps disagreement
+    # looks like.
+    fname = "32UNU_2018-12-01_2019-02-14_0_128_0_128_0_8_0_8.nc"
+    full = os.path.join(path, fname)
+    ds.to_netcdf(full)
+    return full
+
+
+def test_manifest_year_is_per_row_not_the_cube_id_window_start(tmp_path):
+    """Until 2026-08-10, encoders.manifest.manifest_rows set every row's
+    'year' to the cube id's WINDOW-START year, parsed from the filename. On a
+    single-year cube (every real cube in data/raw) that is indistinguishable
+    from the per-row calendar year, so the bug was invisible until a real
+    seasonal cube -- which spans years WITHIN one file -- was run through it
+    for the first time, and probes.cv._row_years correctly refused the
+    resulting manifest as a 'lying year column'. This pins the fix: year must
+    come from each frame's own timestamp.
+    """
+    from data.loader import load_cube
+    from encoders.manifest import manifest_rows
+
+    path = _seasonal_synthetic_cube(str(tmp_path))
+    sample = load_cube(path, verbose=False)
+    rows = manifest_rows(sample, min_clear=0.0)
+    assert len(rows) >= 2, "need frames on both sides of the year boundary"
+
+    years = sorted({r["year"] for r in rows})
+    assert years == [2018, 2019], (
+        f"expected rows in both 2018 and 2019, got {years}. If this is "
+        "[2018] only, 'year' regressed to the cube id's window-start year."
+    )
+    for r in rows:
+        expected = int(np.datetime64(r["timestamp"], "Y").astype(int) + 1970)
+        assert r["year"] == expected, (
+            f"row at {r['timestamp']} carries year={r['year']!r}, expected "
+            f"{expected} from its own timestamp"
+        )
+    # The filename's window-start year (2018) must NOT have been used for
+    # every row -- that is precisely the bug this test exists to catch.
+    assert any(r["year"] != 2018 for r in rows), (
+        "every row is year=2018, matching the FILENAME's window-start year "
+        "regardless of timestamp -- the id-derived year bug is back"
+    )
+
+
 @_HEAVY
 def test_multi_image_encoder_is_batch_invariant_and_uses_context():
     """The MI window crosses batch boundaries via a context buffer, so

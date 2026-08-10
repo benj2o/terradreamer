@@ -1378,3 +1378,363 @@ so the evaluation contribution cannot be demonstrated in the modes that matter
 most. Both are fixed by the same download.
 
 **Commit.** `8ebee9c`
+
+---
+
+## 2026-08-10: the manifest indexed the daily weather axis with the acquisition axis
+
+**Assumed.** That `original_axis_index` was, as `encoders/manifest.py`'s own
+docstring called it, an index into "the original regular time axis", and that
+the in-cube E-OBS stack therefore "joins on `original_axis_index` with no
+interpolation" (2026-08-03, above). Both sentences were written down and neither
+was checked against a cube.
+
+**Observed.** They describe two different axes. A GreenEarthNet minicube is
+stored on a ~150-step **daily** grid of which about 29 steps carry a Sentinel-2
+acquisition; `data.loader.load_cube` drops the empty steps by design, so
+`select_clear_frames`' `kept_idx` -- and hence `original_axis_index` -- counts
+**acquisitions**. The E-OBS series are on the **daily** grid. `manifest_rows`
+indexed one with the other.
+
+Over the 20-cube subset, **0 of 264 rows carried the weather of the day their
+frame was acquired**: offset 4 to 122 steps, median 53. Mean-temperature error
+MAE 6.26 K (max 22.0), precipitation MAE 2.52 mm (max 35.0), radiation MAE 89.1
+(max 232). A frame acquired on 2018-04-22 carried 2018-03-17's temperature, 0.0 C
+instead of 17.0 C.
+
+**Nothing caught it and nothing could have.** The values were finite, in range,
+the right shape and the right dtype, and the manifest was internally consistent
+-- they were simply another day's weather. Every guard this project has added so
+far checks the artefact against the code that wrote it, or the code against
+itself. This is the first defect that required going back to the SOURCE and
+re-deriving the join independently.
+
+**Changed.**
+
+1. `cube_daily_axis(path)` returns the cube's daily time axis, read from the same
+   file as the E-OBS series so the two cannot come from different loads.
+2. `frame_daily_positions(daily_axis, timestamps)` locates each retained frame on
+   it by TIMESTAMP, with an **exact-match assertion**. Nothing rounds to the
+   nearest day: a weather value attached to the wrong day is a confident wrong
+   number, and a nearest-neighbour join would have hidden this bug rather than
+   surfaced it.
+3. The manifest gains a `daily_axis_index` column and joins E-OBS on it.
+   `original_axis_index` is UNCHANGED -- it is the embedding join key asserted in
+   `probes.cv.join_embeddings`, and re-pointing it would have broken Phase 1.2's
+   contract to fix Phase 1.5's bug.
+4. `assert_weather_join(df, cube_dir)` re-derives the entire join from the cubes
+   and refuses any disagreement above 1e-9. **Any probe whose input is the
+   weather calls it before fitting anything**; `run_p4` does, first thing.
+
+**Scope.** P1-P1.4 are unaffected: no probe before P4 reads a weather column, and
+`probes/cv.py` groups on cube/tile/timestamp. The module docstring now opens by
+naming the two axes, because the failure was a naming collision as much as an
+indexing one.
+
+**The general lesson, worth stating once.** Phase 1.2 established that a
+resumable cache is a correctness hazard unless it can prove its own version;
+Phase 1.3's Drive incident added that a cache on shared storage cannot be trusted
+to contain only what we put there. This adds a third: **a derived column cannot
+be validated against the table it lives in.** Its plausibility there is exactly
+what makes it dangerous.
+
+**Commit.** `TBD`
+
+---
+
+## 2026-08-10: Phase 1.5, P4: the proxy climatology is fitted INSIDE the fold, and its order is chosen by the sanity control
+
+**Assumed.** That the within-season proxy climatology was bookkeeping -- a
+day-of-year curve to subtract before modelling -- and that the interesting
+choices in P4 were the features and the estimators.
+
+**Observed.** It is the single most consequential object in the probe, for two
+reasons that only became visible once it was measured.
+
+*First, it defines the TARGET, so where it is fitted is a leakage question and
+not a style question.* Fitting one curve on all 20 cubes and then
+cross-validating the residual leaks the held-out cubes into the definition of
+what is being predicted. That inflates every number **including every control**,
+so the margins do not reveal it; the resulting table is internally consistent and
+wrong. It is the one error in this probe that nothing downstream can catch.
+
+*Second, its ORDER changes the headline by a factor of two.* Measured (cube k=5,
+linear, 8 variables, `r2_vs_climatology`):
+
+```
+H    cube_mean            cube_p90             cell_mean
+     weather   DOY        weather   DOY        weather   DOY
+2     +0.092  +0.040       +0.132  +0.106       +0.077  +0.010
+4     +0.066  +0.007       +0.066  -0.007       +0.067  +0.001
+```
+
+At two harmonics the "anomaly" still carried enough seasonal cycle for
+day-of-year ALONE to explain 4.0% of it and 10.6% of the 90th percentile -- and
+the weather model's number was inflated to match, because weather predicts
+phenology trivially. **Most of what looked like weather attributability at low
+order was leftover seasonal cycle.**
+
+**Changed.**
+
+1. `doy_climatology_within_fold(day_of_year, values, train_idx, ...)`. The
+   training index set is a REQUIRED POSITIONAL argument, so the curve cannot be
+   fitted on everything by omitting one; the arrays are read exactly once,
+   through that index; and the test poisons the held-out rows by +10.0 and
+   asserts the coefficients are bit-identical, with a companion test asserting
+   the curve DOES move when a training row changes. A test that can only pass
+   proves nothing.
+2. **`CLIMATOLOGY_HARMONICS = 4`, chosen BY the day-of-year sanity control** --
+   the lowest order at which that control lands at zero for all three targets at
+   once. This is a legitimate use of a held-out diagnostic precisely because it
+   is one-directional: raising the order LOWERS the reported weather number
+   everywhere, so selecting against this control cannot talk the headline up.
+3. `DOY_CONTROL_HARMONICS = 6`, deliberately RICHER than the detrend. A control
+   built from the detrend's own basis returns zero by least-squares construction
+   and tests arithmetic rather than the detrend.
+4. Every Stage A row carries `climatology_def` = "within-season proxy
+   climatology, tile-level, single year (2018), NOT the leave-year-out
+   definition". `data/climatology.py` is untouched and still raises
+   `SingleYearError`; the proxy lives in the probe, under its own name, and the
+   two cannot be confused in the CSV.
+
+**Commit.** `TBD`
+
+---
+
+## 2026-08-10: Phase 1.5, P4: the headline is the margin over the observation control, not the R-squared
+
+**Assumed.** That P4's deliverable was an R-squared -- "weather explains X of the
+anomaly" -- and that controls were there to reassure a reviewer.
+
+**Observed.** On this subset the raw number is not interpretable on its own, and
+P1 had already shown why. Cloudiness drives precipitation, which is a weather
+feature; it ALSO drives which frames survive the clear-fraction filter and which
+pixels the NDVI spatial mean is taken over. P1 measured the consequence:
+`[clear_frac, window_span_days]` -- two numbers, no image -- decoded SEASON at
+0.646-0.658 balanced accuracy, at or above every foundation model.
+
+Measured here, `cube_mean / cube / linear / weather_full8`:
+
+```
+weather (D=64)              +0.066   [-0.159, +0.291]
+OBSERVATION CONTROL (D=2)   +0.028   [-0.073, +0.129]
+margin                      +0.038
+```
+
+**Of the 6.6% weather appears to explain, 2.8 points were already available from
+cloud retention alone**, with no weather variable involved. Across the table,
+**33 of 54 weather rows sit at or below the observation control.**
+
+**Changed.** `margin_over_control` is computed on `r2_vs_climatology` and is the
+column the probe is read on; the raw R-squared is reported beside it and is not
+the number to quote. `assert_results_complete` refuses a table missing any of the
+four controls, for every (stage, target, fold mode, estimator, feature set) --
+without the observation control the headline does not exist, and without the
+permutation control there is no empirical zero to read the raw number against.
+
+Two further findings recorded with it:
+
+* **The permutation control is negative, not zero** (-0.07 linear, -0.14 hgb,
+  -1.75 mlp on `cell_mean`). A flexible estimator on shuffled features is
+  PENALISED rather than neutral -- it fits noise on train and pays on test -- so
+  the empirical zero is a ceiling, not a centre. What the control establishes is
+  that this pipeline never manufactures positive skill from a destroyed
+  association.
+* **The 5-variable EO-WM subset is worse than the full 8** (-0.044 against +0.038
+  on the primary cell). Their meso channels are precipitation, pressure and
+  mean/min/max temperature; dropping wind, humidity and radiation costs the whole
+  margin. Reported for commensurability, not as our number.
+
+**Commit.** `TBD`
+
+---
+
+## 2026-08-10: Phase 1.5, P4: 20 cubes cannot measure a ceiling, and the CI says so
+
+**Assumed.** That Stage A would produce a usable within-season ceiling, narrower
+in scope than H1 but quantitative -- "weather explains X% within a season".
+
+**Observed.** The fold-clustered 95% interval **includes zero for every one of
+the 54 weather rows**, under every estimator and every fold mode. The effective
+sample size is 20 cubes -- one tile, one year, 20 independent weather
+realisations -- and 264 frames or 4195 cells do not change that: 16 cells of a
+frame share a sky and 13 frames of a cube share a place, and weather is CONSTANT
+across the 16 cells of a frame by construction (asserted, because a mis-indexed
+cell expansion changes no shape).
+
+Capacity makes it worse rather than better. The small MLP scores -2.6 to -17.9
+and loses to its own permutation null in most cells; `hgb` is around zero except
+on `cube_p90`. Only the linear model is positive on the primary target. With 211
+training rows against 64 features and 20 independent realisations, capacity buys
+overfitting.
+
+Two structural limits were measured rather than assumed, and both are properties
+of the acquisition geometry:
+
+1. **36 distinct days of year, one orbit lattice.** All 264 rows satisfy
+   `doy % 5 == 2`; 261 of 264 share their date with another cube; one date
+   carries all 20. Day-of-year is close to a 36-level categorical variable.
+2. **The date carries most of the weather.** Within a date, the across-cube
+   spread is 9-19% of the total for pressure, radiation and temperature -- a
+   150 km tile is one air mass -- but **77% for precipitation**, which is
+   convective and local. Roughly 63% of a typical windowed feature is recoverable
+   from the date alone.
+
+Together these explain the one result that looks like a failure and is not: the
+day-of-year control is ~0 under the linear estimator (worst |r2| 0.019, so the
+detrend worked) but reaches +0.42 under the boosted tree. A flexible learner
+given only day-of-year fits a per-date mean over 36 dates, which on this subset
+is most of a weather model in a different basis. **Cite the linear row as the
+sanity check.** Precipitation is doing nearly all of the cross-cube work a
+weather model can do here.
+
+**Changed.** Nothing in the code -- there is nothing to fix. Recorded as a claim
+boundary: Stage A supports "the within-season weather-attributability ceiling is
+not separable from zero at 20 cubes, and the margin over the observation-process
+control is +0.04 with an interval spanning zero". It does NOT support a ceiling
+value, and **it is not H1**. `print_doy_weather_collinearity` prints both limits
+before anything is fitted, so the constraint is in the output rather than in this
+file.
+
+One stratum result is worth carrying forward. Under `cube` and `loco`, cropland
+(+0.13) and tree cover (+0.10) replicate while **grassland is negative**
+(-0.16, -0.08). Grassland NDVI in the Alpine foreland is dominated by MOWING,
+which is a management decision and not a weather response -- so the one stratum
+where a weather-only ceiling should be expected to fail is the one that fails.
+That is a check on the probe passing, not a defect.
+
+**Commit.** `TBD`
+
+---
+
+## 2026-08-10: Phase 1.5, P4: Stage B is deferred, and the code refuses to let it be substituted
+
+**Assumed.** That a probe blocked on missing data should compute what it can and
+label the result.
+
+**Observed.** Labelling is not enough when the two quantities have the same name.
+Stage A's proxy and Stage B's real climatology both produce a column called
+"NDVI anomaly", both feed the same estimators, and both write to the same CSV.
+The failure mode is not that someone computes the wrong one -- it is that Stage
+A's number gets quoted as H1 six weeks later by someone reading a table.
+
+**Changed.** Stage B is written in full and gated on detection, not on intent:
+
+* `detect_seasonal_split` reads the per-ROW year from the timestamp, never the
+  `year` column (which is parsed from the cube id, i.e. the window START year,
+  and reports 2018 for a cube spanning 2017-2020).
+* If multi-year cubes are absent, `run_stage_b` prints an explicit deferral
+  naming what is missing and exits cleanly. It never falls back.
+* If they are present it uses `data.climatology.ndvi_climatology` -- imported,
+  never reimplemented -- and `probes.cv` mode `crossed`. **`evaluate_b` takes no
+  mode argument**, so Stage B cannot be run under a split that disagrees with its
+  own climatology by passing one. Any other mode would pair a test year against a
+  climatology built including that year: the same nested leak as fitting the
+  Stage A proxy outside the fold, one level up.
+* `assert_stage_b_ran_or_deferred` enforces the trichotomy on the TABLE: if
+  multi-year cubes exist there must be Stage B rows, they must carry
+  `fold_mode == "crossed"` and the real climatology's label; if they do not,
+  there must be no Stage B rows at all and every row must be labelled as the
+  proxy. Relabelling Stage A as Stage B raises.
+
+**Commit.** `TBD`
+
+---
+
+## 2026-08-10: the manifest's `year` was the cube id's window-start, not the frame's own year
+
+**Assumed.** That `build_manifest`'s `year` column was the frame's calendar
+year, and that `probes.cv`'s year-aware modes (`year`, `crossed`) were ready to
+run the moment multi-year cubes existed. Phase 1.3 shipped `crossed` explicitly
+as "P4's mode whenever the manifest spans more than one year".
+
+**Observed.** `manifest_rows` parsed `year` from the cube FILENAME's
+window-start field and wrote it to every row of that cube. On tile 32UNU the two
+are indistinguishable -- every cube is a single 2018 window, so the id-derived
+year and each frame's calendar year always agree -- and the defect was invisible
+for four phases. On a real seasonal cube (one file spanning 2017-2020) they
+disagree on most rows: measured on 30TVN, **1666 of 2092 rows**.
+
+`probes.cv._row_years` caught it immediately and refused, exactly as designed,
+naming the fix in its own error message ("Fix build_manifest to derive year per
+row from the timestamp"). `tests/test_cv_folds.py` even had a test for the
+condition -- `test_year_mode_rejects_a_lying_year_column`, whose docstring reads
+"build_manifest CURRENTLY derives year from the cube id". The guard, the
+diagnosis and the remedy were all written down in Phase 1.3 and simply never
+executed, because nothing in the repo had ever handed them a multi-year cube.
+
+**The consequence is larger than the bug.** `crossed` is the ONLY fold mode that
+agrees with a leave-target-year-out climatology, so P4's Stage B -- the stage
+that produces H1 -- could not have run on any tile, ever, until this was fixed.
+Stage B was written, tested against synthetic multi-year manifests, and gated on
+a detector that correctly reported `multi_year=True`; it had simply never met
+real seasonal data. It ran for the first time on 2026-08-10.
+
+**Changed.** `year` is derived per ROW from the frame's own timestamp.
+`tests/test_encoders.py::test_manifest_year_is_per_row_not_the_cube_id_window_start`
+builds a synthetic cube whose frames straddle 31 December while its filename
+says 2018, and pins the fix; it was verified to FAIL against the previous code
+and pass against the new one, rather than being written after the fact and
+assumed to discriminate.
+
+**The general lesson, and it is the third of its kind.** Phase 1.2: a resumable
+cache is a correctness hazard unless it can prove its own version. Phase 1.3: a
+cache on shared storage cannot be trusted to contain only what we put there.
+Earlier today: a derived column cannot be validated against the table it lives
+in. Now: **a guard that has never fired on real data is a hypothesis, not a
+control.** Three separate mechanisms here -- the refusal, the test, and the
+docstring naming the fix -- all correctly described a bug that stayed live for
+four phases, because the input that would trigger them did not exist in the
+repo. Exercising every guard against real data of the shape it was written for
+is a task in its own right.
+
+**Commit.** `TBD`
+
+---
+
+## 2026-08-10: tile 32UNU has NO seasonal coverage, so H1 is not computable there at all
+
+**Assumed.** That the seasonal split was a download away, and that Stage B was
+blocked on effort rather than on availability. Every prior entry treats "pending
+the seasonal download" as a scheduling matter.
+
+**Observed.** It is not available for this tile and never will be. Read from the
+bucket directly:
+
+```
+seasonal split covers 15 tiles:
+  29SQC 29TPF 29UMV 30TVK 30TVN 31TCF 31TFK 31UCS
+  31UEQ 31UGQ 31UGU 32VNM 32VPN 33TWN 33VXK
+32UNU present: NO      32TPT: NO      33TUN: NO    (no Bavaria-area tile)
+```
+
+So the leave-target-year-out climatology -- and therefore **H1 as originally
+scoped** -- cannot be computed on the tile this project is framed on. Not
+deferred: unavailable.
+
+A second correction fell out of the same listing. The 20 working cubes have been
+called "the extreme split" since 2026-08-02, including in
+`docs/specs/phase1_3_cv.md`, which reserved them as "P3's severity/dynamic
+subset". They are not: the real `extreme` split covers **32UMC, 32UNC, 32UPC,
+32UQC**, and 32UNU is not among them. The 20 cubes came from `--split train`
+(the downloader's default), where 32UNU holds 192. Nothing measured is affected
+-- every property the cubes are actually used for (single year, one tile, 264
+retained frames) was verified directly from the files -- but the label was
+wrong, and the plan built on it reserved a subset that was never these cubes.
+
+**Changed.** Scope, in three parts:
+
+1. **32UNU's ceiling is the within-season proxy, permanently.** It is reported
+   as such, with the dataset limitation stated: GreenEarthNet provides no
+   multi-year product for this tile, so the leave-year-out baseline used
+   elsewhere in the literature is not computable here.
+2. **A seasonal-covered tile is used as a VALIDATION SITE, not a second case
+   study** -- `scripts/validate_proxy_climatology.py` runs Stage A and Stage B
+   over the same cubes on 30TVN and compares. The question it answers is "is the
+   proxy any good", which is what makes 32UNU's permanent proxy number
+   defensible; it is deliberately not a second geography for the paper.
+3. **Growing the 32UNU cube pool is now unblocked**, since the subset
+   `phase1_3_cv.md` reserved for P3 was never these cubes and the real extreme
+   split is untouched.
+
+**Commit.** `TBD`

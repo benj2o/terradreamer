@@ -3,6 +3,276 @@
 Running record of measurements and adopted definitions. Reverse chronological.
 Decisions and their rationale live in [docs/DECISIONS.md](docs/DECISIONS.md).
 
+## 2026-08-10: Phase 1.5 (P4) exit test PASSED -- 270 rows, Stage B DEFERRED, and the ceiling is not measurable at 20 cubes
+
+`probes/p4_ceiling.py`. What fraction of the post-climatology NDVI anomaly is
+explainable from weather alone? Stage A only: the 20 cubes are single-year, so
+the leave-target-year-out climatology is not computable and **Stage B is
+deferred, not substituted**. Nothing fine-tuned, no embedding opened, no weight
+loaded -- this phase reads the cubes and nothing else.
+
+```
+Step 5   tests                 382 passed, 5 skipped
+Step 6   E-OBS join            VERIFIED against the cubes, max abs diff 0
+Step 10  run_p4                270 rows x 95 cols, 3.0 min on 7 workers
+Step 11  invariants            COMPLETE; Stage B DEFERRED, explicitly
+Step 13  artefacts             270-row CSV under data/phase1_5/results/
+notebook clean end to end, fresh runtime, 4.2 min (archived under notebooks/runs/)
+```
+
+### THE HEADLINE: the fold-clustered CI includes zero everywhere
+
+Primary cell, `cube_mean / cube / linear / weather_full8`, `r2_vs_climatology`
+(= 1 - SSE/SSE_zero; the climatology predicts anomaly zero, so this is skill
+against the climatology itself):
+
+```
+                          r2_vs_clim   fold-clustered 95% CI   margin   CRPS skill
+weather (8 vars, D=64)      +0.066     [-0.159, +0.291]        +0.038     +0.049
+weather + observation       +0.095     [-0.187, +0.376]        +0.067     +0.064
+OBSERVATION CONTROL         +0.028     [-0.073, +0.129]         0.000     +0.015
+day-of-year sanity          +0.007     [-0.005, +0.020]        -0.020     +0.008
+PERMUTATION (empirical 0)   -0.120     [-0.382, +0.142]        -0.147     -0.044
+                                                          effective n = 20 CUBES
+```
+
+**Weather explains about 6.6% of the within-season proxy anomaly, of which 2.8
+points were already available from cloud retention alone.** The margin over the
+observation-process control is **+0.038**. And the interval spans zero -- as it
+does for every one of the 54 weather rows in the table. At 20 cubes, one tile
+and one year, the effective sample size is **20 independent weather
+realisations**, and a ceiling of this size is not separable from zero at that n.
+
+That is the result. It is not a null about weather attributability; it is a
+statement that this subset cannot measure it, and it is the sharpest argument
+yet for the seasonal download.
+
+**33 of 54 weather rows sit AT OR BELOW the observation control.** Where they
+sit is the finding:
+
+```
+margin over the observation control, weather_full8
+                        linear     hgb      mlp
+cube_mean  cube         +0.038   +0.162    -2.46
+cube_mean  loco         -0.032   -0.191    -5.90
+cube_mean  spatial_bloc +0.053   -0.178    -7.61
+cube_p90   cube         +0.039   +0.497    -5.70
+cell_mean  cube         +0.046   +0.040    -0.93
+cell_mean  loco         +0.021   +0.025    -0.88
+cell_mean  spatial_bloc -0.002   -0.150    -2.27
+```
+
+### CAPACITY HURTS. The MLP loses to its own permutation null
+
+The three estimators are not close. `linear` (ridge, alpha = D) is the only one
+that is positive on the primary target; `hgb` is around zero except on
+`cube_p90`; the small MLP is catastrophic (-2.6 to -17.9) and is **worse than
+the permutation control** in most cells. With 211 training rows against 64
+features and 20 independent realisations, capacity buys overfitting. Reported
+in full because the spec asks for all three, and because "the flexible models do
+worse than the linear one" is itself the sample-size result.
+
+Permutation control, mean `r2_vs_climatology` by estimator:
+
+```
+             cell_mean   cube_mean   cube_p90
+linear         -0.071      -0.082     -0.067
+hgb            -0.139      -0.625     -0.314
+mlp            -1.751      -5.468    -14.754
+```
+
+**Negative, not zero.** A flexible estimator on shuffled features is PENALISED
+rather than neutral: it fits noise on train and pays for it on test. The
+empirical zero of this pipeline is therefore a ceiling, not a centre, and what
+the control establishes is that the pipeline never manufactures positive skill
+from an association that has been destroyed.
+
+### THE DAY-OF-YEAR SANITY CONTROL, and what it revealed
+
+```
+r2_vs_climatology of day-of-year ALONE
+                        linear     hgb      mlp
+cell_mean  cube          0.001    0.069    0.019
+cell_mean  loco          0.002    0.043    0.030
+cell_mean  spatial_bloc  0.019    0.046   -0.117
+cube_mean  cube          0.007    0.168    0.111
+cube_mean  loco         -0.008   -0.121   -0.076
+cube_mean  spatial_bloc  0.002   -0.028   -0.392
+cube_p90   cube         -0.007    0.421    0.215
+cube_p90   loco         -0.013    0.387    0.184
+cube_p90   spatial_bloc -0.007    0.265   -0.859
+```
+
+**Linear: worst |r2| = 0.019.** The detrend removed the smooth seasonal cycle,
+which is what the control is for, and Stage A's anomaly is a real anomaly.
+
+**Flexible: up to +0.421.** Not a failed detrend -- see the collinearity
+measurement below. A boosted tree given only day-of-year fits a per-date mean
+over 36 dates, which on this subset is most of a weather model in a different
+basis.
+
+### The control CHOSE the climatology's smoothness, and the choice is conservative
+
+Harmonic order was not picked by taste. Measured (cube k=5, linear, full8):
+
+```
+H    cube_mean            cube_p90             cell_mean
+     weather   DOY        weather   DOY        weather   DOY
+2     +0.092  +0.040       +0.132  +0.106       +0.077  +0.010
+3     +0.069  +0.009       +0.117  +0.055       +0.067  +0.002
+4     +0.066  +0.007       +0.066  -0.007       +0.067  +0.001
+5     +0.054  +0.000       +0.068  +0.001       +0.067  -0.001
+```
+
+At H=2 the "anomaly" still carried enough seasonal cycle for day-of-year alone
+to explain 4.0% of it, and **10.6% on the 90th percentile** -- and the weather
+number was inflated to match. Most of what looked like weather attributability
+at low order was leftover phenology. **H=4 is the lowest order at which the
+control lands at zero for all three targets at once**, and raising the order
+LOWERS the reported weather number everywhere, so selecting against this control
+cannot talk the headline up. `CLIMATOLOGY_HARMONICS = 4` (resolves a ~91-day
+period; absorbs 15-34% of raw variance), `DOY_CONTROL_HARMONICS = 6`.
+
+At 8 control harmonics (17 columns against 264 rows) the control turns positive
+again on the cube-level targets (+0.045, +0.048). Recorded, not used: a control
+that overfits stops being a floor.
+
+### 36 DAYS OF YEAR, ONE ORBIT LATTICE -- why the flexible DOY control is not a sanity check
+
+Measured before anything was fitted:
+
+```
+264 rows land on 36 DISTINCT days of year over a 235-day span
+every row satisfies doy % 5 == 2   -- ONE Sentinel-2 orbit lattice
+261/264 rows share their date with another cube; one date carries all 20 cubes
+```
+
+So day-of-year is close to a **36-level categorical variable**. Within a date,
+the across-cube spread as a fraction of total spread:
+
+```
+eobs_pp 0.093   eobs_qq 0.091   eobs_tg 0.142   eobs_tx 0.161
+eobs_tn 0.189   eobs_hu 0.274   eobs_fg 0.441   eobs_rr 0.766
+windowed features (D=64): min 0.076  median 0.375  max 0.920
+```
+
+A 150 km tile is one air mass, so temperature, pressure and radiation are nearly
+determined by the date; **precipitation is convective and local, and carries 77%
+of its variance across cubes.** Roughly 63% of a typical windowed feature is
+recoverable from the date alone -- which is why a flexible day-of-year model
+recovers so much, and why only the LINEAR row is the sanity check the spec
+asks for. Precipitation is doing most of the cross-cube work a weather model can
+do here.
+
+### Weather windows are on the DAILY axis, and they are truncated
+
+Available history per frame: **min 4, median 64 days**; 47% of rows have fewer
+than 60. `WINDOW_SPECS = ((7,0), (14,0), (30,0), (30,30))` was chosen against
+that measurement rather than by convention -- a 90-day window would be mostly
+clipping. Truncation is clipping at the start of the cube, never filling;
+aggregates are per-day RATES so it costs precision and not scale; and
+days-available is deliberately NOT a feature, because it correlates with
+position-in-cube and therefore with time of year.
+
+16 aggregations x 4 windows = **64 features** for the 8-variable set, 44 for the
+5-variable EO-WM subset.
+
+### The 5-variable EO-WM subset is WORSE than the full 8
+
+```
+margin over the observation control, linear
+                        weather_eowm5   weather_full8
+cube_mean  cube             -0.044          +0.038
+cell_mean  cube             -0.032          +0.046
+cell_mean  loco             -0.009          +0.021
+```
+
+EO-WM's meso channels are precipitation, pressure and mean/min/max temperature
+(personal communication, 2026-08-07). Dropping wind, humidity and radiation
+costs the whole margin on the primary cells -- and note from the collinearity
+table that `fg` and `hu` are the second and third most cross-cube-variable
+inputs after `rr`. Reported for commensurability, not as our number.
+
+### Severity bins and strata
+
+Bin edges, printed before any fit, from the reference anomaly (a REPORTING axis
+only -- the modelled anomalies are re-derived inside every fold):
+
+```
+cube_mean  -0.1006 / -0.0329 / +0.0398 / +0.1013   counts 27/52/106/52/27
+cell_mean  -0.1618 / -0.0547 / +0.0719 / +0.1456   counts 420/840/1675/840/420
+```
+
+Pooled out-of-fold R-squared, `cell_mean / weather / linear / full8`:
+
+```
+                extreme_low   low   near_normal   high   extreme_high
+cube               +0.225    +0.090    -1.620    +0.036     +0.117
+loco               +0.208    +0.115    -1.442    +0.047     +0.151
+spatial_block      +0.058    +0.069    -0.466    -0.097     +0.007
+```
+
+**Weather does better at the extremes than in the middle**, which is the
+expected shape -- a near-normal anomaly is mostly noise, and dividing by a small
+SSE_zero makes that bin's R-squared explode negative. Per stratum, over
+`REPLICATION_STRATA` only:
+
+```
+                cropland   tree_cover   grassland      (n = 1765 / 1261 / 1087 rows)
+cube             +0.129      +0.101      -0.157
+loco             +0.130      +0.115      -0.082
+spatial_block    -0.032      -0.028      +0.026
+```
+
+Cropland and tree cover replicate under cube and LOCO; **grassland does not**,
+and goes the other way. Grassland NDVI in the Alpine foreland is dominated by
+MOWING, which is a management decision and not a weather response -- the one
+stratum where a weather-only ceiling should be expected to fail is the one that
+fails. Under `spatial_block` nothing replicates.
+
+### Cost
+
+3.0 min on 7 CPU workers for 270 rows = 2700 outer folds. No GPU, and none would
+help. Peak memory under 2 GB.
+
+## 2026-08-10: the manifest's E-OBS columns were joined to the wrong day
+
+Found while building P4, whose entire input is the weather. **0 of 264 manifest
+rows carried the weather of the day their frame was acquired.**
+
+A GreenEarthNet minicube is stored on a ~150-step DAILY grid of which about 29
+steps carry an acquisition. `data.loader.load_cube` drops the empty ones, so
+`sel.kept_idx` -- and therefore `original_axis_index` -- counts ACQUISITIONS.
+The in-cube E-OBS series are on the DAILY grid. `manifest_rows` indexed the
+latter with the former.
+
+```
+daily_index - original_axis_index:  min 4  median 53  max 122   (0/264 equal)
+eobs_tg  manifest - true:  mean -3.46  MAE  6.26 K   max |.|  22.0 K
+eobs_rr                    mean +1.82  MAE  2.52 mm  max |.|  35.0 mm
+eobs_qq                    mean -36.5  MAE 89.07     max |.| 232.0
+```
+
+A frame acquired 2018-04-22 carried the mean temperature of 2018-03-17: 0.0 C
+instead of 17.0 C.
+
+Nothing caught it, and nothing could have. The values were finite, in range, the
+right dtype, the right shape, and internally consistent -- they were simply
+another day's weather. No assertion on the manifest alone can detect that; the
+only test is to go back to the file and look the day up by TIMESTAMP.
+
+**Fixed.** `encoders/manifest.py` gains `cube_daily_axis`,
+`frame_daily_positions` and a `daily_axis_index` column; the E-OBS join is by
+timestamp with an exact-match assertion (never a nearest neighbour); and
+`assert_weather_join` re-derives the whole join from the cubes and refuses any
+disagreement above 1e-9. It passes at max abs difference **0** over 264 rows x 8
+variables x 20 cubes, and `tests/test_p4_ceiling.py` reconstructs the defect and
+proves the guard fires.
+
+`original_axis_index` is unchanged -- it is the embedding join key asserted in
+`probes.cv.join_embeddings`, and P1's numbers do not touch weather, so nothing
+in Phase 1.2-1.4 is affected.
+
 ## 2026-08-09: Phase 1.4 (P1) exit test PASSED -- 432 rows, and the band-matched baseline reverses the headline
 
 `probes/p1_appearance.py`. Month and season decoded from ONE frame's frozen

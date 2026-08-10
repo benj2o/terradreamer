@@ -3,17 +3,37 @@
 One row per RETAINED frame, carrying everything a probe needs to define a
 horizon, group a split, or stratify a replication.
 
-TWO FIELDS THAT ARE NOT OPTIONAL
---------------------------------
+THERE ARE TWO TIME AXES, AND THEY ARE NOT THE SAME AXIS
+-------------------------------------------------------
+A GreenEarthNet minicube is stored on a ~150-step DAILY grid of which only
+about 29 steps carry a Sentinel-2 acquisition. ``data.loader.load_cube`` drops
+the empty steps, so everything downstream of it lives on the ACQUISITION axis.
+Both axes are needed, and conflating them is silent:
 
-``original_axis_index`` -- horizons MUST be defined in DAYS on the original
-regular time axis, never in retained frames. After cloudy frames are dropped,
-a gap of 5 retained frames spans 25 days in clear weather and 40+ in cloudy
-weather; cloud correlates with precipitation, and precipitation is a weather
-feature. A frame-defined horizon therefore leaks weather into the horizon
-itself and degrades persistence differently than it degrades the probe, which
-contaminates exactly the comparison the paper rests on. This column, plus
-``timestamp``, is what makes a day-defined horizon possible.
+``original_axis_index`` -- position on the ACQUISITION axis, i.e. exactly
+``encoders.frames.select_clear_frames``' ``kept_idx``. It is the embedding join
+key: ``(cube_id, original_axis_index) == (cube, kept_idx)``, asserted in
+``probes.cv.join_embeddings``. Never re-point it at anything else.
+
+``daily_axis_index`` -- position on the cube's ORIGINAL DAILY axis, derived
+from the frame's TIMESTAMP via ``cube_daily_axis``. This is the axis the
+in-cube E-OBS series lives on, and the axis a windowed weather feature must be
+computed over.
+
+Until 2026-08-10 the E-OBS columns were indexed with ``original_axis_index``
+into a daily-axis array, so every row carried the weather of a day it was not
+acquired on: over the 20-cube subset the offset was 4 to 122 days (median 53)
+and **0 of 264 rows were correct** (mean-temperature MAE 6.26 K, max 22 K).
+Fixed by joining on the timestamp; ``assert_weather_join`` re-derives the join
+independently so it cannot regress.
+
+HORIZONS ARE DEFINED IN DAYS, NEVER IN RETAINED FRAMES. After cloudy frames
+are dropped, a gap of 5 retained frames spans 25 days in clear weather and 40+
+in cloudy weather; cloud correlates with precipitation, and precipitation is a
+weather feature. A frame-defined horizon therefore leaks weather into the
+horizon itself and degrades persistence differently than it degrades the probe,
+which contaminates exactly the comparison the paper rests on. ``timestamp`` and
+``daily_axis_index`` are what make a day-defined horizon possible.
 
 ``landcover_stratum`` -- the plan makes per-stratum replication the condition
 for BELIEVING the headline result, so without it the headline cannot be
@@ -45,9 +65,12 @@ __all__ = [
     "cube_grid_landcover",
     "cube_grid_elevation",
     "cube_weather",
+    "cube_daily_axis",
+    "frame_daily_positions",
     "manifest_rows",
     "build_manifest",
     "assert_strata_present",
+    "assert_weather_join",
 ]
 
 LANDCOVER_VAR = "esawc_lc"
@@ -166,6 +189,56 @@ def cube_weather(path: str) -> dict:
     return out
 
 
+def cube_daily_axis(path: str) -> np.ndarray:
+    """(T_daily,) datetime64[ns]: the cube's ORIGINAL DAILY time axis.
+
+    The axis ``cube_weather``'s series are indexed by, read from the same file
+    so the two cannot come from different loads. ``data.loader.load_cube``
+    deliberately drops the ~121 of 150 steps that carry no acquisition, so this
+    axis is NOT the one ``original_axis_index`` counts on -- see the module
+    docstring. A windowed weather feature must be computed over THIS axis:
+    "the last 30 days" is 30 rows here and about 6 retained frames there, and
+    which of those it is decides whether the window is weather-dependent.
+    """
+    with xr.open_dataset(path) as ds:
+        t = np.asarray(ds["time"].values, dtype="datetime64[ns]")
+    assert t.ndim == 1 and t.size, f"{path}: no usable time axis, got {t.shape}"
+    assert (np.diff(t) > np.timedelta64(0, "ns")).all(), (
+        f"{path}: the stored time axis is not strictly increasing, so "
+        "searchsorted cannot be used to place a frame on it"
+    )
+    return t
+
+
+def frame_daily_positions(daily_axis, frame_timestamps) -> np.ndarray:
+    """(T_kept,) int positions of retained frames on the DAILY axis.
+
+    Located by TIMESTAMP, and the located day is asserted to equal the frame's
+    own timestamp -- an exact match, never a nearest neighbour. A frame whose
+    day is not on the axis means the two came from different files, which is
+    the one failure this join can have and it is not silent.
+    """
+    daily_axis = np.asarray(daily_axis, dtype="datetime64[ns]")
+    ts = np.asarray(frame_timestamps, dtype="datetime64[ns]")
+    assert ts.ndim == 1, f"expected (T_kept,) timestamps, got {ts.shape}"
+    pos = np.searchsorted(daily_axis, ts)
+    assert (pos >= 0).all() and (pos < daily_axis.size).all(), (
+        f"{int(((pos < 0) | (pos >= daily_axis.size)).sum())} retained frame(s) "
+        f"fall outside the cube's {daily_axis.size}-day axis "
+        f"({daily_axis[0]} .. {daily_axis[-1]})"
+    )
+    bad = np.flatnonzero(daily_axis[pos] != ts)
+    assert not bad.size, (
+        f"{bad.size} retained frame(s) have no exact day on the cube's daily "
+        f"axis, e.g. {ts[bad[0]]} nearest {daily_axis[pos[bad[0]]]}. The frames "
+        "and the axis came from different files; nothing here rounds to the "
+        "nearest day, because a weather value attached to the wrong day is a "
+        "confident wrong number."
+    )
+    assert pos.shape == ts.shape
+    return pos.astype(int)
+
+
 def _pixel_bbox(cube_id: str) -> tuple:
     """(row0, row1, col0, col1) parsed from the GreenEarthNet cube id.
 
@@ -190,12 +263,23 @@ def manifest_rows(
     cube_id = os.path.basename(sample.path)
     stem = cube_id[:-3] if cube_id.endswith(".nc") else cube_id
     tile = stem.split("_")[0]
-    year = int(stem.split("_")[1][:4])
     bbox = _pixel_bbox(cube_id)
     dominant, frac = landcover if landcover is not None else cube_landcover(sample.path)
     cell_lc, cell_purity = cube_grid_landcover(sample.path)
     cell_elev = cube_grid_elevation(sample.path)
     weather = cube_weather(sample.path)
+
+    # E-OBS lives on the DAILY axis; sel.kept_idx counts ACQUISITIONS. Locate
+    # each retained frame on the daily axis by its timestamp -- see the module
+    # docstring for what indexing one axis with the other cost.
+    daily_axis = cube_daily_axis(sample.path)
+    for v, a in weather.items():
+        assert a.shape == (daily_axis.size,), (
+            f"{cube_id}: {v} has shape {a.shape} but the cube's daily axis is "
+            f"{daily_axis.size} long; the E-OBS series and the time axis "
+            "disagree and no index into them is trustworthy"
+        )
+    day_pos = frame_daily_positions(daily_axis, sel.timestamps)
 
     rows = []
     for i in range(sel.values.shape[0]):
@@ -203,10 +287,23 @@ def manifest_rows(
         rows.append({
             "cube_id": cube_id,
             "tile": tile,
-            "year": year,
+            # Per-ROW calendar year, from THIS frame's own timestamp -- never
+            # the cube id's window-start year. On a single-year cube the two
+            # coincide and the distinction is invisible; on a seasonal cube
+            # (one file spanning 2017-2020) they diverge on most rows, and
+            # probes.cv's year-aware modes (year, crossed) refuse a manifest
+            # where they disagree -- see probes.cv._row_years. Until
+            # 2026-08-10 this column WAS the window-start year, which is
+            # exactly the "lying year column" that guard exists to catch; it
+            # had never been exercised against a real seasonal cube before.
+            "year": int(np.datetime64(ts, "Y").astype(int) + 1970),
             "timestamp": ts,
-            # Horizons are defined in DAYS on this axis, never in retained frames.
+            # The EMBEDDING join key: == encoders.frames' kept_idx. Counts
+            # ACQUISITIONS, not days. Never re-point it.
             "original_axis_index": int(sel.kept_idx[i]),
+            # The DAILY-axis position of the same frame, from its timestamp.
+            # Horizons and weather windows are defined in DAYS on this axis.
+            "daily_axis_index": int(day_pos[i]),
             "day_of_year": int(np.datetime64(ts, "D").astype("datetime64[D]").astype(object).timetuple().tm_yday),
             "pixel_bbox": bbox,
             "clear_frac": float(sel.clear_frac[i]),
@@ -218,9 +315,12 @@ def manifest_rows(
             "grid_landcover": tuple(cell_lc.tolist()),
             "grid_landcover_purity": tuple(np.round(cell_purity, 4).tolist()),
             "grid_elevation_m": tuple(np.round(cell_elev, 1).tolist()),
-            # E-OBS on the ORIGINAL daily axis, indexed by original_axis_index.
-            **{v: float(a[sel.kept_idx[i]]) if sel.kept_idx[i] < a.size else np.nan
-               for v, a in weather.items()},
+            # E-OBS on the ORIGINAL DAILY axis, indexed by daily_axis_index --
+            # i.e. the weather of the day this frame was actually acquired on.
+            # A windowed feature needs the whole series: import cube_weather and
+            # cube_daily_axis, do not try to reconstruct a window from these
+            # per-frame values, which are sampled only on acquisition days.
+            **{v: float(a[day_pos[i]]) for v, a in weather.items()},
         })
     return rows
 
@@ -250,12 +350,82 @@ def build_manifest(samples: Sequence[CubeSample], verbose: bool = True):
                   f"{mixed}/{len(per_cube)} -- this is the within-cube stratum "
                   "contrast the per-cube label was hiding")
         eobs = sorted(c for c in df.columns if c.startswith("eobs_"))
-        print(f"[manifest] in-cube E-OBS joined on original_axis_index ({len(eobs)}): "
-              f"{eobs}")
-        span = (df.original_axis_index.max() - df.original_axis_index.min())
-        print(f"[manifest] original_axis_index spans 0..{df.original_axis_index.max()} "
-              f"(range {span}); horizons are defined in DAYS on this axis")
+        print(f"[manifest] in-cube E-OBS joined on daily_axis_index -- the day the "
+              f"frame was ACQUIRED ({len(eobs)}): {eobs}")
+        off = (df.daily_axis_index - df.original_axis_index).to_numpy()
+        print(f"[manifest] original_axis_index (acquisition axis) spans "
+              f"0..{df.original_axis_index.max()}; daily_axis_index (DAILY axis) "
+              f"spans 0..{df.daily_axis_index.max()}")
+        print(f"[manifest] the two axes differ by {off.min()}..{off.max()} steps "
+              f"(median {int(np.median(off))}) on {int((off != 0).sum())}/{len(df)} "
+              "rows -- weather and horizons use daily_axis_index, the embedding "
+              "join uses original_axis_index")
     return df
+
+
+def assert_weather_join(df, cube_dir: str = None, verbose: bool = True) -> dict:
+    """Re-derive the E-OBS join from the CUBES and refuse any disagreement.
+
+    WHY THIS IS A SEPARATE FUNCTION AND NOT A COMMENT. The join it checks was
+    wrong for a week and nothing noticed: the values were finite, in range, the
+    right dtype and the right shape, and they were simply another day's weather.
+    No assertion on the manifest alone can catch that, because the manifest is
+    internally consistent either way. The only test is to go back to the file,
+    look up the day by TIMESTAMP, and compare -- which is what this does, from
+    the cube path each row already carries.
+
+    Any probe whose input is the weather should call this before it fits
+    anything. It reads coordinates and 1-D series only, no reflectance.
+    """
+    import pandas as pd   # noqa: F401  (df is a DataFrame; kept explicit)
+
+    eobs = sorted(c for c in df.columns if c.startswith("eobs_"))
+    assert eobs, "manifest carries no eobs_* columns; nothing to check"
+    assert "daily_axis_index" in df.columns, (
+        "manifest has no daily_axis_index, so it predates the timestamp-based "
+        "E-OBS join (2026-08-10) and its weather columns are indexed by the "
+        "ACQUISITION axis -- i.e. they hold another day's weather. Rebuild it "
+        "with encoders.manifest.build_manifest."
+    )
+    cube_dir = cube_dir or os.path.join("data", "raw")
+    n_checked, worst = 0, {}
+    for cube_id, sub in df.groupby("cube_id"):
+        path = os.path.join(cube_dir, str(cube_id))
+        assert os.path.exists(path), (
+            f"cannot verify the weather join for {cube_id!r}: no cube at {path}. "
+            "Pass cube_dir=<the resolved data/raw> rather than skipping the check."
+        )
+        daily_axis = cube_daily_axis(path)
+        weather = cube_weather(path)
+        pos = frame_daily_positions(daily_axis, sub["timestamp"].to_numpy())
+        stored = sub["daily_axis_index"].to_numpy().astype(int)
+        assert (pos == stored).all(), (
+            f"{cube_id}: daily_axis_index disagrees with the position derived "
+            f"from the timestamp on {int((pos != stored).sum())}/{len(sub)} rows "
+            f"(e.g. stored {stored[pos != stored][0]} vs derived "
+            f"{pos[pos != stored][0]}). The manifest was built against a "
+            "different cube file."
+        )
+        for v in eobs:
+            got = sub[v].to_numpy().astype(float)
+            want = weather[v][pos]
+            d = float(np.abs(got - want).max())
+            worst[v] = max(worst.get(v, 0.0), d)
+            assert d <= 1e-9, (
+                f"{cube_id}: {v} in the manifest differs from the in-cube series "
+                f"at the frame's own day by up to {d:.4g}. This is the "
+                "wrong-axis bug: the column is indexed by the acquisition axis "
+                "instead of the daily axis. Rebuild the manifest."
+            )
+        n_checked += len(sub)
+    out = {"n_rows": n_checked, "n_cubes": int(df.cube_id.nunique()),
+           "variables": tuple(eobs), "max_abs_diff": worst}
+    if verbose:
+        print(f"[manifest] weather join VERIFIED against the cubes: "
+              f"{n_checked} rows x {len(eobs)} E-OBS variables over "
+              f"{out['n_cubes']} cubes, max abs difference "
+              f"{max(worst.values()):.3g} (tolerance 1e-9)")
+    return out
 
 
 def assert_strata_present(df) -> None:
