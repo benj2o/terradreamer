@@ -20,6 +20,7 @@ data/phase*/
 # Validation-experiment artefacts (cubes + results). Reproducible with
 # scripts/validate_proxy_climatology.py; the cubes alone are ~2 GB.
 data/validation_*/
+data/scaled_*/
 *.nc
 *.nc.partial
 *.zarr/

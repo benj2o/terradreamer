@@ -1,0 +1,44 @@
+# Archived run: scripts/validate_proxy_climatology.py --tile 30TVN --n 87
+#
+# 2026-08-10, local CPU, 17 min. Verbatim stdout, kept as EVIDENCE for the
+# numbers quoted in log.md and docs/DECISIONS.md -- the same role
+# notebooks/runs/ plays for the phase notebooks. The cubes (1.9 GB) and the
+# results CSV are gitignored and reproducible by re-running the command above.
+#
+# The finding: Stage B's fold count is clamped to the number of YEARS
+# (probes/cv.crossed_folds), so its interval does not tighten with more cubes.
+# 25 -> 87 cubes moved the width from 1.611 to 1.433.
+[dl] 299 cubes in 30TVN/seasonal, 87 non-overlapping selected (asked for 87)
+[dl] 87 cubes on disk (62 newly fetched), 1963 MB, 171s -> data/validation_30TVN/raw
+[build] dropped ['eobs_fg', 'eobs_qq']: incomplete on this tile. NOTHING IS FILLED, and these numbers are therefore NOT directly comparable with 32UNU's 8-variable ones.
+[manifest] weather join VERIFIED against the cubes: 7574 rows x 6 E-OBS variables over 87 cubes, max abs difference 0 (tolerance 1e-9)
+[build] manifest (7574, 20), 87 cubes, years [2017, 2018, 2019, 2020]
+[run] Stage A (PROXY climatology, cube folds): 5 rows, 2s
+[p4] STAGE B RAN: 5 rows, mode='crossed', climatology=leave-target-year-out per-pixel climatology (data.climatology.ndvi_climatology, GreenEarthNet definition)
+[run] Stage B (REAL leave-year-out, crossed folds): 5 rows, 585s
+[p4] Stage B: RAN under crossed with the real climatology
+[run] wrote data/validation_30TVN/p4_validation_results.csv (10 rows x 95 cols)
+
+==============================================================================
+PROXY vs REAL leave-year-out climatology -- tile 30TVN, 87 cubes
+==============================================================================
+NOT a controlled comparison: Stage A uses `cube` folds and a day-of-year curve
+fitted to the SPATIAL MEAN; Stage B uses `crossed` folds and a PER-PIXEL
+climatology. Protocols differ, necessarily -- see this module's docstring.
+
+PROXY (Stage A, cube folds)
+  weather      r2_vs_clim +0.192  [+0.139, +0.245]   margin +0.192
+  observation  r2_vs_clim -0.000   (effective n 87 CUBES, 5 folds)
+  power        per-fold sd 0.042 -> this design could detect |effect| >= 0.053 at 80% power
+               the observed +0.192 would need ~1 folds to clear that bar
+
+REAL  (Stage B, crossed folds)
+  weather      r2_vs_clim -0.136  [-0.852, +0.581]   margin +0.063
+  observation  r2_vs_clim -0.199   (effective n 87 CUBES, 4 folds)
+  power        per-fold sd 0.450 -> this design could detect |effect| >= 0.631 at 80% power
+               the observed -0.136 would need ~87 folds to clear that bar
+
+proxy - real = +0.328; fold-clustered intervals OVERLAP
+=> the two are not distinguishable at this sample size. That is NOT evidence
+   the proxy is sound -- it is the absence of evidence either way, and the
+   per-fold sd above says how much more data would settle it.
