@@ -2182,4 +2182,4 @@ because it was a control, its inflation produced a *negative* headline that
 looked conservative and therefore trustworthy. **A conservative-looking result
 is not a safe result.** Controls need the same sample size the treatments do.
 
-**Commit.** `<pending>`
+**Commit.** `930cc01`
