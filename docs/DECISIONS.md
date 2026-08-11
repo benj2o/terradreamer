@@ -1830,3 +1830,302 @@ recorded here rather than in a TODO because the cost of discovering it after a
 number is published is a retraction.
 
 **Commit.** `68cce76`
+
+---
+
+## 2026-08-11: Phase 1.6, P2: the gap between two frames is measured in DAYS, and a run-time check proves the right column was used
+
+**Assumed.** That naming the two axes in `encoders/manifest.py`'s docstring, and
+fixing the E-OBS join that conflated them, had retired the hazard.
+
+**Observed.** It had not. P2's whole Part B is built on "the gap between
+consecutive retained frames", and there are THREE plausible readings of that
+phrase in this manifest:
+
+```
+gap_days        daily_axis_index       min  5   median 10   max 35
+gap_acq_steps   original_axis_index    min  1   median  2   max  6
+frames between  array position         always 1
+```
+
+Only the first is a gap. `original_axis_index` is the EMBEDDING JOIN KEY and
+counts acquisitions; the two disagree on **244 of 244 pairs**, by a factor of
+five at the median — one Sentinel-2 orbit lattice. And the wrong column is
+finite, integer, in range, strictly increasing within a cube, and *correlated
+with the right one*, so nothing about its values looks wrong.
+
+Gap length is also not an innocent covariate: a long gap exists because the
+frames between it were dropped for cloud, cloud is precipitation, and
+precipitation is weather. A gap measured in acquisitions launders that
+dependence into the horizon itself.
+
+**Changed.** `probes.p2_deltas.DeltaPairs` carries all three readings, and
+`assert_gap_axes_disagree` runs on the real pairs before anything is fitted. It
+asserts they **materially disagree** — not that the right one was used, which is
+unfalsifiable from inside, but that the candidates are far enough apart for the
+check to be able to tell them apart at all. A test that cannot distinguish the
+correct column from the wrong one proves nothing.
+
+Two things make this a control rather than a hypothesis. The synthetic fixture
+in `tests/test_p2_deltas.py` uses `day_step=10, acq_step=2` — the same 5×
+disagreement as the real data, so a probe reading the wrong column fails there
+too; a fixture where the axes coincided would let the bug through every test in
+the file. And the guard is exercised **against the wrong column**:
+`test_the_axis_check_fails_when_the_gap_came_from_the_join_key` builds exactly
+the bug and asserts the refusal names it.
+
+**Precedent.** HANDOFF_P2 §4: "a guard that has never fired on real data is a
+hypothesis, not a control." The `year` bug sat behind a correct refusal, a
+passing test and a docstring naming the exact fix for four phases.
+
+---
+
+## 2026-08-11: Phase 1.6, P2: the gap-length-alone control is mandatory, and on the magnitude target it wins
+
+**Assumed.** That the delta probe's controls were the raw-pixel baseline and the
+permutation floor, and that a control built from elapsed time alone was a
+formality.
+
+**Observed.** It is not a formality; it is the strongest model in the table on
+one of the two targets. Fitted inside each fold and scored on held-out pairs,
+`gap_days` alone reaches Spearman **+0.209 [+0.066, +0.351]** against the
+magnitude of common-masked NDVI change — **above every encoder**, including the
+raw-pixel baseline (+0.078) and the best network (DINOv2, +0.174). On the sign
+target it is **−0.118**, and every encoder clears it by a wide margin.
+
+So the two targets have opposite readings, and only the control separates them.
+Quoting DINOv2's +0.174 on magnitude without it would report a positive
+correlation with elapsed time as evidence that the representation tracks the
+rate of change.
+
+**Changed.** `margin_over_control` is the headline, exactly as in P4; the raw
+Spearman is reported beside it and is not the number to quote.
+`assert_degenerate_control_present` requires the control for every fold mode,
+target, feature level and read-out.
+
+**Why degree 2 and not 1.** Spearman is rank-based, so a monotone fit has the
+same score as the raw variable — a straight line in `gap_days` would make the
+control's fitted coefficients irrelevant to its own reported value, and the
+training-poison test vacuous. Degree 2 is also the honest shape: NDVI change
+over a gap saturates.
+
+**Precedent, now three phases deep.** P1: `[clear_frac, window_span_days]`, two
+numbers and no image, decoded season at 0.646–0.658. P4: the same control still
+absorbed a real share at 115 cubes and did not wash out. P2: gap length beats
+every encoder on magnitude. **A target correlated with elapsed time carries a
+competitor that needs no image**, and P3's horizons are defined in days.
+
+---
+
+## 2026-08-11: Phase 1.6, P2: the multi-image encoder is excluded from the delta ranking, for a sharper version of P1's reason
+
+**Assumed.** That `satlas_s2_swinb_mi_rgb`'s `si_comparable=False` flag carried
+the same weight in P2 as in P1 — a caveat about an ill-defined label.
+
+**Observed.** It is worse here, and structurally so. The encoder pools **8
+retained frames**. Two CONSECUTIVE embeddings therefore share **up to 7 of their
+8 source frames**, so `E(t+1) − E(t)` is largely the difference between
+"frames 1–8" and "frames 2–9": a sliding-window increment, not a state change
+over the gap. Its measured delta scores are the lowest in the table
+(sign +0.163 against DINOv2's +0.536), which is exactly what a mostly-cancelling
+difference predicts and is *not* evidence about its representation.
+
+**Changed.** Its scores are REPORTED — excluding it from the table would hide
+the positive control — and it is flagged `si_comparable=False` on every row it
+owns in both parts, and excluded from the ranking used for the structural
+hypothesis. `assert_mi_flagged_and_excluded` enforces both halves, and
+`structural_hypothesis` raises if it ever appears in the ranking.
+
+**The distinction that matters.** This is a property of its INPUT WINDOW, not of
+its training objective, so including it in a comparison *about* training
+objectives would answer a different question than the one asked.
+
+---
+
+## 2026-08-11: Phase 1.6, P2: K2 is recorded twice, because `raw_features` contains the target
+
+**Assumed.** That `raw_features` — the repo's mandatory not-a-network baseline —
+could serve as the K2 comparison for "can this encoder's latents recover current
+NDVI at all", as P2's spec names it.
+
+**Observed.** At the MATCHED level it is the identity function on that target.
+`encoders.raw_features.RAW_FEATURE_NAMES` ends in `NDVI_mean, NDVI_std,
+NDVI_p10 … NDVI_p90`, computed over the same grid cell. Measured on this subset:
+
+```
+cell_mean  from grid_cell features   R2 +1.0000     <- the baseline IS the target
+cube_p90   from pooled    features   R2 +1.0000
+cube_mean  from pooled    features   R2 +0.9998
+cube_mean  from grid_cell features   R2 +0.4403     <- PRIMARY, and not matched
+```
+
+The degeneracy is a property of the level PAIRING, not of the baseline as such:
+predicting a cube's mean from one cell's statistics is not the identity, so the
+primary configuration is a fair gate. The secondary views are not, and a verdict
+read off them would measure which columns the baseline was handed.
+
+**Changed.** Two verdicts, on every row. `k2_verdict` against `raw_features`,
+exactly as specified. `k2_verdict_band_matched` against `raw_rgb_only` —
+B02/B03/B04 statistics only, the same three bands every network encoder
+receives, never degenerate at any level. **The band-matched verdict is the one
+that decides P3 inclusion.** This is the same asymmetry P1 found and the same
+fix: a column slice of an array already on disk, derived from the baseline's own
+feature names and asserted to partition them, so a rename cannot repoint it.
+`test_the_band_matched_columns_exclude_every_ndvi_column` fails if an NDVI or
+B8A column ever enters the slice, and fails the other way if `raw_features` ceases
+to carry NDVI at all — at which point this entry describes a baseline that no
+longer exists.
+
+---
+
+## 2026-08-11: Phase 1.6, P2: a lossy verdict is not a rejection unless the paired difference is separable
+
+**Assumed.** That "does not beat the baseline ⇒ mark `audited: lossy` ⇒ exclude
+from P3" was a complete rule.
+
+**Observed.** At 20 cubes it decides on noise. `dinov2_vitb14` scores **+0.4346**
+against the baseline's **+0.4403** — 0.006 apart — with marginal cube-clustered
+intervals of `[+0.144, +0.726]` and `[+0.169, +0.711]`, roughly 0.6 wide.
+Applying the rule literally would drop DINOv2, the strongest encoder on the
+entire delta probe, from P3 on a sixth of a percentage point.
+
+**Changed.** A third column, `k2_separable`, computed as the **paired** per-fold
+difference (encoder − baseline within each fold, then a cube-clustered interval
+on that difference). Pairing is legitimate and much tighter here because both
+models are scored on identical folds, and the difference is what the verdict is
+actually about — comparing two overlapping marginal intervals by eye is the
+wrong test.
+
+The exclusion rule is now the AND: an encoder leaves P3 only if it is
+`audited: lossy` **and** separable. Where the paired interval spans zero,
+"audited: lossy" means *did not beat the baseline*, not *is measurably worse
+than it*, and the table says so rather than leaving it to be argued.
+
+**What this does not do.** It does not weaken the gate. The one encoder that is
+both lossy and separable — `satlas_s2_swinb_mi_rgb` — is still excluded. It
+prevents an exclusion that the data does not support.
+
+**And it turned up something the point estimates hid.** Once the paired
+intervals were computed, **no single-image encoder separates from the baseline
+at all**:
+
+```
+satlas_s2_swinb_rgb     +0.105   [-0.118, +0.327]
+imagenet_vit_b16        +0.081   [-0.061, +0.223]
+dinov2_vitb14           -0.006   [-0.142, +0.131]
+satlas_s2_swinb_mi_rgb  -0.363   [-0.592, -0.134]    <- the only separable one
+```
+
+So K2 on this subset is a **floor check** — "nothing is catastrophically lossy"
+— and cannot be more than that. The `+0.545` vs `+0.440` spread at the top of
+the table is not an encoder ranking and must not be reported as one. That is a
+statement about the benchmark's resolving power at 20 cubes, and it is the same
+statement P1 made about the same encoders.
+
+---
+
+## 2026-08-11: Phase 1.6, P2: common-masked pixel survival is reported per gap length, and it is not monotone
+
+**Assumed.** That the intersection of two frames' valid masks would shrink with
+gap length, and that long-gap pairs might have to be dropped for lack of shared
+pixels.
+
+**Observed.** It does not shrink, and the shape is the opposite of the
+expectation. Over 244 pairs, **none** collapses to zero shared pixels; the
+median is 88.8% of 16384 and the minimum 27.2%. By gap:
+
+```
+gap (d)    5      10     15     20     25     30     35
+pairs    106      67     31     15     14     10      1
+median  0.895   0.839  0.783  0.900  0.953  0.985  0.810
+```
+
+Survival is *worse* at 15 days than at 30. The mechanism is selection: a long
+gap exists **because** the frames between it were dropped for cloud, which
+leaves the two surviving endpoints unusually clear.
+
+**Changed.** `summarise_pixel_survival` reports the table rather than a summary
+statistic, and it is written to `data/phase1_6/results/`. Nothing is dropped for
+low survival.
+
+**The consequence for P3.** Do not model pixel survival, or any data-availability
+quantity, as a decreasing function of horizon. On this benchmark the
+relationship is non-monotone and driven by the observation process.
+
+---
+
+## 2026-08-11: Phase 1.6, P2: the control's value is written onto every row, not only into its own
+
+**Assumed.** That emitting a control under each filter label, as P4 does, plus an
+assertion that the copies agree, was enough to make "filtering the CSV cannot
+drop the control" true.
+
+**Observed.** It is enough only for the labels the control is emitted under. A
+reader who filters to `encoder == "dinov2_vitb14"` sees no control row at all,
+because the control's `encoder` is `"none"` — and a margin column they cannot
+check is a margin they have to trust.
+
+**Changed.** `add_margins` writes `control_score` (and `control_kind`) onto
+**every** row. Whatever a reader filters to, the control travels with the row.
+`assert_control_identical_across_views` then checks both that the control rows
+agree across the labels they are duplicated under, and that every row's carried
+copy is digit-for-digit the control's own value.
+
+**And the key is stated as data, not as prose.** `_CONTROL_KEY` records that the
+gap control is invariant to encoder / feature level / read-out but NOT to fold
+mode, while the retention control also varies with feature level (frame
+`clear_frac` versus per-cell `grid_clear_frac`, both of which P1 reports on
+purpose). One assertion covers two controls with different invariances and no
+special case. **`fold_mode` is part of the key, not one of the invariant
+labels**: a control evaluated on a different set of held-out cubes is a
+different number, and asserting one value across modes would be a false
+identity rather than a consistency guarantee.
+
+---
+
+## 2026-08-11: Phase 1.6, P2: the structural hypothesis is NOT DETERMINABLE, because the ordering flips between fold modes
+
+**Pre-registered hunch.** research_plan_v3 §3/P2: augmentation-invariance
+training (DINOv2) may discard state-change more than reconstruction-style
+training (Satlas).
+
+**Observed.** On the primary delta configuration (`cube_mean` / sign / pooled /
+linear) the SI-comparable ranking under `cube` folds is
+
+```
+1. raw_features          +0.801  [+0.753, +0.849]
+2. dinov2_vitb14         +0.536  [+0.397, +0.674]
+3. satlas_s2_swinb_rgb   +0.481  [+0.404, +0.557]
+4. imagenet_vit_b16      +0.458  [+0.318, +0.597]
+```
+
+which contradicts the hunch — DINOv2 is *above* Satlas. But the ordering **does
+not survive the fold mode**:
+
+```
+cube            dinov2 +0.536  >  satlas +0.481      hunch fails
+loco            satlas +0.531  >  dinov2 +0.481      hunch holds
+spatial_block   satlas +0.489  >  dinov2 +0.473      hunch holds
+cell level      satlas +0.4596 ≈  dinov2 +0.4576     indistinguishable
+```
+
+The two encoders the hunch is *about* swap places, and every interval overlaps
+every other. **This is the same pair P1 could not rank** (0.387 vs 0.386, a rank
+that moved with a scipy version). Two phases, two probes, same conclusion: at
+20 cubes of one tile these two encoders are not separable.
+
+**Changed.** `structural_hypothesis` now ranks under **every** fold mode, not
+just the primary, and returns `supported=None` when the pair's ordering is not
+stable — neither confirmed nor refuted. Reporting `False` from the `cube` row
+alone would have been as wrong as reporting `True` from the `loco` row, and the
+first draft of this phase did exactly that before the other two modes were
+looked at. `order_stable_across_fold_modes` and `verdict_by_fold_mode` are
+returned so a reader can see the disagreement rather than take the summary.
+
+**The caveat travels with every call:** 2 EO-relevant single-image points plus 2
+anchors, one tile, one year, 20 cubes, overlapping cube-clustered intervals.
+
+**Why it is recorded at all.** A hunch that is quietly dropped is a hunch that
+gets re-proposed next phase. And "not determinable" is a finding about the
+benchmark's resolving power, which is reusable; "false" would have been a claim
+about DINOv2, which the data does not support.

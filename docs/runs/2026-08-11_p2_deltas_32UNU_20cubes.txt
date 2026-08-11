@@ -1,0 +1,1067 @@
+not on Colab: skipping the install and the restart.
+Run the notebook against your own environment (pip install -r requirements.txt) and continue from Step 2.
+not on Colab, assuming the repo is the current directory
+
+REPO    /Users/benji/Code/NeurIPS CCAI 2026
+RAW     /Users/benji/Code/NeurIPS CCAI 2026/data/raw   (20 cubes)
+EMB_IN  /Users/benji/Code/NeurIPS CCAI 2026/data/phase1_2/embeddings   (100 .npz)
+MASKS_IN /Users/benji/Code/NeurIPS CCAI 2026/data/phase1_2/masks   (20 .npz)
+        ^ P2 READS this cache: pooled + 4x4 grid embeddings, and the
+          per-pixel masks cached in 1.2b that common-masking needs.
+          It loads NO weight and recomputes NO embedding.
+RESULTS data/phase1_6/results   (this phase writes here only)
+[paths] data/phase1_6: 3 file(s), 1.81 MB
+[paths]   logs/: 1 file(s), 1.18 MB
+[paths]   results/: 2 file(s), 0.62 MB
+
+imports OK. canonical NDVI at data.ndvi, splits at probes.cv, modes ('cube', 'crossed', 'year', 'tile', 'spatial_block', 'temporal')
+P2 at probes.p2_deltas: parts ('A_reconstruction', 'B_delta')
+         aggregations ('cube_mean', 'cube_p90', 'cell_mean'), delta targets ('sign', 'magnitude')
+         fold modes ('cube', 'loco', 'spatial_block'), feature levels ('grid_cell', 'pooled')
+         read-outs ('norm', 'linear'), model kinds ('reconstruction', 'retention', 'delta', 'gap_only')
+         controls ('retention', 'gap_only'), gap control degree 2
+         K2 read at {'aggregation': 'cube_mean', 'feature_level': 'grid_cell', 'fold_mode': 'cube'}
+         band-matched baseline 'raw_rgb_only', MI encoder 'satlas_s2_swinb_mi_rgb' (never si_comparable)
+  ok  data/ndvi.py
+  ok  data/loader.py
+  ok  data/paths.py
+  ok  data/climatology.py
+  ok  encoders/manifest.py
+  ok  encoders/pipeline.py
+  ok  probes/cv.py
+  ok  probes/p1_appearance.py
+  ok  probes/p2_deltas.py
+  ok  tests/test_cv_folds.py
+  ok  tests/test_p2_deltas.py
+  ok  tests/conftest.py
+helper ready: sh('<shell command>')
+numpy 2.0.2 | pandas 2.3.3 | sklearn 1.6.1 | scipy 1.13.1 | joblib 1.5.3
+N_JOBS = 7 (of 8 CPUs). Wall-clock only.
+20 cubes at /Users/benji/Code/NeurIPS CCAI 2026/data/raw
+
+This phase READS the Phase 1.2 .npz cache (embeddings + per-pixel masks).
+It loads NO model weight and recomputes NO embedding.
+cubes already present, skipping the download
+20 cubes at /Users/benji/Code/NeurIPS CCAI 2026/data/raw
+$ '/Users/benji/Code/NeurIPS CCAI 2026/.venv/bin/python' -m pytest tests
+[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m [ 16%]
+[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[33ms[0m[33ms[0m[33ms[0m[33ms[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[33ms[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[33m [ 32%]
+[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[33m [ 48%]
+[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[33m [ 64%]
+[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[33m [ 80%]
+[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[33m [ 96%]
+[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[33m                                                        [100%][0m
+[33m=============================== warnings summary ===============================[0m
+tests/test_encoders.py::test_grid_landcover_aligns_with_the_embedding_grid
+  <frozen importlib._bootstrap>:228: RuntimeWarning: numpy.ndarray size changed, may indicate binary incompatibility. Expected 16 from C header, got 96 from PyObject
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+[33m[32m444 passed[0m, [33m[1m5 skipped[0m, [33m[1m1 warning[0m[33m in 61.94s (0:01:01)[0m[0m
+[exit 0] '/Users/benji/Code/NeurIPS CCAI 2026/.venv/bin/python' -m pytest tests
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 120/150 timesteps with no acquisition
+[loader] dropping 120/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[manifest] 264 (cube, frame) rows over 20 cubes
+[manifest] columns: ['cube_id', 'tile', 'year', 'timestamp', 'original_axis_index', 'daily_axis_index', 'day_of_year', 'pixel_bbox', 'clear_frac', 'landcover_stratum', 'landcover_dominant_frac', 'grid_landcover', 'grid_landcover_purity', 'grid_elevation_m', 'eobs_tg', 'eobs_fg', 'eobs_hu', 'eobs_pp', 'eobs_qq', 'eobs_rr', 'eobs_tn', 'eobs_tx']
+[manifest] landcover strata (per cube): {'cropland': 8, 'grassland': 6, 'tree_cover': 6}
+[manifest] landcover strata (per grid cell, 320 cells over 20 cubes): {'cropland': 127, 'tree_cover': 99, 'grassland': 88, 'built_up': 5, 'bare_sparse': 1}
+[manifest] cubes whose cells are NOT all one class: 19/20 -- this is the within-cube stratum contrast the per-cube label was hiding
+[manifest] in-cube E-OBS joined on daily_axis_index -- the day the frame was ACQUIRED (8): ['eobs_fg', 'eobs_hu', 'eobs_pp', 'eobs_qq', 'eobs_rr', 'eobs_tg', 'eobs_tn', 'eobs_tx']
+[manifest] original_axis_index (acquisition axis) spans 0..29; daily_axis_index (DAILY axis) spans 0..149
+[manifest] the two axes differ by 4..122 steps (median 53) on 264/264 rows -- weather and horizons use daily_axis_index, the embedding join uses original_axis_index
+
+[manifest] weather join VERIFIED against the cubes: 264 rows x 8 E-OBS variables over 20 cubes, max abs difference 0 (tolerance 1e-9)
+
+MANIFEST (264, 22) | 20 cubes | tiles ['32UNU'] | years [np.int64(2018)]
+the two axes differ on 264/264 rows by 4..122 steps (median 53)
+[audit] /Users/benji/Code/NeurIPS CCAI 2026/data/phase1_2/embeddings
+[audit]   100 .npz on disk -> 100 usable (20 cubes x 5 encoders)
+[audit]     dinov2_vitb14             20 cubes
+[audit]     imagenet_vit_b16          20 cubes
+[audit]     raw_features              20 cubes
+[audit]     satlas_s2_swinb_mi_rgb    20 cubes
+[audit]     satlas_s2_swinb_rgb       20 cubes
+
+[audit] COMPLETE: all 20 x 5 = 100 (cube, encoder) pairs present at v3
+
+[p2] raw_features             pooled (264, 35) | grid (264, 16, 35) | clear_frac (264,) | window_span_days (264,) (max 0 d)
+[p2] imagenet_vit_b16         pooled (264, 1536) | grid (264, 16, 768) | clear_frac (264,) | window_span_days (264,) (max 0 d)
+[p2] dinov2_vitb14            pooled (264, 3840) | grid (264, 16, 768) | clear_frac (264,) | window_span_days (264,) (max 0 d)
+[p2] satlas_s2_swinb_rgb      pooled (264, 1024) | grid (264, 16, 1024) | clear_frac (264,) | window_span_days (264,) (max 0 d)
+[p2] satlas_s2_swinb_mi_rgb   pooled (264, 1024) | grid (264, 16, 1024) | clear_frac (264,) | window_span_days (264,) (max 105 d)
+[p1] window_span_days INFORMATIVE: satlas_s2_swinb_mi_rgb varies over 22 distinct values, 0-105 d; all single-image encoders exactly 0
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 120/150 timesteps with no acquisition
+[loader] dropping 120/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[p2] frame targets: cube_mean (264,) | cube_p90 (264,) | cell_mean (264, 16) | 29/4224 cells fully masked (dropped, never filled)
+
+all five encoders aligned to the manifest's 264 rows
+Part A target: CURRENT NDVI, aggregations ('cube_mean', 'cube_p90', 'cell_mean')
+         cube_mean (264,) cell_mean (264, 16)
+[p2] pairs (244,) over 20 cubes (264 retained frames -> 244 consecutive pairs)
+[p2]   gap_days (daily_axis_index): min 5 median 10 max 35 | distinct [5.0, 10.0, 15.0, 20.0, 25.0, 30.0, 35.0]
+[p2] GAP AXIS CHECK on 244 real pairs: gap_days median 10 vs gap_acq_steps median 2 vs frames-between 1 -- 5.0 days per acquisition step, 0/244 pairs where the two axes agree
+
+  gap_days        (daily_axis_index)    median 10   <- THE gap
+  gap_acq_steps   (original_axis_index) median 2   <- the JOIN KEY. Never a gap.
+  frames between  (array position)      median 1   <- 1 by construction. Never a gap.
+  => 5.0 days per acquisition step; the two axes agree on 0/244 pairs
+[p2] per-pair detail -> data/phase1_6/logs/p2_run.log (stdout keeps shapes, K2 verdicts, the four controls and the headlines)
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 120/150 timesteps with no acquisition
+[loader] dropping 120/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[p2] pair targets: cube_mean (244,) | cube_p90 (244,) | cell_mean (244, 16) | 0/244 pairs with ZERO common pixels | 58/3904 cells with none
+
+[p2] COMMON-MASKED PIXEL SURVIVAL BY GAP LENGTH (16384 px per frame, 16 cells)
+[p2]    gap_d  pairs   px_min   px_med  frac_min  frac_med  cells_min  zero
+[p2]        5    106     4464    14668     0.272     0.895         12     0
+[p2]       10     67     6761    13747     0.413     0.839         13     0
+[p2]       15     31     6061    12821     0.370     0.783         14     0
+[p2]       20     15     7023    14749     0.429     0.900         13     0
+[p2]       25     14     8276    15612     0.505     0.953         13     0
+[p2]       30     10    14219    16142     0.868     0.985         16     0
+[p2]       35      1    13269    13269     0.810     0.810         16     0
+[p2]   no collapse: 0 pairs of 244 have zero common pixels; the weakest gap is 15 d at median 0.783 surviving. Survival is NOT monotone in gap -- a long gap exists because the frames between it were cloudy, which leaves the two surviving endpoints unusually clear.
+
+per-pair detail: data/phase1_6/logs/p2_run.log
+fit_gap_control(gap_days, values, train_idx,
+     *, degree: 'int' = 2, label: 'str' = '', verbose: 'bool' = False) -> 'GapControl'
+  ok  train_idx is positional #3 and has no default; no test argument exists
+select_ridge_alpha(block: 'FeatureBlock', manifest, train_rows, metric: 'str', group_of_row=None, inner_k: 'int' = 3, alphas: 'Sequence[float]' = (0.1, 1.0, 10.0, 100.0, 1000.0, 10000.0, 100000.0), ve
+  ok  train_rows is positional #3 and has no default; no test argument exists
+
+coef                      [-1.84691562e+00  1.68415560e-01 -1.24868836e-03]
+after poisoning TEST rows  [-1.84691562e+00  1.68415560e-01 -1.24868836e-03]   <- unchanged
+after poisoning a TRAIN row[-0.10230023 -0.0731229   0.0065667 ]   <- MOVED (this is what makes the line above mean something)
+  ok  cube            5 folds, no cube and no PAIR on both sides
+  ok  loco           20 folds, no cube and no PAIR on both sides
+  ok  spatial_block   5 folds, no cube and no PAIR on both sides
+
+rows 264 frames | 244 pairs | 4224 cells
+effective n 20 CUBES -- every interval below is clustered at that level
+[p2] per-pair detail -> data/phase1_6/logs/p2_run.log (stdout keeps shapes, K2 verdicts, the four controls and the headlines)
+[p2] manifest (264, 22) | 20 cubes | tiles ['32UNU'] | years [np.int64(2018)]
+[p2] raw_features             pooled (264, 35) | grid (264, 16, 35) | clear_frac (264,) | window_span_days (264,) (max 0 d)
+[p2] imagenet_vit_b16         pooled (264, 1536) | grid (264, 16, 768) | clear_frac (264,) | window_span_days (264,) (max 0 d)
+[p2] dinov2_vitb14            pooled (264, 3840) | grid (264, 16, 768) | clear_frac (264,) | window_span_days (264,) (max 0 d)
+[p2] satlas_s2_swinb_rgb      pooled (264, 1024) | grid (264, 16, 1024) | clear_frac (264,) | window_span_days (264,) (max 0 d)
+[p2] satlas_s2_swinb_mi_rgb   pooled (264, 1024) | grid (264, 16, 1024) | clear_frac (264,) | window_span_days (264,) (max 105 d)
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 120/150 timesteps with no acquisition
+[loader] dropping 120/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[p2] frame targets: cube_mean (264,) | cube_p90 (264,) | cell_mean (264, 16) | 29/4224 cells fully masked (dropped, never filled)
+[p2] pairs (244,) over 20 cubes (264 retained frames -> 244 consecutive pairs)
+[p2]   gap_days (daily_axis_index): min 5 median 10 max 35 | distinct [5.0, 10.0, 15.0, 20.0, 25.0, 30.0, 35.0]
+[p2] GAP AXIS CHECK on 244 real pairs: gap_days median 10 vs gap_acq_steps median 2 vs frames-between 1 -- 5.0 days per acquisition step, 0/244 pairs where the two axes agree
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 120/150 timesteps with no acquisition
+[loader] dropping 120/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[p2] pair targets: cube_mean (244,) | cube_p90 (244,) | cell_mean (244, 16) | 0/244 pairs with ZERO common pixels | 58/3904 cells with none
+[p2] COMMON-MASKED PIXEL SURVIVAL BY GAP LENGTH (16384 px per frame, 16 cells)
+[p2]    gap_d  pairs   px_min   px_med  frac_min  frac_med  cells_min  zero
+[p2]        5    106     4464    14668     0.272     0.895         12     0
+[p2]       10     67     6761    13747     0.413     0.839         13     0
+[p2]       15     31     6061    12821     0.370     0.783         14     0
+[p2]       20     15     7023    14749     0.429     0.900         13     0
+[p2]       25     14     8276    15612     0.505     0.953         13     0
+[p2]       30     10    14219    16142     0.868     0.985         16     0
+[p2]       35      1    13269    13269     0.810     0.810         16     0
+[p2]   no collapse: 0 pairs of 244 have zero common pixels; the weakest gap is 15 d at median 0.783 surviving. Survival is NOT monotone in gap -- a long gap exists because the frames between it were cloudy, which leaves the two surviving endpoints unusually clear.
+
+[p2] ====================================================================
+[p2] PART A -- reconstruction floor (gate K2): E(frame_t) -> NDVI(t)
+[p2] ====================================================================
+
+[p2] ---- A cube_mean | grid_cell | cube ----------------------
+[p2]   raw_features             embedding     D=35    R2 +0.440 [+0.169, +0.711] | effective n 20 CUBES
+[p2]   imagenet_vit_b16         embedding     D=768   R2 +0.521 [+0.324, +0.718] | effective n 20 CUBES
+[p2]   dinov2_vitb14            embedding     D=768   R2 +0.435 [+0.144, +0.726] | effective n 20 CUBES
+[p2]   satlas_s2_swinb_rgb      embedding     D=1024  R2 +0.545 [+0.462, +0.628] | effective n 20 CUBES
+[p2]   satlas_s2_swinb_mi_rgb   embedding     D=1024  R2 +0.077 [-0.334, +0.489] | effective n 20 CUBES
+[p2]   raw_features             raw_rgb_only  D=21    R2 +0.417 [+0.163, +0.670] | effective n 20 CUBES
+[p2]   raw_features             raw_nir_ndvi  D=14    R2 +0.418 [+0.149, +0.687] | effective n 20 CUBES
+[p2]   none                     retention     D=2     R2 -0.129 [-0.356, +0.099]    <- CONTROL (clear_frac + window_span_days, no image)
+
+[p2] ---- A cube_mean | grid_cell | loco ----------------------
+[p2]   raw_features             embedding     D=35    R2 -1.026 [-2.289, +0.238] | effective n 20 CUBES
+[p2]   imagenet_vit_b16         embedding     D=768   R2 -0.631 [-1.561, +0.298] | effective n 20 CUBES
+[p2]   dinov2_vitb14            embedding     D=768   R2 -0.475 [-1.060, +0.109] | effective n 20 CUBES
+[p2]   satlas_s2_swinb_rgb      embedding     D=1024  R2 -0.582 [-1.409, +0.245] | effective n 20 CUBES
+[p2]   satlas_s2_swinb_mi_rgb   embedding     D=1024  R2 -1.337 [-2.311, -0.364] | effective n 20 CUBES
+[p2]   raw_features             raw_rgb_only  D=21    R2 -1.150 [-2.545, +0.246] | effective n 20 CUBES
+[p2]   raw_features             raw_nir_ndvi  D=14    R2 -1.047 [-2.271, +0.178] | effective n 20 CUBES
+[p2]   none                     retention     D=2     R2 -3.390 [-6.482, -0.299]    <- CONTROL (clear_frac + window_span_days, no image)
+
+[p2] ---- A cube_mean | grid_cell | spatial_block -------------
+[p2]   raw_features             embedding     D=35    R2 -0.234 [-0.803, +0.335] | effective n 20 CUBES
+[p2]   imagenet_vit_b16         embedding     D=768   R2 -0.715 [-3.488, +2.058] | effective n 20 CUBES
+[p2]   dinov2_vitb14            embedding     D=768   R2 -0.724 [-3.040, +1.593] | effective n 20 CUBES
+[p2]   satlas_s2_swinb_rgb      embedding     D=1024  R2 -0.454 [-1.753, +0.845] | effective n 20 CUBES
+[p2]   satlas_s2_swinb_mi_rgb   embedding     D=1024  R2 -2.310 [-4.937, +0.318] | effective n 20 CUBES
+[p2]   raw_features             raw_rgb_only  D=21    R2 -0.188 [-0.647, +0.272] | effective n 20 CUBES
+[p2]   raw_features             raw_nir_ndvi  D=14    R2 -0.251 [-0.902, +0.400] | effective n 20 CUBES
+[p2]   none                     retention     D=2     R2 -2.086 [-6.095, +1.924]    <- CONTROL (clear_frac + window_span_days, no image)
+
+[p2] ---- A cube_mean | pooled | cube -------------------------
+[p2]   raw_features             embedding     D=35    R2 +1.000 [+1.000, +1.000] | effective n 20 CUBES
+[p2]   imagenet_vit_b16         embedding     D=1536  R2 +0.551 [+0.346, +0.756] | effective n 20 CUBES
+[p2]   dinov2_vitb14            embedding     D=3840  R2 +0.590 [+0.208, +0.971] | effective n 20 CUBES
+[p2]   satlas_s2_swinb_rgb      embedding     D=1024  R2 +0.624 [+0.540, +0.708] | effective n 20 CUBES
+[p2]   satlas_s2_swinb_mi_rgb   embedding     D=1024  R2 +0.018 [-0.640, +0.675] | effective n 20 CUBES
+[p2]   raw_features             raw_rgb_only  D=21    R2 +0.890 [+0.844, +0.936] | effective n 20 CUBES
+[p2]   raw_features             raw_nir_ndvi  D=14    R2 +1.000 [+1.000, +1.000] | effective n 20 CUBES
+[p2]   none                     retention     D=2     R2 -0.130 [-0.353, +0.093]    <- CONTROL (clear_frac + window_span_days, no image)
+
+[p2] ---- A cube_mean | pooled | loco -------------------------
+[p2]   raw_features             embedding     D=35    R2 +0.999 [+0.999, +1.000] | effective n 20 CUBES
+[p2]   imagenet_vit_b16         embedding     D=1536  R2 -0.358 [-1.185, +0.470] | effective n 20 CUBES
+[p2]   dinov2_vitb14            embedding     D=3840  R2 -0.008 [-0.502, +0.487] | effective n 20 CUBES
+[p2]   satlas_s2_swinb_rgb      embedding     D=1024  R2 -0.333 [-1.126, +0.460] | effective n 20 CUBES
+[p2]   satlas_s2_swinb_mi_rgb   embedding     D=1024  R2 -1.434 [-2.486, -0.382] | effective n 20 CUBES
+[p2]   raw_features             raw_rgb_only  D=21    R2 +0.702 [+0.569, +0.836] | effective n 20 CUBES
+[p2]   raw_features             raw_nir_ndvi  D=14    R2 +1.000 [+0.999, +1.000] | effective n 20 CUBES
+[p2]   none                     retention     D=2     R2 -3.375 [-6.440, -0.310]    <- CONTROL (clear_frac + window_span_days, no image)
+
+[p2] ---- A cube_mean | pooled | spatial_block ----------------
+[p2]   raw_features             embedding     D=35    R2 +1.000 [+0.999, +1.000] | effective n 20 CUBES
+[p2]   imagenet_vit_b16         embedding     D=1536  R2 -0.290 [-2.406, +1.826] | effective n 20 CUBES
+[p2]   dinov2_vitb14            embedding     D=3840  R2 -0.342 [-2.273, +1.588] | effective n 20 CUBES
+[p2]   satlas_s2_swinb_rgb      embedding     D=1024  R2 -0.272 [-1.219, +0.674] | effective n 20 CUBES
+[p2]   satlas_s2_swinb_mi_rgb   embedding     D=1024  R2 -2.035 [-4.202, +0.131] | effective n 20 CUBES
+[p2]   raw_features             raw_rgb_only  D=21    R2 +0.719 [+0.423, +1.015] | effective n 20 CUBES
+[p2]   raw_features             raw_nir_ndvi  D=14    R2 +1.000 [+0.999, +1.000] | effective n 20 CUBES
+[p2]   none                     retention     D=2     R2 -2.088 [-6.079, +1.903]    <- CONTROL (clear_frac + window_span_days, no image)
+
+[p2] ---- A cube_p90 | grid_cell | cube -----------------------
+[p2]   raw_features             embedding     D=35    R2 +0.614 [+0.548, +0.679] | effective n 20 CUBES
+[p2]   imagenet_vit_b16         embedding     D=768   R2 +0.205 [+0.104, +0.306] | effective n 20 CUBES
+[p2]   dinov2_vitb14            embedding     D=768   R2 +0.197 [-0.000, +0.394] | effective n 20 CUBES
+[p2]   satlas_s2_swinb_rgb      embedding     D=1024  R2 +0.306 [+0.282, +0.330] | effective n 20 CUBES
+[p2]   satlas_s2_swinb_mi_rgb   embedding     D=1024  R2 -0.039 [-0.133, +0.056] | effective n 20 CUBES
+[p2]   raw_features             raw_rgb_only  D=21    R2 +0.454 [+0.298, +0.610] | effective n 20 CUBES
+[p2]   raw_features             raw_nir_ndvi  D=14    R2 +0.605 [+0.506, +0.704] | effective n 20 CUBES
+[p2]   none                     retention     D=2     R2 -0.004 [-0.021, +0.012]    <- CONTROL (clear_frac + window_span_days, no image)
+
+[p2] ---- A cube_p90 | grid_cell | loco -----------------------
+[p2]   raw_features             embedding     D=35    R2 +0.150 [-0.327, +0.628] | effective n 20 CUBES
+[p2]   imagenet_vit_b16         embedding     D=768   R2 -0.509 [-1.126, +0.108] | effective n 20 CUBES
+[p2]   dinov2_vitb14            embedding     D=768   R2 -0.282 [-0.801, +0.237] | effective n 20 CUBES
+[p2]   satlas_s2_swinb_rgb      embedding     D=1024  R2 -0.445 [-1.094, +0.204] | effective n 20 CUBES
+[p2]   satlas_s2_swinb_mi_rgb   embedding     D=1024  R2 -0.635 [-1.141, -0.129] | effective n 20 CUBES
+[p2]   raw_features             raw_rgb_only  D=21    R2 -0.740 [-2.374, +0.894] | effective n 20 CUBES
+[p2]   raw_features             raw_nir_ndvi  D=14    R2 +0.274 [-0.095, +0.643] | effective n 20 CUBES
+[p2]   none                     retention     D=2     R2 -0.511 [-0.863, -0.158]    <- CONTROL (clear_frac + window_span_days, no image)
+
+[p2] ---- A cube_p90 | grid_cell | spatial_block --------------
+[p2]   raw_features             embedding     D=35    R2 +0.565 [+0.474, +0.656] | effective n 20 CUBES
+[p2]   imagenet_vit_b16         embedding     D=768   R2 -0.693 [-2.873, +1.487] | effective n 20 CUBES
+[p2]   dinov2_vitb14            embedding     D=768   R2 -0.407 [-1.875, +1.060] | effective n 20 CUBES
+[p2]   satlas_s2_swinb_rgb      embedding     D=1024  R2 +0.007 [-0.264, +0.279] | effective n 20 CUBES
+[p2]   satlas_s2_swinb_mi_rgb   embedding     D=1024  R2 -1.077 [-2.947, +0.793] | effective n 20 CUBES
+[p2]   raw_features             raw_rgb_only  D=21    R2 +0.363 [+0.282, +0.445] | effective n 20 CUBES
+[p2]   raw_features             raw_nir_ndvi  D=14    R2 +0.548 [+0.439, +0.657] | effective n 20 CUBES
+[p2]   none                     retention     D=2     R2 -0.383 [-1.207, +0.440]    <- CONTROL (clear_frac + window_span_days, no image)
+
+[p2] ---- A cube_p90 | pooled | cube --------------------------
+[p2]   raw_features             embedding     D=35    R2 +1.000 [+1.000, +1.000] | effective n 20 CUBES
+[p2]   imagenet_vit_b16         embedding     D=1536  R2 +0.187 [+0.090, +0.285] | effective n 20 CUBES
+[p2]   dinov2_vitb14            embedding     D=3840  R2 +0.454 [+0.335, +0.572] | effective n 20 CUBES
+[p2]   satlas_s2_swinb_rgb      embedding     D=1024  R2 +0.404 [+0.340, +0.468] | effective n 20 CUBES
+[p2]   satlas_s2_swinb_mi_rgb   embedding     D=1024  R2 -0.032 [-0.079, +0.014] | effective n 20 CUBES
+[p2]   raw_features             raw_rgb_only  D=21    R2 +0.884 [+0.840, +0.927] | effective n 20 CUBES
+[p2]   raw_features             raw_nir_ndvi  D=14    R2 +1.000 [+1.000, +1.000] | effective n 20 CUBES
+[p2]   none                     retention     D=2     R2 -0.004 [-0.043, +0.034]    <- CONTROL (clear_frac + window_span_days, no image)
+
+[p2] ---- A cube_p90 | pooled | loco --------------------------
+[p2]   raw_features             embedding     D=35    R2 +1.000 [+1.000, +1.000] | effective n 20 CUBES
+[p2]   imagenet_vit_b16         embedding     D=1536  R2 -0.441 [-1.132, +0.249] | effective n 20 CUBES
+[p2]   dinov2_vitb14            embedding     D=3840  R2 -0.316 [-1.070, +0.437] | effective n 20 CUBES
+[p2]   satlas_s2_swinb_rgb      embedding     D=1024  R2 -0.230 [-0.807, +0.347] | effective n 20 CUBES
+[p2]   satlas_s2_swinb_mi_rgb   embedding     D=1024  R2 -0.485 [-0.891, -0.079] | effective n 20 CUBES
+[p2]   raw_features             raw_rgb_only  D=21    R2 +0.691 [+0.507, +0.876] | effective n 20 CUBES
+[p2]   raw_features             raw_nir_ndvi  D=14    R2 +1.000 [+1.000, +1.000] | effective n 20 CUBES
+[p2]   none                     retention     D=2     R2 -0.491 [-0.865, -0.116]    <- CONTROL (clear_frac + window_span_days, no image)
+
+[p2] ---- A cube_p90 | pooled | spatial_block -----------------
+[p2]   raw_features             embedding     D=35    R2 +1.000 [+1.000, +1.000] | effective n 20 CUBES
+[p2]   imagenet_vit_b16         embedding     D=1536  R2 -0.705 [-2.833, +1.422] | effective n 20 CUBES
+[p2]   dinov2_vitb14            embedding     D=3840  R2 -0.126 [-1.006, +0.753] | effective n 20 CUBES
+[p2]   satlas_s2_swinb_rgb      embedding     D=1024  R2 +0.127 [-0.016, +0.269] | effective n 20 CUBES
+[p2]   satlas_s2_swinb_mi_rgb   embedding     D=1024  R2 -0.789 [-2.569, +0.990] | effective n 20 CUBES
+[p2]   raw_features             raw_rgb_only  D=21    R2 +0.775 [+0.640, +0.910] | effective n 20 CUBES
+[p2]   raw_features             raw_nir_ndvi  D=14    R2 +1.000 [+1.000, +1.000] | effective n 20 CUBES
+[p2]   none                     retention     D=2     R2 -0.384 [-1.188, +0.419]    <- CONTROL (clear_frac + window_span_days, no image)
+
+[p2] ---- A cell_mean | grid_cell | cube ----------------------
+[p2]   raw_features             embedding     D=35    R2 +1.000 [+1.000, +1.000] | effective n 20 CUBES
+[p2]   imagenet_vit_b16         embedding     D=768   R2 +0.649 [+0.580, +0.717] | effective n 20 CUBES
+[p2]   dinov2_vitb14            embedding     D=768   R2 +0.659 [+0.570, +0.747] | effective n 20 CUBES
+[p2]   satlas_s2_swinb_rgb      embedding     D=1024  R2 +0.664 [+0.583, +0.745] | effective n 20 CUBES
+[p2]   satlas_s2_swinb_mi_rgb   embedding     D=1024  R2 +0.370 [+0.208, +0.533] | effective n 20 CUBES
+[p2]   raw_features             raw_rgb_only  D=21    R2 +0.860 [+0.827, +0.894] | effective n 20 CUBES
+[p2]   raw_features             raw_nir_ndvi  D=14    R2 +1.000 [+1.000, +1.000] | effective n 20 CUBES
+[p2]   none                     retention     D=2     R2 -0.077 [-0.209, +0.055]    <- CONTROL (clear_frac + window_span_days, no image)
+
+[p2] ---- A cell_mean | grid_cell | loco ----------------------
+[p2]   raw_features             embedding     D=35    R2 +1.000 [+1.000, +1.000] | effective n 20 CUBES
+[p2]   imagenet_vit_b16         embedding     D=768   R2 +0.477 [+0.270, +0.684] | effective n 20 CUBES
+[p2]   dinov2_vitb14            embedding     D=768   R2 +0.510 [+0.385, +0.634] | effective n 20 CUBES
+[p2]   satlas_s2_swinb_rgb      embedding     D=1024  R2 +0.498 [+0.353, +0.643] | effective n 20 CUBES
+[p2]   satlas_s2_swinb_mi_rgb   embedding     D=1024  R2 +0.156 [-0.083, +0.395] | effective n 20 CUBES
+[p2]   raw_features             raw_rgb_only  D=21    R2 +0.807 [+0.773, +0.841] | effective n 20 CUBES
+[p2]   raw_features             raw_nir_ndvi  D=14    R2 +1.000 [+1.000, +1.000] | effective n 20 CUBES
+[p2]   none                     retention     D=2     R2 -0.642 [-1.036, -0.247]    <- CONTROL (clear_frac + window_span_days, no image)
+
+[p2] ---- A cell_mean | grid_cell | spatial_block -------------
+[p2]   raw_features             embedding     D=35    R2 +1.000 [+1.000, +1.000] | effective n 20 CUBES
+[p2]   imagenet_vit_b16         embedding     D=768   R2 +0.245 [-0.826, +1.316] | effective n 20 CUBES
+[p2]   dinov2_vitb14            embedding     D=768   R2 +0.399 [-0.073, +0.872] | effective n 20 CUBES
+[p2]   satlas_s2_swinb_rgb      embedding     D=1024  R2 +0.361 [-0.200, +0.922] | effective n 20 CUBES
+[p2]   satlas_s2_swinb_mi_rgb   embedding     D=1024  R2 -0.290 [-1.425, +0.844] | effective n 20 CUBES
+[p2]   raw_features             raw_rgb_only  D=21    R2 +0.838 [+0.793, +0.884] | effective n 20 CUBES
+[p2]   raw_features             raw_nir_ndvi  D=14    R2 +1.000 [+1.000, +1.000] | effective n 20 CUBES
+[p2]   none                     retention     D=2     R2 -0.813 [-2.294, +0.668]    <- CONTROL (clear_frac + window_span_days, no image)
+
+[p2] ====================================================================
+[p2] PART B -- delta probe: E(t+1)-E(t) -> common-masked NDVI change
+[p2] ====================================================================
+
+[p2] ---- B cube_mean sign | grid_cell | cube -----------------
+[p2]   norm    raw_features             embedding     D=1     rho +0.077 [-0.134, +0.288]
+[p2]   norm    imagenet_vit_b16         embedding     D=1     rho +0.081 [-0.123, +0.285]
+[p2]   norm    dinov2_vitb14            embedding     D=1     rho -0.014 [-0.201, +0.173]
+[p2]   norm    satlas_s2_swinb_rgb      embedding     D=1     rho -0.023 [-0.176, +0.130]
+[p2]   norm    satlas_s2_swinb_mi_rgb   embedding     D=1     rho -0.004 [-0.101, +0.092]  [si_comparable=False]
+[p2]   norm    raw_features             raw_rgb_only  D=1     rho +0.043 [-0.121, +0.207]
+[p2]   norm    raw_features             raw_nir_ndvi  D=1     rho +0.078 [-0.130, +0.286]
+[p2]   norm    none                     gap_days      D=3     rho -0.118 [-0.370, +0.135]   <- CONTROL (gap length alone, no embedding)
+[p2]   linear  raw_features             embedding     D=35    rho +0.663 [+0.622, +0.705]
+[p2]   linear  imagenet_vit_b16         embedding     D=768   rho +0.415 [+0.316, +0.514]
+[p2]   linear  dinov2_vitb14            embedding     D=768   rho +0.419 [+0.184, +0.655]
+[p2]   linear  satlas_s2_swinb_rgb      embedding     D=1024  rho +0.457 [+0.392, +0.523]
+[p2]   linear  satlas_s2_swinb_mi_rgb   embedding     D=1024  rho +0.229 [+0.050, +0.408]  [si_comparable=False]
+[p2]   linear  raw_features             raw_rgb_only  D=21    rho +0.604 [+0.534, +0.675]
+[p2]   linear  raw_features             raw_nir_ndvi  D=14    rho +0.660 [+0.620, +0.699]
+[p2]   linear  none                     gap_days      D=3     rho -0.118 [-0.370, +0.135]   <- CONTROL (gap length alone, no embedding)
+
+[p2] ---- B cube_mean sign | grid_cell | loco -----------------
+[p2]   norm    raw_features             embedding     D=1     rho +0.081 [-0.010, +0.172]
+[p2]   norm    imagenet_vit_b16         embedding     D=1     rho +0.075 [-0.077, +0.227]
+[p2]   norm    dinov2_vitb14            embedding     D=1     rho +0.021 [-0.126, +0.167]
+[p2]   norm    satlas_s2_swinb_rgb      embedding     D=1     rho +0.020 [-0.092, +0.132]
+[p2]   norm    satlas_s2_swinb_mi_rgb   embedding     D=1     rho -0.009 [-0.099, +0.082]  [si_comparable=False]
+[p2]   norm    raw_features             raw_rgb_only  D=1     rho +0.045 [-0.070, +0.160]
+[p2]   norm    raw_features             raw_nir_ndvi  D=1     rho +0.082 [-0.007, +0.172]
+[p2]   norm    none                     gap_days      D=3     rho +0.039 [-0.098, +0.176]   <- CONTROL (gap length alone, no embedding)
+[p2]   linear  raw_features             embedding     D=35    rho +0.651 [+0.604, +0.699]
+[p2]   linear  imagenet_vit_b16         embedding     D=768   rho +0.372 [+0.270, +0.473]
+[p2]   linear  dinov2_vitb14            embedding     D=768   rho +0.440 [+0.318, +0.562]
+[p2]   linear  satlas_s2_swinb_rgb      embedding     D=1024  rho +0.507 [+0.446, +0.568]
+[p2]   linear  satlas_s2_swinb_mi_rgb   embedding     D=1024  rho +0.212 [+0.102, +0.322]  [si_comparable=False]
+[p2]   linear  raw_features             raw_rgb_only  D=21    rho +0.587 [+0.526, +0.648]
+[p2]   linear  raw_features             raw_nir_ndvi  D=14    rho +0.648 [+0.600, +0.695]
+[p2]   linear  none                     gap_days      D=3     rho +0.039 [-0.098, +0.176]   <- CONTROL (gap length alone, no embedding)
+
+[p2] ---- B cube_mean sign | grid_cell | spatial_block --------
+[p2]   norm    raw_features             embedding     D=1     rho +0.170 [-0.084, +0.423]
+[p2]   norm    imagenet_vit_b16         embedding     D=1     rho +0.172 [-0.139, +0.484]
+[p2]   norm    dinov2_vitb14            embedding     D=1     rho +0.107 [-0.213, +0.428]
+[p2]   norm    satlas_s2_swinb_rgb      embedding     D=1     rho +0.098 [-0.200, +0.397]
+[p2]   norm    satlas_s2_swinb_mi_rgb   embedding     D=1     rho -0.047 [-0.118, +0.024]  [si_comparable=False]
+[p2]   norm    raw_features             raw_rgb_only  D=1     rho +0.145 [-0.134, +0.425]
+[p2]   norm    raw_features             raw_nir_ndvi  D=1     rho +0.174 [-0.085, +0.432]
+[p2]   norm    none                     gap_days      D=3     rho +0.009 [-0.226, +0.244]   <- CONTROL (gap length alone, no embedding)
+[p2]   linear  raw_features             embedding     D=35    rho +0.653 [+0.583, +0.724]
+[p2]   linear  imagenet_vit_b16         embedding     D=768   rho +0.301 [+0.052, +0.551]
+[p2]   linear  dinov2_vitb14            embedding     D=768   rho +0.321 [+0.135, +0.507]
+[p2]   linear  satlas_s2_swinb_rgb      embedding     D=1024  rho +0.480 [+0.318, +0.642]
+[p2]   linear  satlas_s2_swinb_mi_rgb   embedding     D=1024  rho +0.121 [+0.068, +0.175]  [si_comparable=False]
+[p2]   linear  raw_features             raw_rgb_only  D=21    rho +0.610 [+0.487, +0.734]
+[p2]   linear  raw_features             raw_nir_ndvi  D=14    rho +0.658 [+0.582, +0.734]
+[p2]   linear  none                     gap_days      D=3     rho +0.009 [-0.226, +0.244]   <- CONTROL (gap length alone, no embedding)
+
+[p2] ---- B cube_mean magnitude | grid_cell | cube ------------
+[p2]   norm    raw_features             embedding     D=1     rho +0.373 [+0.257, +0.489]
+[p2]   norm    imagenet_vit_b16         embedding     D=1     rho -0.019 [-0.226, +0.188]
+[p2]   norm    dinov2_vitb14            embedding     D=1     rho +0.009 [-0.247, +0.265]
+[p2]   norm    satlas_s2_swinb_rgb      embedding     D=1     rho +0.039 [-0.212, +0.290]
+[p2]   norm    satlas_s2_swinb_mi_rgb   embedding     D=1     rho +0.188 [+0.091, +0.286]  [si_comparable=False]
+[p2]   norm    raw_features             raw_rgb_only  D=1     rho +0.281 [+0.131, +0.431]
+[p2]   norm    raw_features             raw_nir_ndvi  D=1     rho +0.405 [+0.300, +0.509]
+[p2]   norm    none                     gap_days      D=3     rho +0.209 [+0.066, +0.351]   <- CONTROL (gap length alone, no embedding)
+[p2]   linear  raw_features             embedding     D=35    rho +0.064 [-0.082, +0.209]
+[p2]   linear  imagenet_vit_b16         embedding     D=768   rho +0.027 [-0.149, +0.202]
+[p2]   linear  dinov2_vitb14            embedding     D=768   rho +0.115 [-0.044, +0.275]
+[p2]   linear  satlas_s2_swinb_rgb      embedding     D=1024  rho +0.077 [-0.026, +0.180]
+[p2]   linear  satlas_s2_swinb_mi_rgb   embedding     D=1024  rho -0.019 [-0.106, +0.068]  [si_comparable=False]
+[p2]   linear  raw_features             raw_rgb_only  D=21    rho +0.035 [-0.126, +0.197]
+[p2]   linear  raw_features             raw_nir_ndvi  D=14    rho +0.039 [-0.039, +0.118]
+[p2]   linear  none                     gap_days      D=3     rho +0.209 [+0.066, +0.351]   <- CONTROL (gap length alone, no embedding)
+
+[p2] ---- B cube_mean magnitude | grid_cell | loco ------------
+[p2]   norm    raw_features             embedding     D=1     rho +0.353 [+0.245, +0.461]
+[p2]   norm    imagenet_vit_b16         embedding     D=1     rho +0.070 [-0.071, +0.211]
+[p2]   norm    dinov2_vitb14            embedding     D=1     rho +0.081 [-0.055, +0.217]
+[p2]   norm    satlas_s2_swinb_rgb      embedding     D=1     rho +0.101 [-0.017, +0.219]
+[p2]   norm    satlas_s2_swinb_mi_rgb   embedding     D=1     rho +0.133 [+0.015, +0.252]  [si_comparable=False]
+[p2]   norm    raw_features             raw_rgb_only  D=1     rho +0.269 [+0.170, +0.368]
+[p2]   norm    raw_features             raw_nir_ndvi  D=1     rho +0.380 [+0.278, +0.482]
+[p2]   norm    none                     gap_days      D=3     rho +0.260 [+0.081, +0.438]   <- CONTROL (gap length alone, no embedding)
+[p2]   linear  raw_features             embedding     D=35    rho +0.079 [-0.028, +0.187]
+[p2]   linear  imagenet_vit_b16         embedding     D=768   rho -0.066 [-0.141, +0.010]
+[p2]   linear  dinov2_vitb14            embedding     D=768   rho +0.169 [+0.067, +0.271]
+[p2]   linear  satlas_s2_swinb_rgb      embedding     D=1024  rho +0.052 [-0.080, +0.184]
+[p2]   linear  satlas_s2_swinb_mi_rgb   embedding     D=1024  rho +0.008 [-0.060, +0.075]  [si_comparable=False]
+[p2]   linear  raw_features             raw_rgb_only  D=21    rho +0.078 [-0.026, +0.183]
+[p2]   linear  raw_features             raw_nir_ndvi  D=14    rho +0.025 [-0.035, +0.085]
+[p2]   linear  none                     gap_days      D=3     rho +0.260 [+0.081, +0.438]   <- CONTROL (gap length alone, no embedding)
+
+[p2] ---- B cube_mean magnitude | grid_cell | spatial_block ---
+[p2]   norm    raw_features             embedding     D=1     rho +0.349 [+0.198, +0.500]
+[p2]   norm    imagenet_vit_b16         embedding     D=1     rho -0.021 [-0.239, +0.198]
+[p2]   norm    dinov2_vitb14            embedding     D=1     rho +0.029 [-0.142, +0.201]
+[p2]   norm    satlas_s2_swinb_rgb      embedding     D=1     rho +0.052 [-0.181, +0.285]
+[p2]   norm    satlas_s2_swinb_mi_rgb   embedding     D=1     rho +0.147 [+0.010, +0.283]  [si_comparable=False]
+[p2]   norm    raw_features             raw_rgb_only  D=1     rho +0.262 [+0.108, +0.417]
+[p2]   norm    raw_features             raw_nir_ndvi  D=1     rho +0.390 [+0.240, +0.539]
+[p2]   norm    none                     gap_days      D=3     rho +0.168 [-0.280, +0.616]   <- CONTROL (gap length alone, no embedding)
+[p2]   linear  raw_features             embedding     D=35    rho -0.123 [-0.433, +0.186]
+[p2]   linear  imagenet_vit_b16         embedding     D=768   rho -0.060 [-0.187, +0.066]
+[p2]   linear  dinov2_vitb14            embedding     D=768   rho +0.034 [-0.083, +0.151]
+[p2]   linear  satlas_s2_swinb_rgb      embedding     D=1024  rho -0.050 [-0.339, +0.239]
+[p2]   linear  satlas_s2_swinb_mi_rgb   embedding     D=1024  rho -0.069 [-0.178, +0.040]  [si_comparable=False]
+[p2]   linear  raw_features             raw_rgb_only  D=21    rho -0.094 [-0.335, +0.148]
+[p2]   linear  raw_features             raw_nir_ndvi  D=14    rho -0.066 [-0.186, +0.054]
+[p2]   linear  none                     gap_days      D=3     rho +0.168 [-0.280, +0.616]   <- CONTROL (gap length alone, no embedding)
+
+[p2] ---- B cube_mean sign | pooled | cube --------------------
+[p2]   norm    raw_features             embedding     D=1     rho +0.085 [-0.158, +0.328]
+[p2]   norm    imagenet_vit_b16         embedding     D=1     rho +0.091 [-0.147, +0.328]
+[p2]   norm    dinov2_vitb14            embedding     D=1     rho -0.014 [-0.200, +0.171]
+[p2]   norm    satlas_s2_swinb_rgb      embedding     D=1     rho -0.005 [-0.195, +0.185]
+[p2]   norm    satlas_s2_swinb_mi_rgb   embedding     D=1     rho +0.009 [-0.116, +0.135]  [si_comparable=False]
+[p2]   norm    raw_features             raw_rgb_only  D=1     rho +0.086 [-0.183, +0.356]
+[p2]   norm    raw_features             raw_nir_ndvi  D=1     rho +0.075 [-0.158, +0.307]
+[p2]   norm    none                     gap_days      D=3     rho -0.118 [-0.370, +0.135]   <- CONTROL (gap length alone, no embedding)
+[p2]   linear  raw_features             embedding     D=35    rho +0.801 [+0.753, +0.849]
+[p2]   linear  imagenet_vit_b16         embedding     D=1536  rho +0.458 [+0.318, +0.597]
+[p2]   linear  dinov2_vitb14            embedding     D=3840  rho +0.536 [+0.397, +0.674]
+[p2]   linear  satlas_s2_swinb_rgb      embedding     D=1024  rho +0.481 [+0.404, +0.557]
+[p2]   linear  satlas_s2_swinb_mi_rgb   embedding     D=1024  rho +0.163 [+0.070, +0.257]  [si_comparable=False]
+[p2]   linear  raw_features             raw_rgb_only  D=21    rho +0.724 [+0.663, +0.785]
+[p2]   linear  raw_features             raw_nir_ndvi  D=14    rho +0.809 [+0.758, +0.861]
+[p2]   linear  none                     gap_days      D=3     rho -0.118 [-0.370, +0.135]   <- CONTROL (gap length alone, no embedding)
+
+[p2] ---- B cube_mean sign | pooled | loco --------------------
+[p2]   norm    raw_features             embedding     D=1     rho +0.081 [-0.042, +0.205]
+[p2]   norm    imagenet_vit_b16         embedding     D=1     rho +0.089 [-0.072, +0.249]
+[p2]   norm    dinov2_vitb14            embedding     D=1     rho +0.010 [-0.171, +0.191]
+[p2]   norm    satlas_s2_swinb_rgb      embedding     D=1     rho +0.058 [-0.105, +0.221]
+[p2]   norm    satlas_s2_swinb_mi_rgb   embedding     D=1     rho -0.000 [-0.117, +0.116]  [si_comparable=False]
+[p2]   norm    raw_features             raw_rgb_only  D=1     rho +0.098 [-0.044, +0.240]
+[p2]   norm    raw_features             raw_nir_ndvi  D=1     rho +0.056 [-0.054, +0.166]
+[p2]   norm    none                     gap_days      D=3     rho +0.039 [-0.098, +0.176]   <- CONTROL (gap length alone, no embedding)
+[p2]   linear  raw_features             embedding     D=35    rho +0.787 [+0.742, +0.831]
+[p2]   linear  imagenet_vit_b16         embedding     D=1536  rho +0.449 [+0.323, +0.574]
+[p2]   linear  dinov2_vitb14            embedding     D=3840  rho +0.481 [+0.322, +0.639]
+[p2]   linear  satlas_s2_swinb_rgb      embedding     D=1024  rho +0.531 [+0.456, +0.606]
+[p2]   linear  satlas_s2_swinb_mi_rgb   embedding     D=1024  rho +0.263 [+0.131, +0.394]  [si_comparable=False]
+[p2]   linear  raw_features             raw_rgb_only  D=21    rho +0.735 [+0.667, +0.802]
+[p2]   linear  raw_features             raw_nir_ndvi  D=14    rho +0.792 [+0.756, +0.828]
+[p2]   linear  none                     gap_days      D=3     rho +0.039 [-0.098, +0.176]   <- CONTROL (gap length alone, no embedding)
+
+[p2] ---- B cube_mean sign | pooled | spatial_block -----------
+[p2]   norm    raw_features             embedding     D=1     rho +0.187 [-0.084, +0.459]
+[p2]   norm    imagenet_vit_b16         embedding     D=1     rho +0.210 [-0.148, +0.567]
+[p2]   norm    dinov2_vitb14            embedding     D=1     rho +0.149 [-0.291, +0.590]
+[p2]   norm    satlas_s2_swinb_rgb      embedding     D=1     rho +0.122 [-0.185, +0.430]
+[p2]   norm    satlas_s2_swinb_mi_rgb   embedding     D=1     rho -0.057 [-0.168, +0.055]  [si_comparable=False]
+[p2]   norm    raw_features             raw_rgb_only  D=1     rho +0.212 [-0.109, +0.534]
+[p2]   norm    raw_features             raw_nir_ndvi  D=1     rho +0.172 [-0.115, +0.460]
+[p2]   norm    none                     gap_days      D=3     rho +0.009 [-0.226, +0.244]   <- CONTROL (gap length alone, no embedding)
+[p2]   linear  raw_features             embedding     D=35    rho +0.781 [+0.717, +0.846]
+[p2]   linear  imagenet_vit_b16         embedding     D=1536  rho +0.367 [+0.162, +0.571]
+[p2]   linear  dinov2_vitb14            embedding     D=3840  rho +0.473 [+0.203, +0.743]
+[p2]   linear  satlas_s2_swinb_rgb      embedding     D=1024  rho +0.489 [+0.283, +0.696]
+[p2]   linear  satlas_s2_swinb_mi_rgb   embedding     D=1024  rho +0.083 [-0.020, +0.186]  [si_comparable=False]
+[p2]   linear  raw_features             raw_rgb_only  D=21    rho +0.723 [+0.616, +0.831]
+[p2]   linear  raw_features             raw_nir_ndvi  D=14    rho +0.800 [+0.753, +0.847]
+[p2]   linear  none                     gap_days      D=3     rho +0.009 [-0.226, +0.244]   <- CONTROL (gap length alone, no embedding)
+
+[p2] ---- B cube_mean magnitude | pooled | cube ---------------
+[p2]   norm    raw_features             embedding     D=1     rho +0.455 [+0.295, +0.615]
+[p2]   norm    imagenet_vit_b16         embedding     D=1     rho -0.039 [-0.237, +0.159]
+[p2]   norm    dinov2_vitb14            embedding     D=1     rho -0.015 [-0.281, +0.252]
+[p2]   norm    satlas_s2_swinb_rgb      embedding     D=1     rho +0.026 [-0.289, +0.342]
+[p2]   norm    satlas_s2_swinb_mi_rgb   embedding     D=1     rho +0.190 [+0.101, +0.279]  [si_comparable=False]
+[p2]   norm    raw_features             raw_rgb_only  D=1     rho +0.224 [-0.041, +0.490]
+[p2]   norm    raw_features             raw_nir_ndvi  D=1     rho +0.573 [+0.440, +0.706]
+[p2]   norm    none                     gap_days      D=3     rho +0.209 [+0.066, +0.351]   <- CONTROL (gap length alone, no embedding)
+[p2]   linear  raw_features             embedding     D=35    rho +0.078 [-0.052, +0.209]
+[p2]   linear  imagenet_vit_b16         embedding     D=1536  rho -0.029 [-0.168, +0.110]
+[p2]   linear  dinov2_vitb14            embedding     D=3840  rho +0.174 [-0.005, +0.353]
+[p2]   linear  satlas_s2_swinb_rgb      embedding     D=1024  rho +0.065 [-0.034, +0.165]
+[p2]   linear  satlas_s2_swinb_mi_rgb   embedding     D=1024  rho +0.081 [-0.082, +0.244]  [si_comparable=False]
+[p2]   linear  raw_features             raw_rgb_only  D=21    rho +0.014 [-0.188, +0.217]
+[p2]   linear  raw_features             raw_nir_ndvi  D=14    rho +0.066 [-0.087, +0.219]
+[p2]   linear  none                     gap_days      D=3     rho +0.209 [+0.066, +0.351]   <- CONTROL (gap length alone, no embedding)
+
+[p2] ---- B cube_mean magnitude | pooled | loco ---------------
+[p2]   norm    raw_features             embedding     D=1     rho +0.432 [+0.282, +0.582]
+[p2]   norm    imagenet_vit_b16         embedding     D=1     rho +0.069 [-0.080, +0.218]
+[p2]   norm    dinov2_vitb14            embedding     D=1     rho +0.056 [-0.088, +0.200]
+[p2]   norm    satlas_s2_swinb_rgb      embedding     D=1     rho +0.134 [-0.010, +0.278]
+[p2]   norm    satlas_s2_swinb_mi_rgb   embedding     D=1     rho +0.115 [-0.015, +0.245]  [si_comparable=False]
+[p2]   norm    raw_features             raw_rgb_only  D=1     rho +0.240 [+0.074, +0.405]
+[p2]   norm    raw_features             raw_nir_ndvi  D=1     rho +0.544 [+0.429, +0.659]
+[p2]   norm    none                     gap_days      D=3     rho +0.260 [+0.081, +0.438]   <- CONTROL (gap length alone, no embedding)
+[p2]   linear  raw_features             embedding     D=35    rho +0.057 [-0.058, +0.172]
+[p2]   linear  imagenet_vit_b16         embedding     D=1536  rho -0.068 [-0.227, +0.091]
+[p2]   linear  dinov2_vitb14            embedding     D=3840  rho +0.172 [+0.017, +0.327]
+[p2]   linear  satlas_s2_swinb_rgb      embedding     D=1024  rho +0.008 [-0.124, +0.139]
+[p2]   linear  satlas_s2_swinb_mi_rgb   embedding     D=1024  rho +0.057 [-0.074, +0.188]  [si_comparable=False]
+[p2]   linear  raw_features             raw_rgb_only  D=21    rho +0.050 [-0.035, +0.136]
+[p2]   linear  raw_features             raw_nir_ndvi  D=14    rho -0.054 [-0.185, +0.078]
+[p2]   linear  none                     gap_days      D=3     rho +0.260 [+0.081, +0.438]   <- CONTROL (gap length alone, no embedding)
+
+[p2] ---- B cube_mean magnitude | pooled | spatial_block ------
+[p2]   norm    raw_features             embedding     D=1     rho +0.362 [+0.090, +0.634]
+[p2]   norm    imagenet_vit_b16         embedding     D=1     rho -0.030 [-0.250, +0.189]
+[p2]   norm    dinov2_vitb14            embedding     D=1     rho +0.034 [-0.192, +0.259]
+[p2]   norm    satlas_s2_swinb_rgb      embedding     D=1     rho +0.058 [-0.212, +0.329]
+[p2]   norm    satlas_s2_swinb_mi_rgb   embedding     D=1     rho +0.139 [+0.026, +0.253]  [si_comparable=False]
+[p2]   norm    raw_features             raw_rgb_only  D=1     rho +0.202 [-0.018, +0.421]
+[p2]   norm    raw_features             raw_nir_ndvi  D=1     rho +0.561 [+0.388, +0.735]
+[p2]   norm    none                     gap_days      D=3     rho +0.168 [-0.280, +0.616]   <- CONTROL (gap length alone, no embedding)
+[p2]   linear  raw_features             embedding     D=35    rho -0.063 [-0.184, +0.059]
+[p2]   linear  imagenet_vit_b16         embedding     D=1536  rho -0.091 [-0.144, -0.037]
+[p2]   linear  dinov2_vitb14            embedding     D=3840  rho -0.024 [-0.285, +0.237]
+[p2]   linear  satlas_s2_swinb_rgb      embedding     D=1024  rho -0.084 [-0.392, +0.225]
+[p2]   linear  satlas_s2_swinb_mi_rgb   embedding     D=1024  rho -0.123 [-0.282, +0.036]  [si_comparable=False]
+[p2]   linear  raw_features             raw_rgb_only  D=21    rho -0.080 [-0.298, +0.137]
+[p2]   linear  raw_features             raw_nir_ndvi  D=14    rho -0.196 [-0.345, -0.048]
+[p2]   linear  none                     gap_days      D=3     rho +0.168 [-0.280, +0.616]   <- CONTROL (gap length alone, no embedding)
+
+[p2] ---- B cube_p90 sign | grid_cell | cube ------------------
+[p2]   norm    raw_features             embedding     D=1     rho +0.066 [-0.060, +0.193]
+[p2]   norm    imagenet_vit_b16         embedding     D=1     rho +0.125 [+0.024, +0.227]
+[p2]   norm    dinov2_vitb14            embedding     D=1     rho +0.011 [-0.080, +0.102]
+[p2]   norm    satlas_s2_swinb_rgb      embedding     D=1     rho +0.034 [-0.096, +0.164]
+[p2]   norm    satlas_s2_swinb_mi_rgb   embedding     D=1     rho -0.088 [-0.264, +0.089]  [si_comparable=False]
+[p2]   norm    raw_features             raw_rgb_only  D=1     rho +0.073 [-0.043, +0.189]
+[p2]   norm    raw_features             raw_nir_ndvi  D=1     rho +0.064 [-0.069, +0.197]
+[p2]   norm    none                     gap_days      D=3     rho +0.216 [+0.078, +0.355]   <- CONTROL (gap length alone, no embedding)
+[p2]   linear  raw_features             embedding     D=35    rho +0.732 [+0.693, +0.771]
+[p2]   linear  imagenet_vit_b16         embedding     D=768   rho +0.324 [+0.238, +0.409]
+[p2]   linear  dinov2_vitb14            embedding     D=768   rho +0.519 [+0.446, +0.593]
+[p2]   linear  satlas_s2_swinb_rgb      embedding     D=1024  rho +0.603 [+0.455, +0.752]
+[p2]   linear  satlas_s2_swinb_mi_rgb   embedding     D=1024  rho +0.318 [+0.142, +0.494]  [si_comparable=False]
+[p2]   linear  raw_features             raw_rgb_only  D=21    rho +0.687 [+0.644, +0.729]
+[p2]   linear  raw_features             raw_nir_ndvi  D=14    rho +0.729 [+0.692, +0.766]
+[p2]   linear  none                     gap_days      D=3     rho +0.216 [+0.078, +0.355]   <- CONTROL (gap length alone, no embedding)
+
+[p2] ---- B cube_p90 sign | grid_cell | loco ------------------
+[p2]   norm    raw_features             embedding     D=1     rho +0.058 [-0.041, +0.156]
+[p2]   norm    imagenet_vit_b16         embedding     D=1     rho +0.127 [-0.001, +0.256]
+[p2]   norm    dinov2_vitb14            embedding     D=1     rho +0.048 [-0.087, +0.182]
+[p2]   norm    satlas_s2_swinb_rgb      embedding     D=1     rho +0.091 [-0.040, +0.221]
+[p2]   norm    satlas_s2_swinb_mi_rgb   embedding     D=1     rho -0.105 [-0.204, -0.005]  [si_comparable=False]
+[p2]   norm    raw_features             raw_rgb_only  D=1     rho +0.067 [-0.039, +0.172]
+[p2]   norm    raw_features             raw_nir_ndvi  D=1     rho +0.055 [-0.043, +0.154]
+[p2]   norm    none                     gap_days      D=3     rho +0.217 [+0.082, +0.353]   <- CONTROL (gap length alone, no embedding)
+[p2]   linear  raw_features             embedding     D=35    rho +0.709 [+0.662, +0.755]
+[p2]   linear  imagenet_vit_b16         embedding     D=768   rho +0.279 [+0.171, +0.386]
+[p2]   linear  dinov2_vitb14            embedding     D=768   rho +0.498 [+0.406, +0.590]
+[p2]   linear  satlas_s2_swinb_rgb      embedding     D=1024  rho +0.630 [+0.558, +0.702]
+[p2]   linear  satlas_s2_swinb_mi_rgb   embedding     D=1024  rho +0.307 [+0.209, +0.405]  [si_comparable=False]
+[p2]   linear  raw_features             raw_rgb_only  D=21    rho +0.664 [+0.601, +0.727]
+[p2]   linear  raw_features             raw_nir_ndvi  D=14    rho +0.706 [+0.661, +0.751]
+[p2]   linear  none                     gap_days      D=3     rho +0.217 [+0.082, +0.353]   <- CONTROL (gap length alone, no embedding)
+
+[p2] ---- B cube_p90 sign | grid_cell | spatial_block ---------
+[p2]   norm    raw_features             embedding     D=1     rho +0.167 [-0.095, +0.430]
+[p2]   norm    imagenet_vit_b16         embedding     D=1     rho +0.248 [-0.058, +0.555]
+[p2]   norm    dinov2_vitb14            embedding     D=1     rho +0.172 [-0.134, +0.477]
+[p2]   norm    satlas_s2_swinb_rgb      embedding     D=1     rho +0.186 [-0.113, +0.484]
+[p2]   norm    satlas_s2_swinb_mi_rgb   embedding     D=1     rho -0.091 [-0.232, +0.051]  [si_comparable=False]
+[p2]   norm    raw_features             raw_rgb_only  D=1     rho +0.168 [-0.095, +0.430]
+[p2]   norm    raw_features             raw_nir_ndvi  D=1     rho +0.165 [-0.101, +0.431]
+[p2]   norm    none                     gap_days      D=3     rho +0.067 [-0.307, +0.442]   <- CONTROL (gap length alone, no embedding)
+[p2]   linear  raw_features             embedding     D=35    rho +0.705 [+0.620, +0.791]
+[p2]   linear  imagenet_vit_b16         embedding     D=768   rho +0.075 [-0.138, +0.288]
+[p2]   linear  dinov2_vitb14            embedding     D=768   rho +0.376 [+0.232, +0.520]
+[p2]   linear  satlas_s2_swinb_rgb      embedding     D=1024  rho +0.618 [+0.412, +0.825]
+[p2]   linear  satlas_s2_swinb_mi_rgb   embedding     D=1024  rho +0.203 [+0.115, +0.290]  [si_comparable=False]
+[p2]   linear  raw_features             raw_rgb_only  D=21    rho +0.657 [+0.538, +0.776]
+[p2]   linear  raw_features             raw_nir_ndvi  D=14    rho +0.705 [+0.628, +0.783]
+[p2]   linear  none                     gap_days      D=3     rho +0.067 [-0.307, +0.442]   <- CONTROL (gap length alone, no embedding)
+
+[p2] ---- B cube_p90 magnitude | grid_cell | cube -------------
+[p2]   norm    raw_features             embedding     D=1     rho +0.293 [+0.233, +0.353]
+[p2]   norm    imagenet_vit_b16         embedding     D=1     rho +0.015 [-0.118, +0.149]
+[p2]   norm    dinov2_vitb14            embedding     D=1     rho -0.003 [-0.177, +0.172]
+[p2]   norm    satlas_s2_swinb_rgb      embedding     D=1     rho +0.014 [-0.152, +0.181]
+[p2]   norm    satlas_s2_swinb_mi_rgb   embedding     D=1     rho +0.203 [+0.110, +0.297]  [si_comparable=False]
+[p2]   norm    raw_features             raw_rgb_only  D=1     rho +0.336 [+0.219, +0.453]
+[p2]   norm    raw_features             raw_nir_ndvi  D=1     rho +0.304 [+0.254, +0.354]
+[p2]   norm    none                     gap_days      D=3     rho +0.042 [-0.157, +0.240]   <- CONTROL (gap length alone, no embedding)
+[p2]   linear  raw_features             embedding     D=35    rho -0.014 [-0.120, +0.093]
+[p2]   linear  imagenet_vit_b16         embedding     D=768   rho +0.021 [-0.184, +0.226]
+[p2]   linear  dinov2_vitb14            embedding     D=768   rho -0.003 [-0.089, +0.084]
+[p2]   linear  satlas_s2_swinb_rgb      embedding     D=1024  rho +0.044 [-0.056, +0.145]
+[p2]   linear  satlas_s2_swinb_mi_rgb   embedding     D=1024  rho +0.107 [-0.083, +0.297]  [si_comparable=False]
+[p2]   linear  raw_features             raw_rgb_only  D=21    rho +0.056 [-0.047, +0.159]
+[p2]   linear  raw_features             raw_nir_ndvi  D=14    rho +0.023 [-0.024, +0.070]
+[p2]   linear  none                     gap_days      D=3     rho +0.042 [-0.157, +0.240]   <- CONTROL (gap length alone, no embedding)
+
+[p2] ---- B cube_p90 magnitude | grid_cell | loco -------------
+[p2]   norm    raw_features             embedding     D=1     rho +0.283 [+0.181, +0.385]
+[p2]   norm    imagenet_vit_b16         embedding     D=1     rho +0.116 [-0.027, +0.259]
+[p2]   norm    dinov2_vitb14            embedding     D=1     rho +0.117 [-0.007, +0.240]
+[p2]   norm    satlas_s2_swinb_rgb      embedding     D=1     rho +0.103 [+0.001, +0.205]
+[p2]   norm    satlas_s2_swinb_mi_rgb   embedding     D=1     rho +0.179 [+0.083, +0.275]  [si_comparable=False]
+[p2]   norm    raw_features             raw_rgb_only  D=1     rho +0.343 [+0.257, +0.430]
+[p2]   norm    raw_features             raw_nir_ndvi  D=1     rho +0.280 [+0.175, +0.385]
+[p2]   norm    none                     gap_days      D=3     rho +0.023 [-0.136, +0.182]   <- CONTROL (gap length alone, no embedding)
+[p2]   linear  raw_features             embedding     D=35    rho +0.018 [-0.049, +0.085]
+[p2]   linear  imagenet_vit_b16         embedding     D=768   rho +0.000 [-0.145, +0.146]
+[p2]   linear  dinov2_vitb14            embedding     D=768   rho -0.094 [-0.180, -0.008]
+[p2]   linear  satlas_s2_swinb_rgb      embedding     D=1024  rho +0.065 [-0.068, +0.199]
+[p2]   linear  satlas_s2_swinb_mi_rgb   embedding     D=1024  rho +0.109 [+0.019, +0.199]  [si_comparable=False]
+[p2]   linear  raw_features             raw_rgb_only  D=21    rho +0.003 [-0.064, +0.070]
+[p2]   linear  raw_features             raw_nir_ndvi  D=14    rho -0.012 [-0.090, +0.067]
+[p2]   linear  none                     gap_days      D=3     rho +0.023 [-0.136, +0.182]   <- CONTROL (gap length alone, no embedding)
+
+[p2] ---- B cube_p90 magnitude | grid_cell | spatial_block ----
+[p2]   norm    raw_features             embedding     D=1     rho +0.332 [+0.112, +0.552]
+[p2]   norm    imagenet_vit_b16         embedding     D=1     rho +0.038 [-0.162, +0.239]
+[p2]   norm    dinov2_vitb14            embedding     D=1     rho +0.114 [-0.224, +0.452]
+[p2]   norm    satlas_s2_swinb_rgb      embedding     D=1     rho +0.087 [-0.196, +0.370]
+[p2]   norm    satlas_s2_swinb_mi_rgb   embedding     D=1     rho +0.141 [+0.017, +0.264]  [si_comparable=False]
+[p2]   norm    raw_features             raw_rgb_only  D=1     rho +0.372 [+0.165, +0.580]
+[p2]   norm    raw_features             raw_nir_ndvi  D=1     rho +0.339 [+0.108, +0.570]
+[p2]   norm    none                     gap_days      D=3     rho +0.025 [-0.284, +0.334]   <- CONTROL (gap length alone, no embedding)
+[p2]   linear  raw_features             embedding     D=35    rho -0.015 [-0.130, +0.101]
+[p2]   linear  imagenet_vit_b16         embedding     D=768   rho -0.195 [-0.589, +0.199]
+[p2]   linear  dinov2_vitb14            embedding     D=768   rho -0.192 [-0.359, -0.025]
+[p2]   linear  satlas_s2_swinb_rgb      embedding     D=1024  rho -0.074 [-0.337, +0.189]
+[p2]   linear  satlas_s2_swinb_mi_rgb   embedding     D=1024  rho +0.102 [-0.051, +0.255]  [si_comparable=False]
+[p2]   linear  raw_features             raw_rgb_only  D=21    rho -0.097 [-0.277, +0.083]
+[p2]   linear  raw_features             raw_nir_ndvi  D=14    rho -0.005 [-0.124, +0.113]
+[p2]   linear  none                     gap_days      D=3     rho +0.025 [-0.284, +0.334]   <- CONTROL (gap length alone, no embedding)
+
+[p2] ---- B cube_p90 sign | pooled | cube ---------------------
+[p2]   norm    raw_features             embedding     D=1     rho +0.099 [-0.069, +0.266]
+[p2]   norm    imagenet_vit_b16         embedding     D=1     rho +0.145 [+0.062, +0.228]
+[p2]   norm    dinov2_vitb14            embedding     D=1     rho +0.019 [-0.074, +0.112]
+[p2]   norm    satlas_s2_swinb_rgb      embedding     D=1     rho +0.042 [-0.131, +0.215]
+[p2]   norm    satlas_s2_swinb_mi_rgb   embedding     D=1     rho -0.099 [-0.342, +0.144]  [si_comparable=False]
+[p2]   norm    raw_features             raw_rgb_only  D=1     rho +0.135 [-0.029, +0.300]
+[p2]   norm    raw_features             raw_nir_ndvi  D=1     rho +0.098 [-0.069, +0.265]
+[p2]   norm    none                     gap_days      D=3     rho +0.216 [+0.078, +0.355]   <- CONTROL (gap length alone, no embedding)
+[p2]   linear  raw_features             embedding     D=35    rho +0.793 [+0.726, +0.860]
+[p2]   linear  imagenet_vit_b16         embedding     D=1536  rho +0.315 [+0.253, +0.376]
+[p2]   linear  dinov2_vitb14            embedding     D=3840  rho +0.624 [+0.515, +0.733]
+[p2]   linear  satlas_s2_swinb_rgb      embedding     D=1024  rho +0.629 [+0.448, +0.810]
+[p2]   linear  satlas_s2_swinb_mi_rgb   embedding     D=1024  rho +0.470 [+0.241, +0.699]  [si_comparable=False]
+[p2]   linear  raw_features             raw_rgb_only  D=21    rho +0.760 [+0.693, +0.827]
+[p2]   linear  raw_features             raw_nir_ndvi  D=14    rho +0.803 [+0.723, +0.884]
+[p2]   linear  none                     gap_days      D=3     rho +0.216 [+0.078, +0.355]   <- CONTROL (gap length alone, no embedding)
+
+[p2] ---- B cube_p90 sign | pooled | loco ---------------------
+[p2]   norm    raw_features             embedding     D=1     rho +0.078 [-0.070, +0.226]
+[p2]   norm    imagenet_vit_b16         embedding     D=1     rho +0.115 [-0.027, +0.257]
+[p2]   norm    dinov2_vitb14            embedding     D=1     rho +0.043 [-0.128, +0.213]
+[p2]   norm    satlas_s2_swinb_rgb      embedding     D=1     rho +0.125 [-0.039, +0.290]
+[p2]   norm    satlas_s2_swinb_mi_rgb   embedding     D=1     rho -0.138 [-0.251, -0.025]  [si_comparable=False]
+[p2]   norm    raw_features             raw_rgb_only  D=1     rho +0.131 [-0.020, +0.282]
+[p2]   norm    raw_features             raw_nir_ndvi  D=1     rho +0.081 [-0.058, +0.220]
+[p2]   norm    none                     gap_days      D=3     rho +0.217 [+0.082, +0.353]   <- CONTROL (gap length alone, no embedding)
+[p2]   linear  raw_features             embedding     D=35    rho +0.786 [+0.748, +0.824]
+[p2]   linear  imagenet_vit_b16         embedding     D=1536  rho +0.173 [+0.016, +0.330]
+[p2]   linear  dinov2_vitb14            embedding     D=3840  rho +0.583 [+0.487, +0.679]
+[p2]   linear  satlas_s2_swinb_rgb      embedding     D=1024  rho +0.671 [+0.597, +0.746]
+[p2]   linear  satlas_s2_swinb_mi_rgb   embedding     D=1024  rho +0.500 [+0.380, +0.619]  [si_comparable=False]
+[p2]   linear  raw_features             raw_rgb_only  D=21    rho +0.729 [+0.663, +0.796]
+[p2]   linear  raw_features             raw_nir_ndvi  D=14    rho +0.791 [+0.754, +0.827]
+[p2]   linear  none                     gap_days      D=3     rho +0.217 [+0.082, +0.353]   <- CONTROL (gap length alone, no embedding)
+
+[p2] ---- B cube_p90 sign | pooled | spatial_block ------------
+[p2]   norm    raw_features             embedding     D=1     rho +0.225 [-0.086, +0.535]
+[p2]   norm    imagenet_vit_b16         embedding     D=1     rho +0.282 [-0.059, +0.623]
+[p2]   norm    dinov2_vitb14            embedding     D=1     rho +0.226 [-0.185, +0.638]
+[p2]   norm    satlas_s2_swinb_rgb      embedding     D=1     rho +0.223 [-0.103, +0.549]
+[p2]   norm    satlas_s2_swinb_mi_rgb   embedding     D=1     rho -0.102 [-0.306, +0.102]  [si_comparable=False]
+[p2]   norm    raw_features             raw_rgb_only  D=1     rho +0.254 [-0.075, +0.584]
+[p2]   norm    raw_features             raw_nir_ndvi  D=1     rho +0.227 [-0.049, +0.504]
+[p2]   norm    none                     gap_days      D=3     rho +0.067 [-0.307, +0.442]   <- CONTROL (gap length alone, no embedding)
+[p2]   linear  raw_features             embedding     D=35    rho +0.806 [+0.762, +0.850]
+[p2]   linear  imagenet_vit_b16         embedding     D=1536  rho +0.066 [-0.077, +0.210]
+[p2]   linear  dinov2_vitb14            embedding     D=3840  rho +0.476 [+0.299, +0.652]
+[p2]   linear  satlas_s2_swinb_rgb      embedding     D=1024  rho +0.654 [+0.443, +0.865]
+[p2]   linear  satlas_s2_swinb_mi_rgb   embedding     D=1024  rho +0.313 [+0.191, +0.436]  [si_comparable=False]
+[p2]   linear  raw_features             raw_rgb_only  D=21    rho +0.717 [+0.514, +0.919]
+[p2]   linear  raw_features             raw_nir_ndvi  D=14    rho +0.799 [+0.772, +0.827]
+[p2]   linear  none                     gap_days      D=3     rho +0.067 [-0.307, +0.442]   <- CONTROL (gap length alone, no embedding)
+
+[p2] ---- B cube_p90 magnitude | pooled | cube ----------------
+[p2]   norm    raw_features             embedding     D=1     rho +0.317 [+0.167, +0.467]
+[p2]   norm    imagenet_vit_b16         embedding     D=1     rho +0.017 [-0.160, +0.195]
+[p2]   norm    dinov2_vitb14            embedding     D=1     rho -0.003 [-0.185, +0.180]
+[p2]   norm    satlas_s2_swinb_rgb      embedding     D=1     rho +0.007 [-0.199, +0.213]
+[p2]   norm    satlas_s2_swinb_mi_rgb   embedding     D=1     rho +0.197 [+0.069, +0.325]  [si_comparable=False]
+[p2]   norm    raw_features             raw_rgb_only  D=1     rho +0.283 [+0.036, +0.529]
+[p2]   norm    raw_features             raw_nir_ndvi  D=1     rho +0.363 [+0.269, +0.458]
+[p2]   norm    none                     gap_days      D=3     rho +0.042 [-0.157, +0.240]   <- CONTROL (gap length alone, no embedding)
+[p2]   linear  raw_features             embedding     D=35    rho -0.052 [-0.205, +0.101]
+[p2]   linear  imagenet_vit_b16         embedding     D=1536  rho +0.046 [-0.191, +0.283]
+[p2]   linear  dinov2_vitb14            embedding     D=3840  rho +0.021 [-0.105, +0.146]
+[p2]   linear  satlas_s2_swinb_rgb      embedding     D=1024  rho +0.069 [-0.040, +0.179]
+[p2]   linear  satlas_s2_swinb_mi_rgb   embedding     D=1024  rho +0.192 [+0.016, +0.368]  [si_comparable=False]
+[p2]   linear  raw_features             raw_rgb_only  D=21    rho +0.026 [-0.118, +0.170]
+[p2]   linear  raw_features             raw_nir_ndvi  D=14    rho -0.040 [-0.070, -0.010]
+[p2]   linear  none                     gap_days      D=3     rho +0.042 [-0.157, +0.240]   <- CONTROL (gap length alone, no embedding)
+
+[p2] ---- B cube_p90 magnitude | pooled | loco ----------------
+[p2]   norm    raw_features             embedding     D=1     rho +0.278 [+0.117, +0.440]
+[p2]   norm    imagenet_vit_b16         embedding     D=1     rho +0.142 [+0.011, +0.273]
+[p2]   norm    dinov2_vitb14            embedding     D=1     rho +0.120 [-0.013, +0.252]
+[p2]   norm    satlas_s2_swinb_rgb      embedding     D=1     rho +0.119 [+0.002, +0.235]
+[p2]   norm    satlas_s2_swinb_mi_rgb   embedding     D=1     rho +0.179 [+0.033, +0.325]  [si_comparable=False]
+[p2]   norm    raw_features             raw_rgb_only  D=1     rho +0.298 [+0.141, +0.455]
+[p2]   norm    raw_features             raw_nir_ndvi  D=1     rho +0.269 [+0.099, +0.440]
+[p2]   norm    none                     gap_days      D=3     rho +0.023 [-0.136, +0.182]   <- CONTROL (gap length alone, no embedding)
+[p2]   linear  raw_features             embedding     D=35    rho -0.001 [-0.116, +0.114]
+[p2]   linear  imagenet_vit_b16         embedding     D=1536  rho +0.114 [-0.019, +0.248]
+[p2]   linear  dinov2_vitb14            embedding     D=3840  rho -0.045 [-0.152, +0.063]
+[p2]   linear  satlas_s2_swinb_rgb      embedding     D=1024  rho +0.094 [-0.060, +0.248]
+[p2]   linear  satlas_s2_swinb_mi_rgb   embedding     D=1024  rho +0.174 [+0.033, +0.315]  [si_comparable=False]
+[p2]   linear  raw_features             raw_rgb_only  D=21    rho -0.003 [-0.124, +0.118]
+[p2]   linear  raw_features             raw_nir_ndvi  D=14    rho -0.095 [-0.237, +0.047]
+[p2]   linear  none                     gap_days      D=3     rho +0.023 [-0.136, +0.182]   <- CONTROL (gap length alone, no embedding)
+
+[p2] ---- B cube_p90 magnitude | pooled | spatial_block -------
+[p2]   norm    raw_features             embedding     D=1     rho +0.304 [+0.108, +0.500]
+[p2]   norm    imagenet_vit_b16         embedding     D=1     rho +0.048 [-0.133, +0.228]
+[p2]   norm    dinov2_vitb14            embedding     D=1     rho +0.100 [-0.237, +0.437]
+[p2]   norm    satlas_s2_swinb_rgb      embedding     D=1     rho +0.067 [-0.213, +0.346]
+[p2]   norm    satlas_s2_swinb_mi_rgb   embedding     D=1     rho +0.141 [-0.051, +0.333]  [si_comparable=False]
+[p2]   norm    raw_features             raw_rgb_only  D=1     rho +0.315 [+0.045, +0.585]
+[p2]   norm    raw_features             raw_nir_ndvi  D=1     rho +0.389 [+0.073, +0.704]
+[p2]   norm    none                     gap_days      D=3     rho +0.025 [-0.284, +0.334]   <- CONTROL (gap length alone, no embedding)
+[p2]   linear  raw_features             embedding     D=35    rho -0.080 [-0.288, +0.128]
+[p2]   linear  imagenet_vit_b16         embedding     D=1536  rho -0.039 [-0.248, +0.169]
+[p2]   linear  dinov2_vitb14            embedding     D=3840  rho -0.194 [-0.302, -0.087]
+[p2]   linear  satlas_s2_swinb_rgb      embedding     D=1024  rho -0.075 [-0.386, +0.237]
+[p2]   linear  satlas_s2_swinb_mi_rgb   embedding     D=1024  rho +0.079 [-0.031, +0.189]  [si_comparable=False]
+[p2]   linear  raw_features             raw_rgb_only  D=21    rho -0.078 [-0.280, +0.124]
+[p2]   linear  raw_features             raw_nir_ndvi  D=14    rho -0.033 [-0.234, +0.169]
+[p2]   linear  none                     gap_days      D=3     rho +0.025 [-0.284, +0.334]   <- CONTROL (gap length alone, no embedding)
+
+[p2] ---- B cell_mean sign | grid_cell | cube -----------------
+[p2]   norm    raw_features             embedding     D=1     rho +0.042 [-0.092, +0.175]
+[p2]   norm    imagenet_vit_b16         embedding     D=1     rho +0.065 [-0.065, +0.195]
+[p2]   norm    dinov2_vitb14            embedding     D=1     rho -0.023 [-0.145, +0.098]
+[p2]   norm    satlas_s2_swinb_rgb      embedding     D=1     rho -0.008 [-0.120, +0.105]
+[p2]   norm    satlas_s2_swinb_mi_rgb   embedding     D=1     rho +0.002 [-0.081, +0.084]  [si_comparable=False]
+[p2]   norm    raw_features             raw_rgb_only  D=1     rho +0.035 [-0.091, +0.160]
+[p2]   norm    raw_features             raw_nir_ndvi  D=1     rho +0.043 [-0.090, +0.177]
+[p2]   norm    none                     gap_days      D=3     rho -0.027 [-0.117, +0.062]   <- CONTROL (gap length alone, no embedding)
+[p2]   linear  raw_features             embedding     D=35    rho +0.766 [+0.746, +0.785]
+[p2]   linear  imagenet_vit_b16         embedding     D=768   rho +0.417 [+0.324, +0.510]
+[p2]   linear  dinov2_vitb14            embedding     D=768   rho +0.458 [+0.350, +0.565]
+[p2]   linear  satlas_s2_swinb_rgb      embedding     D=1024  rho +0.460 [+0.412, +0.508]
+[p2]   linear  satlas_s2_swinb_mi_rgb   embedding     D=1024  rho +0.250 [+0.183, +0.316]  [si_comparable=False]
+[p2]   linear  raw_features             raw_rgb_only  D=21    rho +0.714 [+0.672, +0.757]
+[p2]   linear  raw_features             raw_nir_ndvi  D=14    rho +0.751 [+0.725, +0.778]
+[p2]   linear  none                     gap_days      D=3     rho -0.027 [-0.117, +0.062]   <- CONTROL (gap length alone, no embedding)
+
+[p2] ---- B cell_mean sign | grid_cell | loco -----------------
+[p2]   norm    raw_features             embedding     D=1     rho +0.028 [-0.032, +0.088]
+[p2]   norm    imagenet_vit_b16         embedding     D=1     rho +0.069 [-0.032, +0.170]
+[p2]   norm    dinov2_vitb14            embedding     D=1     rho +0.003 [-0.100, +0.105]
+[p2]   norm    satlas_s2_swinb_rgb      embedding     D=1     rho +0.024 [-0.055, +0.104]
+[p2]   norm    satlas_s2_swinb_mi_rgb   embedding     D=1     rho -0.008 [-0.081, +0.064]  [si_comparable=False]
+[p2]   norm    raw_features             raw_rgb_only  D=1     rho +0.023 [-0.060, +0.105]
+[p2]   norm    raw_features             raw_nir_ndvi  D=1     rho +0.030 [-0.034, +0.093]
+[p2]   norm    none                     gap_days      D=3     rho +0.053 [-0.054, +0.160]   <- CONTROL (gap length alone, no embedding)
+[p2]   linear  raw_features             embedding     D=35    rho +0.753 [+0.728, +0.778]
+[p2]   linear  imagenet_vit_b16         embedding     D=768   rho +0.416 [+0.356, +0.477]
+[p2]   linear  dinov2_vitb14            embedding     D=768   rho +0.457 [+0.389, +0.525]
+[p2]   linear  satlas_s2_swinb_rgb      embedding     D=1024  rho +0.463 [+0.407, +0.518]
+[p2]   linear  satlas_s2_swinb_mi_rgb   embedding     D=1024  rho +0.228 [+0.137, +0.318]  [si_comparable=False]
+[p2]   linear  raw_features             raw_rgb_only  D=21    rho +0.698 [+0.654, +0.743]
+[p2]   linear  raw_features             raw_nir_ndvi  D=14    rho +0.744 [+0.713, +0.775]
+[p2]   linear  none                     gap_days      D=3     rho +0.053 [-0.054, +0.160]   <- CONTROL (gap length alone, no embedding)
+
+[p2] ---- B cell_mean sign | grid_cell | spatial_block --------
+[p2]   norm    raw_features             embedding     D=1     rho +0.101 [-0.083, +0.286]
+[p2]   norm    imagenet_vit_b16         embedding     D=1     rho +0.141 [-0.102, +0.384]
+[p2]   norm    dinov2_vitb14            embedding     D=1     rho +0.068 [-0.150, +0.285]
+[p2]   norm    satlas_s2_swinb_rgb      embedding     D=1     rho +0.079 [-0.135, +0.293]
+[p2]   norm    satlas_s2_swinb_mi_rgb   embedding     D=1     rho -0.030 [-0.121, +0.061]  [si_comparable=False]
+[p2]   norm    raw_features             raw_rgb_only  D=1     rho +0.099 [-0.093, +0.291]
+[p2]   norm    raw_features             raw_nir_ndvi  D=1     rho +0.113 [-0.095, +0.322]
+[p2]   norm    none                     gap_days      D=3     rho -0.081 [-0.370, +0.207]   <- CONTROL (gap length alone, no embedding)
+[p2]   linear  raw_features             embedding     D=35    rho +0.752 [+0.727, +0.777]
+[p2]   linear  imagenet_vit_b16         embedding     D=768   rho +0.348 [+0.239, +0.457]
+[p2]   linear  dinov2_vitb14            embedding     D=768   rho +0.403 [+0.263, +0.544]
+[p2]   linear  satlas_s2_swinb_rgb      embedding     D=1024  rho +0.467 [+0.339, +0.595]
+[p2]   linear  satlas_s2_swinb_mi_rgb   embedding     D=1024  rho +0.105 [+0.010, +0.199]  [si_comparable=False]
+[p2]   linear  raw_features             raw_rgb_only  D=21    rho +0.702 [+0.644, +0.761]
+[p2]   linear  raw_features             raw_nir_ndvi  D=14    rho +0.756 [+0.733, +0.780]
+[p2]   linear  none                     gap_days      D=3     rho -0.081 [-0.370, +0.207]   <- CONTROL (gap length alone, no embedding)
+
+[p2] ---- B cell_mean magnitude | grid_cell | cube ------------
+[p2]   norm    raw_features             embedding     D=1     rho +0.548 [+0.476, +0.620]
+[p2]   norm    imagenet_vit_b16         embedding     D=1     rho +0.053 [-0.083, +0.189]
+[p2]   norm    dinov2_vitb14            embedding     D=1     rho +0.066 [-0.076, +0.208]
+[p2]   norm    satlas_s2_swinb_rgb      embedding     D=1     rho +0.094 [-0.049, +0.236]
+[p2]   norm    satlas_s2_swinb_mi_rgb   embedding     D=1     rho +0.194 [+0.145, +0.243]  [si_comparable=False]
+[p2]   norm    raw_features             raw_rgb_only  D=1     rho +0.389 [+0.306, +0.472]
+[p2]   norm    raw_features             raw_nir_ndvi  D=1     rho +0.587 [+0.513, +0.662]
+[p2]   norm    none                     gap_days      D=3     rho +0.211 [+0.069, +0.353]   <- CONTROL (gap length alone, no embedding)
+[p2]   linear  raw_features             embedding     D=35    rho +0.056 [+0.021, +0.091]
+[p2]   linear  imagenet_vit_b16         embedding     D=768   rho +0.023 [-0.097, +0.144]
+[p2]   linear  dinov2_vitb14            embedding     D=768   rho +0.036 [-0.118, +0.189]
+[p2]   linear  satlas_s2_swinb_rgb      embedding     D=1024  rho +0.014 [-0.061, +0.090]
+[p2]   linear  satlas_s2_swinb_mi_rgb   embedding     D=1024  rho +0.042 [-0.027, +0.111]  [si_comparable=False]
+[p2]   linear  raw_features             raw_rgb_only  D=21    rho +0.018 [-0.110, +0.146]
+[p2]   linear  raw_features             raw_nir_ndvi  D=14    rho +0.053 [+0.025, +0.080]
+[p2]   linear  none                     gap_days      D=3     rho +0.211 [+0.069, +0.353]   <- CONTROL (gap length alone, no embedding)
+
+[p2] ---- B cell_mean magnitude | grid_cell | loco ------------
+[p2]   norm    raw_features             embedding     D=1     rho +0.534 [+0.455, +0.613]
+[p2]   norm    imagenet_vit_b16         embedding     D=1     rho +0.119 [+0.010, +0.228]
+[p2]   norm    dinov2_vitb14            embedding     D=1     rho +0.121 [+0.024, +0.217]
+[p2]   norm    satlas_s2_swinb_rgb      embedding     D=1     rho +0.132 [+0.042, +0.222]
+[p2]   norm    satlas_s2_swinb_mi_rgb   embedding     D=1     rho +0.164 [+0.089, +0.239]  [si_comparable=False]
+[p2]   norm    raw_features             raw_rgb_only  D=1     rho +0.374 [+0.302, +0.446]
+[p2]   norm    raw_features             raw_nir_ndvi  D=1     rho +0.569 [+0.493, +0.646]
+[p2]   norm    none                     gap_days      D=3     rho +0.225 [+0.114, +0.336]   <- CONTROL (gap length alone, no embedding)
+[p2]   linear  raw_features             embedding     D=35    rho +0.038 [-0.034, +0.110]
+[p2]   linear  imagenet_vit_b16         embedding     D=768   rho -0.056 [-0.122, +0.011]
+[p2]   linear  dinov2_vitb14            embedding     D=768   rho +0.060 [-0.034, +0.153]
+[p2]   linear  satlas_s2_swinb_rgb      embedding     D=1024  rho +0.017 [-0.069, +0.103]
+[p2]   linear  satlas_s2_swinb_mi_rgb   embedding     D=1024  rho +0.022 [-0.036, +0.080]  [si_comparable=False]
+[p2]   linear  raw_features             raw_rgb_only  D=21    rho +0.036 [-0.038, +0.110]
+[p2]   linear  raw_features             raw_nir_ndvi  D=14    rho +0.066 [+0.002, +0.129]
+[p2]   linear  none                     gap_days      D=3     rho +0.225 [+0.114, +0.336]   <- CONTROL (gap length alone, no embedding)
+
+[p2] ---- B cell_mean magnitude | grid_cell | spatial_block ---
+[p2]   norm    raw_features             embedding     D=1     rho +0.545 [+0.396, +0.694]
+[p2]   norm    imagenet_vit_b16         embedding     D=1     rho +0.079 [-0.139, +0.297]
+[p2]   norm    dinov2_vitb14            embedding     D=1     rho +0.094 [-0.116, +0.303]
+[p2]   norm    satlas_s2_swinb_rgb      embedding     D=1     rho +0.104 [-0.113, +0.321]
+[p2]   norm    satlas_s2_swinb_mi_rgb   embedding     D=1     rho +0.147 [+0.017, +0.277]  [si_comparable=False]
+[p2]   norm    raw_features             raw_rgb_only  D=1     rho +0.391 [+0.224, +0.558]
+[p2]   norm    raw_features             raw_nir_ndvi  D=1     rho +0.590 [+0.440, +0.740]
+[p2]   norm    none                     gap_days      D=3     rho +0.198 [-0.050, +0.446]   <- CONTROL (gap length alone, no embedding)
+[p2]   linear  raw_features             embedding     D=35    rho -0.053 [-0.201, +0.094]
+[p2]   linear  imagenet_vit_b16         embedding     D=768   rho -0.101 [-0.210, +0.007]
+[p2]   linear  dinov2_vitb14            embedding     D=768   rho -0.079 [-0.222, +0.065]
+[p2]   linear  satlas_s2_swinb_rgb      embedding     D=1024  rho -0.064 [-0.250, +0.121]
+[p2]   linear  satlas_s2_swinb_mi_rgb   embedding     D=1024  rho -0.013 [-0.111, +0.084]  [si_comparable=False]
+[p2]   linear  raw_features             raw_rgb_only  D=21    rho -0.064 [-0.138, +0.011]
+[p2]   linear  raw_features             raw_nir_ndvi  D=14    rho -0.003 [-0.116, +0.111]
+[p2]   linear  none                     gap_days      D=3     rho +0.198 [-0.050, +0.446]   <- CONTROL (gap length alone, no embedding)
+[p2] margins attached. 140/300 delta rows are AT OR BELOW the gap-length-alone control -- i.e. the embedding change adds nothing there that the calendar did not already carry
+
+[p2] ====================================================================
+[p2] GATE K2 -- reconstruction floor at cube_mean/grid_cell/cube, cube-clustered
+[p2]   raw_features   R2 +0.440  <- the SPECIFIED baseline. It holds NDVI_mean..NDVI_p90,
+[p2]                              so at the matched level it IS the target. See the docstring.
+[p2]   raw_rgb_only   R2 +0.417  <- BAND-MATCHED (B02/B03/B04 only). The fair floor,
+[p2]                              and the verdict that decides P3 inclusion.
+[p2]   encoder                        R2                 CI    vs raw    paired CI on vs-raw   vs band  verdict / verdict(band)
+[p2]   satlas_s2_swinb_rgb        +0.545 [ +0.462, +0.628]   +0.105 [ -0.118, +0.327]   +0.128  passed / passed  (not separable)
+[p2]   imagenet_vit_b16           +0.521 [ +0.324, +0.718]   +0.081 [ -0.061, +0.223]   +0.105  passed / passed  (not separable)
+[p2]   raw_features               +0.440 [ +0.169, +0.711]   +0.000 [ +0.000, +0.000]   +0.024  baseline / baseline  (not separable)
+[p2]   dinov2_vitb14              +0.435 [ +0.144, +0.726]   -0.006 [ -0.142, +0.131]   +0.018  audited: lossy / passed  (not separable)
+[p2]   satlas_s2_swinb_mi_rgb     +0.077 [ -0.334, +0.489]   -0.363 [ -0.592, -0.134]   -0.339  audited: lossy / audited: lossy  (SEPARABLE)  [si_comparable=False]
+[p2]   audited: lossy (band-matched): ['satlas_s2_swinb_mi_rgb']
+[p2]   EXCLUDED FROM P3 -- lossy AND separable from the baseline on the paired
+[p2]   per-fold difference: ['satlas_s2_swinb_mi_rgb']
+[p2] ====================================================================
+
+[p2] 600 rows x 64 columns in 533s
+  ok  assert_results_complete
+  ok  assert_k2_verdict_recorded
+  ok  assert_control_identical_across_views
+  ok  assert_degenerate_control_present
+  ok  assert_mi_flagged_and_excluded
+  ok  assert_effective_n_counts_cubes
+
+[p2] ====================================================================
+[p2] GATE K2 -- reconstruction floor at cube_mean/grid_cell/cube, cube-clustered
+[p2]   raw_features   R2 +0.440  <- the SPECIFIED baseline. It holds NDVI_mean..NDVI_p90,
+[p2]                              so at the matched level it IS the target. See the docstring.
+[p2]   raw_rgb_only   R2 +0.417  <- BAND-MATCHED (B02/B03/B04 only). The fair floor,
+[p2]                              and the verdict that decides P3 inclusion.
+[p2]   encoder                        R2                 CI    vs raw    paired CI on vs-raw   vs band  verdict / verdict(band)
+[p2]   satlas_s2_swinb_rgb        +0.545 [ +0.462, +0.628]   +0.105 [ -0.118, +0.327]   +0.128  passed / passed  (not separable)
+[p2]   imagenet_vit_b16           +0.521 [ +0.324, +0.718]   +0.081 [ -0.061, +0.223]   +0.105  passed / passed  (not separable)
+[p2]   raw_features               +0.440 [ +0.169, +0.711]   +0.000 [ +0.000, +0.000]   +0.024  baseline / baseline  (not separable)
+[p2]   dinov2_vitb14              +0.435 [ +0.144, +0.726]   -0.006 [ -0.142, +0.131]   +0.018  audited: lossy / passed  (not separable)
+[p2]   satlas_s2_swinb_mi_rgb     +0.077 [ -0.334, +0.489]   -0.363 [ -0.592, -0.134]   -0.339  audited: lossy / audited: lossy  (SEPARABLE)  [si_comparable=False]
+[p2]   audited: lossy (band-matched): ['satlas_s2_swinb_mi_rgb']
+[p2]   EXCLUDED FROM P3 -- lossy AND separable from the baseline on the paired
+[p2]   per-fold difference: ['satlas_s2_swinb_mi_rgb']
+[p2] ====================================================================
+
+[p2] THE FOUR CONTROLS (primary view: cube_mean/grid_cell/cube)
+[p2]   1 retention   [clear_frac, window_span_days] -> NDVI(t), R2    -0.129 [-0.356, +0.099]
+[p2]   2 raw_features  E(t) -> NDVI(t)  (holds NDVI columns), R2      +0.440 [+0.169, +0.711]
+[p2]   3 raw_rgb_only  E(t) -> NDVI(t)  (band-matched), R2            +0.417 [+0.163, +0.670]
+[p2]   4 gap_only    gap_days -> sign, Spearman                       -0.118 [-0.370, +0.135]
+[p2]   4 gap_only    gap_days -> magnitude, Spearman                  +0.209 [+0.066, +0.351]
+
+[p2] HEADLINE -- Part B delta probe, cube_mean / pooled / linear read-out / cube folds
+[p2]   -- target: sign of the common-masked NDVI change
+[p2]     raw_features                       rho +0.801 [+0.753, +0.849]  margin +0.918  n=20 CUBES
+[p2]     raw_features/raw_rgb_only          rho +0.724 [+0.663, +0.785]  margin +0.842  n=20 CUBES
+[p2]     dinov2_vitb14                      rho +0.536 [+0.397, +0.674]  margin +0.653  n=20 CUBES
+[p2]     satlas_s2_swinb_rgb                rho +0.481 [+0.404, +0.557]  margin +0.598  n=20 CUBES
+[p2]     imagenet_vit_b16                   rho +0.458 [+0.318, +0.597]  margin +0.575  n=20 CUBES
+[p2]     satlas_s2_swinb_mi_rgb             rho +0.163 [+0.070, +0.257]  margin +0.281  n=20 CUBES  [si_comparable=False]
+[p2]     none/gap_days                      rho -0.118 [-0.370, +0.135]  margin +0.000  n=20 CUBES  <- CONTROL
+[p2]   -- target: magnitude of the common-masked NDVI change
+[p2]     none/gap_days                      rho +0.209 [+0.066, +0.351]  margin +0.000  n=20 CUBES  <- CONTROL
+[p2]     dinov2_vitb14                      rho +0.174 [-0.005, +0.353]  margin -0.035  n=20 CUBES
+[p2]     satlas_s2_swinb_mi_rgb             rho +0.081 [-0.082, +0.244]  margin -0.128  n=20 CUBES  [si_comparable=False]
+[p2]     raw_features                       rho +0.078 [-0.052, +0.209]  margin -0.130  n=20 CUBES
+[p2]     satlas_s2_swinb_rgb                rho +0.065 [-0.034, +0.165]  margin -0.143  n=20 CUBES
+[p2]     raw_features/raw_rgb_only          rho +0.014 [-0.188, +0.217]  margin -0.194  n=20 CUBES
+[p2]     imagenet_vit_b16                   rho -0.029 [-0.168, +0.110]  margin -0.237  n=20 CUBES
+
+[p2] STRUCTURAL HYPOTHESIS (report, do not assume)
+[p2]   hunch: augmentation-invariance training (dinov2_vitb14) discards state-change MORE than reconstruction-style training (satlas_s2_swinb_rgb)
+[p2]   SI-comparable ranking on cube_mean/sign/pooled/linear/cube:
+[p2]     1. raw_features             rho +0.801 [+0.753, +0.849]  margin over control +0.918
+[p2]     2. dinov2_vitb14            rho +0.536 [+0.397, +0.674]  margin over control +0.653
+[p2]     3. satlas_s2_swinb_rgb      rho +0.481 [+0.404, +0.557]  margin over control +0.598
+[p2]     4. imagenet_vit_b16         rho +0.458 [+0.318, +0.597]  margin over control +0.575
+[p2]   excluded from the ranking: ['satlas_s2_swinb_mi_rgb'] (si_comparable=False)
+[p2]   the same ranking under every fold mode:
+[p2]     cube           raw_features > dinov2_vitb14 > satlas_s2_swinb_rgb > imagenet_vit_b16   (hunch fails)
+[p2]     loco           raw_features > satlas_s2_swinb_rgb > dinov2_vitb14 > imagenet_vit_b16   (hunch holds)
+[p2]     spatial_block  raw_features > satlas_s2_swinb_rgb > dinov2_vitb14 > imagenet_vit_b16   (hunch holds)
+[p2]   hunch: NOT DETERMINABLE. The two encoders it is about SWAP PLACES between
+[p2]     fold modes, so there is no ordering to read it off. P1 found the same
+[p2]     thing about the same pair (0.387 vs 0.386, a rank that moved with a
+[p2]     scipy version). This is the sample size, not the training objective.
+[p2]   SUGGESTIVE, NOT POWERED: 2 EO-relevant single-image points plus 2 anchors, one tile, one year, 20 cubes, overlapping cube-clustered intervals.
+fold_mode                cube   loco  spatial_block
+encoder                                            
+dinov2_vitb14           0.653  0.441          0.464
+imagenet_vit_b16        0.575  0.410          0.358
+raw_features            0.918  0.747          0.772
+satlas_s2_swinb_mi_rgb  0.281  0.224          0.074
+satlas_s2_swinb_rgb     0.598  0.492          0.480
+
+(margin over the gap-length-alone control; the control itself:)
+fold_mode
+cube            -0.118
+loco             0.039
+spatial_block    0.009
+wrote data/phase1_6/results/p2_deltas_results.csv
+  600 rows x 64 columns, 623 kB, re-read and re-validated
+
+[paths] data/phase1_6: 3 file(s), 1.81 MB
+[paths]   logs/: 1 file(s), 1.18 MB
+[paths]   results/: 2 file(s), 0.62 MB
+
+K2 verdicts carried on every row:
+                            k2_verdict k2_verdict_band_matched
+encoder                                                       
+dinov2_vitb14           audited: lossy                  passed
+imagenet_vit_b16                passed                  passed
+none                     n/a (control)           n/a (control)
+raw_features                  baseline                baseline
+satlas_s2_swinb_mi_rgb  audited: lossy          audited: lossy
+satlas_s2_swinb_rgb             passed                  passed

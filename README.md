@@ -86,6 +86,33 @@ probes/p4_ceiling.py         P4, the weather-attributability ceiling: how much o
                              observation-process, day-of-year sanity, both
                              jointly, and a permutation null. The headline is
                              margin_over_control, never the raw R-squared
+probes/p2_deltas.py          P2, dynamics in deltas. TWO PARTS. Part A is gate
+                             K2, the reconstruction floor: can a ridge read
+                             CURRENT NDVI out of E(frame_t) at all? The verdict
+                             is recorded per encoder and a failing encoder is
+                             marked "audited: lossy" and excluded from P3 --
+                             but only if k2_separable, the PAIRED per-fold
+                             interval, excludes zero. TWO verdicts, because
+                             raw_features holds NDVI_mean..NDVI_p90 and IS the
+                             target at the matched level; read
+                             k2_verdict_band_matched. Part B is the delta probe:
+                             ||E(t+1)-E(t)|| and a linear read-out of the raw
+                             difference, against the SIGN and MAGNITUDE of
+                             COMMON-MASKED NDVI change (pixels valid in BOTH
+                             frames, from the 1.2b mask cache -- differencing
+                             two per-frame means compares two different pieces
+                             of ground). The gap is DAYS on daily_axis_index,
+                             never original_axis_index, and
+                             assert_gap_axes_disagree proves that on real pairs
+                             at run time. FOUR controls -- gap-length-alone
+                             (P2's degenerate control, and it WINS on
+                             magnitude), retention, the raw-pixel delta, and the
+                             band-matched raw delta -- with the control's value
+                             carried on EVERY row so no filtered view can lose
+                             it. The multi-image encoder shares up to 7 of 8
+                             source frames between consecutive embeddings, so it
+                             is reported, flagged si_comparable=False, and
+                             excluded from the structural-hypothesis ranking
 probes/cv.py                 THE split definition. Six modes over the manifest,
                              each yielding (train_idx, test_idx) row positions:
                                cube          DEFAULT, GroupKFold on cube_id
@@ -122,13 +149,19 @@ notebooks/phase1_2_encoders.ipynb
 notebooks/phase1_3_cv.ipynb
 notebooks/phase1_4_p1_appearance.ipynb
 notebooks/phase1_5_p4_ceiling.ipynb
+notebooks/phase1_6_p2_deltas.ipynb
+notebooks/phase1_7_scaled_encoding.ipynb   builds the 115-cube frozen-encoder
+                               cache. Computes NO result; the only notebook in
+                               the project that wants a GPU
 notebooks/runs/                the executed exit-test runs, outputs kept, as
                                evidence. Never re-run in place; excluded from
                                the Colab bundle by make_zip.sh
 RUNBOOK.md                 Colab walkthrough: folders, restarts, expected output
-docs/HANDOFF_P2.md         ONE PAGE, read first: what the next phase inherits,
+docs/HANDOFF_P3.md         ONE PAGE, read first: what the next phase inherits,
                            what changed under it, the findings that constrain
-                           what it may claim, and the traps with reasons
+                           what it may claim, and the traps with reasons.
+                           docs/HANDOFF_P2.md is the previous one, still
+                           accurate except where P3's supersedes it
 docs/DECISIONS.md          why the project is shaped this way. Append-only
 docs/runs/                 verbatim stdout of script runs, kept as evidence --
                            the same role notebooks/runs/ plays for phases
@@ -357,3 +390,76 @@ For Colab, follow [RUNBOOK.md](RUNBOOK.md).
     **not** a small-sample artefact (mean across cells flat at −0.087 → −0.092);
     Stage B still correctly deferred. The linear DOY control is clean at 0.011,
     so the H=4 harmonic order holds at 5.75× the data.
+- 1.7 scaled embedding cache: **READY TO RUN** (not yet executed).
+  `notebooks/phase1_7_scaled_encoding.ipynb` builds
+  `data/scaled_32UNU/{embeddings,masks}/` — 115 cubes x 5 encoders, 1580
+  retained frames, the same cube set Phase 1.5b measured P4's ceiling on. It
+  computes **no result**; it removes the sample-size excuse.
+  - **Why it is a separate phase.** P4 scaled trivially because it reads no
+    embeddings. P1/P2/P3 read the Phase 1.2 cache, which exists for exactly 20
+    cubes — so scaling them means re-running four real networks. This is the
+    only GPU-bound work in the project; every probe stays CPU-only.
+  - **`data/phase1_2/` is never written to.** It is keyed to 20 cubes and every
+    published result must stay reproducible from it. The scaled cache is a
+    second, independent directory beside the shared cubes.
+  - **Step 10 is the load-bearing check.** The 20 original cubes are a strict
+    subset of the 115, so re-encoding them tests reproduction against a
+    published cache: frame selection, timestamps and clear fractions must be
+    **bit-identical** (they come from the cube, not the network); embeddings
+    must agree to a stated 1e-3 (float32 on different hardware — P1's Colab
+    reproduction moved scores by ±0.003). Verified locally on a 3-cube subset
+    with the four encoders that build on Python 3.9: **exact, 0.0 difference**.
+  - **Python 3.9 silently loses one encoder.** `dinov2_vitb14`'s `torch.hub`
+    code uses `X | None`; the other four build and the cache gets a hole. Step 3
+    asserts >= 3.10 up front.
+  - P1 and P2 need **no code change** to consume it — both already take
+    `emb_dir` / `mask_dir`.
+- 1.6 P2 dynamics in deltas: **DONE** (2026-08-11; local CPU, 8.6 min).
+  `probes/p2_deltas.py` + a 600-row results CSV and a pixel-survival table under
+  `data/phase1_6/`. 0 failed, 5 skipped. Full per-pair detail in
+  `data/phase1_6/logs/p2_run.log`; stdout keeps shapes, verdicts, controls and
+  headlines.
+  - **Gate K2 is cleared, and NO single-image encoder is excluded from P3.** At
+    the primary cell (`cube_mean` from `grid_cell`, cube folds): satlas SI
+    **+0.545**, imagenet **+0.521**, raw_features **+0.440**, dinov2 **+0.435**,
+    band-matched floor **+0.417**, retention control **−0.129**. The only
+    `audited: lossy` verdict that is *separable* from the baseline on the paired
+    per-fold difference is `satlas_s2_swinb_mi_rgb`, the multi-image control.
+  - **The verdict is recorded twice, because `raw_features` contains the
+    target.** It carries `NDVI_mean`..`NDVI_p90`, so at the MATCHED level it IS
+    the answer (`cell_mean` from grid features **R² +1.000**; `cube_mean` from
+    pooled **+0.9998**). The primary configuration is not matched and is a fair
+    gate. **Read `k2_verdict_band_matched`**, against the RGB-only slice.
+  - **A lossy verdict is not a rejection, and K2 is a floor check rather than a
+    ranking.** `k2_separable` — the *paired* per-fold interval on (encoder −
+    baseline) — spans zero for **every** single-image encoder: satlas SI's
+    nominal +0.105 lead is `[−0.118, +0.327]`, DINOv2's −0.006 is
+    `[−0.142, +0.131]`. Only the MI control separates (`[−0.592, −0.134]`). So
+    the gate says "nothing is catastrophically lossy" and nothing more. Dropping
+    DINOv2 — the strongest encoder on the whole delta probe — on a 0.006 point
+    estimate would have been dropping on noise.
+  - **The delta probe splits in two. SIGN yes, MAGNITUDE no.** Against the
+    common-masked NDVI change (`cube_mean`/pooled/linear/cube): on **sign**,
+    dinov2 **+0.536 [+0.397, +0.674]**, satlas SI +0.481, imagenet +0.458,
+    against a gap-length control of **−0.118**. On **magnitude the
+    gap-length-alone control at +0.209 beats every encoder**, dinov2's +0.174
+    included. **Direction is in these representations; rate is not.**
+  - **The gap is measured in DAYS and a run-time check proves it.** Three
+    readings of "the gap" disagree on **244 of 244 pairs** — `gap_days` median
+    10, `original_axis_index` (the embedding JOIN KEY) median 2, frames-between
+    always 1 — a 5.0× factor, one Sentinel-2 orbit lattice.
+    `assert_gap_axes_disagree` asserts the disagreement on real pairs before
+    anything is fitted, and the tests feed it the *wrong* column and assert it
+    refuses.
+  - **Common-masking does not collapse, and survival is not monotone in gap.**
+    244/244 pairs keep shared pixels (median 88.8% of 16384, min 27.2%), and
+    survival is *worse* at 15 days (0.783) than at 30 (0.985) — a long gap
+    exists because the frames between it were cloudy, leaving the endpoints
+    unusually clear. Do not model availability as a function of horizon.
+  - **The structural hunch is NOT DETERMINABLE.** DINOv2 ranks above satlas SI
+    under `cube` and below it under `loco` and `spatial_block`; at cell level
+    they are +0.4576 and +0.4596. **The same pair P1 could not rank.**
+    `structural_hypothesis` returns `supported=None` rather than reading a
+    verdict off whichever mode was looked at first.
+  - **`spatial_block` does not kill this one.** Unlike P1 and P4, the sign
+    margins survive it (satlas +0.480, dinov2 +0.464, imagenet +0.358).

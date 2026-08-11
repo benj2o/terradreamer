@@ -3,6 +3,168 @@
 Running record of measurements and adopted definitions. Reverse chronological.
 Decisions and their rationale live in [docs/DECISIONS.md](docs/DECISIONS.md).
 
+## 2026-08-11: Phase 1.6 (P2) exit test PASSED -- 600 rows, K2 cleared by all five, and the delta probe splits in two
+
+`probes/p2_deltas.py`. Two questions: (a) gate K2, can a linear head read
+CURRENT NDVI out of a frozen embedding at all; (b) do embedding CHANGES track
+real NDVI change. Nothing fine-tuned, no weight loaded, no embedding recomputed
+-- this phase reads the Phase 1.2 `.npz` cache (embeddings + the per-pixel masks
+cached in 1.2b), the cubes for NDVI through `data.ndvi.ndvi`, and the manifest.
+CPU only.
+
+```
+Step 5   tests                 0 failed, 5 skipped
+Step 6   manifest              REBUILT from the cubes; E-OBS join re-verified, max abs diff 0
+Step 8   gap axis check        0/244 pairs where the two axes agree (5.0 d per acquisition step)
+Step 9   common-masking        244/244 pairs survive; median 88.8% of 16384 px
+Step 12  run_p2                600 rows x 61 cols, 8.6 min
+Step 13  invariants            all six PASS
+Step 16  artefacts             600-row CSV + survival table under data/phase1_6/results/
+notebook clean end to end (archived under notebooks/runs/)
+```
+
+### THE TWO AXES, MEASURED ON 244 REAL PAIRS
+
+Three quantities could be called "the gap between consecutive retained frames",
+and they are not close:
+
+```
+gap_days        daily_axis_index      min  5   median 10   max 35
+gap_acq_steps   original_axis_index   min  1   median  2   max  6     <- the JOIN KEY
+frames between  array position        always 1
+```
+
+They disagree on **244 of 244 pairs**, by a factor of **5.0** at the median --
+one Sentinel-2 orbit lattice. Every distinct gap is a multiple of 5 days
+(5, 10, 15, 20, 25, 30, 35). `assert_gap_axes_disagree` asserts this on the real
+data at run time, before anything is fitted.
+
+### COMMON-MASKED PIXEL SURVIVAL BY GAP LENGTH -- no collapse, and NOT monotone
+
+Pixels valid in BOTH frames, from the 1.2b mask cache. 16384 px per frame:
+
+```
+gap (d)      5      10      15      20      25      30      35
+pairs      106      67      31      15      14      10       1
+px median 14668   13747   12821   14749   15612   16142   13269
+frac med   0.895   0.839   0.783   0.900   0.953   0.985   0.810
+frac min   0.272   0.413   0.370   0.429   0.505   0.868   0.810
+cells min     12      13      14      13      13      16      16   (of 16)
+zero-common    0       0       0       0       0       0       0
+```
+
+**Nothing collapses**: 0 of 244 pairs lose every shared pixel, and the worst
+single pair still keeps 27.2%. Survival is *worse* at 15 days than at 30,
+because a long gap exists **because** the frames between it were dropped for
+cloud, which leaves the two surviving endpoints unusually clear. Do not model
+pixel survival as a decreasing function of horizon on this benchmark.
+
+### GATE K2 -- all five encoders, cube-clustered, at cube_mean / grid_cell / cube
+
+```
+                          R2      95% CI            vs raw   PAIRED CI on vs-raw   verdict(band)
+satlas_s2_swinb_rgb     +0.545  [+0.462, +0.628]    +0.105   [-0.118, +0.327]      passed
+imagenet_vit_b16        +0.521  [+0.324, +0.718]    +0.081   [-0.061, +0.223]      passed
+raw_features            +0.440  [+0.169, +0.711]     0.000   --                    baseline
+dinov2_vitb14           +0.435  [+0.144, +0.726]    -0.006   [-0.142, +0.131]      passed
+satlas_s2_swinb_mi_rgb  +0.077  [-0.334, +0.489]    -0.363   [-0.592, -0.134]      audited: lossy
+                                                            effective n = 20 CUBES
+raw_rgb_only (band-matched floor)  +0.417  [+0.163, +0.670]
+retention CONTROL                  -0.129  [-0.356, +0.099]
+```
+
+**No single-image encoder is excluded from P3.** The only separably-lossy
+verdict is the multi-image control, which was never in the single-image column.
+
+**And the paired interval says something the point estimates hide: at 20 cubes
+K2 cannot separate ANY single-image encoder from the hand-crafted baseline.**
+Every paired CI on (encoder - raw_features) spans zero except the MI control's.
+Satlas SI's nominal +0.105 lead carries `[-0.118, +0.327]`. The gate is a FLOOR
+CHECK -- "no encoder is catastrophically lossy" -- and that is all it can be at
+this n. It is not a ranking, and the +0.545 vs +0.440 gap must not be reported
+as one.
+
+**Two verdicts are recorded, because `raw_features` contains the target.** It
+carries `NDVI_mean`..`NDVI_p90` as columns, so at the MATCHED level it IS the
+answer: `cell_mean` from grid features **R2 +1.0000**, `cube_p90` from pooled
+**+1.0000**, `cube_mean` from pooled **+0.9998**. The primary configuration
+above is *not* matched (a cube mean from one cell's statistics is not the
+identity) and is a fair gate; the secondary views are not. Read
+`k2_verdict_band_matched`.
+
+**A verdict is not a rejection.** DINOv2 sits 0.006 below the baseline with
+marginal intervals 0.6 wide. `k2_separable` is the PAIRED per-fold difference,
+and it spans zero -- "did not beat the baseline", not "measurably worse".
+
+### THE DELTA PROBE SPLITS IN TWO: SIGN YES, MAGNITUDE NO
+
+Primary cell, `cube_mean` / pooled / linear read-out / cube folds, Spearman
+against the common-masked NDVI change:
+
+```
+target = SIGN                    rho      95% CI            margin over control
+raw_features                   +0.801  [+0.753, +0.849]        +0.918
+raw_features/raw_rgb_only      +0.724  [+0.663, +0.785]        +0.842
+dinov2_vitb14                  +0.536  [+0.397, +0.674]        +0.653
+satlas_s2_swinb_rgb            +0.481  [+0.404, +0.557]        +0.598
+imagenet_vit_b16               +0.458  [+0.318, +0.597]        +0.575
+satlas_s2_swinb_mi_rgb         +0.163  [+0.070, +0.257]        +0.281   si_comparable=False
+GAP-LENGTH CONTROL             -0.118  [-0.370, +0.135]         0.000
+
+target = MAGNITUDE               rho      95% CI            margin over control
+GAP-LENGTH CONTROL             +0.209  [+0.066, +0.351]         0.000   <- WINS
+dinov2_vitb14                  +0.174  [-0.005, +0.353]        -0.035
+satlas_s2_swinb_mi_rgb         +0.081  [-0.082, +0.244]        -0.128   si_comparable=False
+raw_features                   +0.078  [-0.052, +0.209]        -0.130
+satlas_s2_swinb_rgb            +0.065  [-0.034, +0.165]        -0.143
+raw_features/raw_rgb_only      +0.014  [-0.188, +0.217]        -0.194
+imagenet_vit_b16               -0.029  [-0.168, +0.110]        -0.237
+                                                          effective n = 20 CUBES
+```
+
+**Direction is available in these representations; rate is not.** Every encoder
+clears the gap-length control on sign by a wide margin. On magnitude **the
+control beats every one of them** -- including the raw-pixel baseline. The
+`norm` read-out is the one partial exception (`raw_features` ||dE|| reaches
++0.455 on magnitude, margin +0.246), which says the *size* of the pixel-statistic
+change carries rate information that a linear read-out of the difference vector
+does not extract.
+
+Holds at the cell level too (`cell_mean` / grid_cell / linear / cube, sign):
+raw_features +0.766, satlas SI +0.4596, dinov2 +0.4576, imagenet +0.417, MI
++0.250, control -0.027.
+
+### THE GAP-LENGTH CONTROL, ALL FOUR VALUES
+
+```
+                         sign                        magnitude
+cube            -0.118 [-0.370, +0.135]      +0.209 [+0.066, +0.351]
+loco            +0.039 [-0.098, +0.176]      +0.260 [+0.081, +0.438]
+spatial_block   +0.009 [-0.226, +0.244]      +0.168 [-0.280, +0.616]
+```
+
+### THE STRUCTURAL HUNCH IS NOT DETERMINABLE
+
+research_plan_v3 §3/P2 expected augmentation-invariance training (DINOv2) to
+discard state-change more than reconstruction-style training (Satlas). The
+ordering **flips with the fold mode**:
+
+```
+cube            dinov2 +0.536  >  satlas +0.481     hunch fails
+loco            satlas +0.531  >  dinov2 +0.481     hunch holds
+spatial_block   satlas +0.489  >  dinov2 +0.473     hunch holds
+```
+
+**This is the same pair P1 could not rank** (0.387 vs 0.386, a rank that moved
+with a scipy version). `structural_hypothesis` returns `supported=None`.
+
+### ROBUSTNESS: spatial_block does NOT kill the sign result
+
+Unlike P1 and P4, where `spatial_block` collapsed everything, the sign margins
+survive it (satlas +0.480, dinov2 +0.464, imagenet +0.358) -- the intervals
+widen, the ordering of networks-vs-control does not change. The magnitude
+control's interval, by contrast, blows out to [-0.280, +0.616].
+
 ## 2026-08-10: Phase 1.5 (P4) exit test PASSED -- 270 rows, Stage B DEFERRED, and the ceiling is not measurable at 20 cubes
 
 `probes/p4_ceiling.py`. What fraction of the post-climatology NDVI anomaly is

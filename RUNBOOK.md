@@ -743,3 +743,169 @@ comes from Stage B, on the seasonal split.
 from data.paths import reset_phase
 reset_phase("phase1_5")     # clears ONLY this phase; data/raw is untouched
 ```
+
+---
+
+# Phase 1.6 runbook
+
+P2, dynamics in deltas: gate K2 (can a frozen embedding recover current NDVI at
+all) and the delta probe (do embedding changes track real NDVI change). **CPU is
+enough** — ~10 minutes, no GPU, no encoder weights loaded and no embedding
+recomputed. Build the bundle with `./make_zip.sh`, drag `phase1_6_repo.zip` into
+a NEW subfolder `My Drive/NeurIPS-CCAI-2026/phase1_6/`, leave it zipped, open
+`notebooks/phase1_6_p2_deltas.ipynb`, run top to bottom. Exactly one restart, at
+the end of Step 1.
+
+Unlike Phase 1.5, this phase **does** read Phase 1.2's cache — both the
+embeddings and the per-pixel masks from 1.2b, which common-masking cannot be
+done without. Step 2 resolves `EMB_IN` and `MASKS_IN` and prints the file counts;
+if either is 0 the run cannot proceed, and re-encoding is a Phase 1.2 job.
+
+| step | what | time |
+|---|---|---|
+| 1 | install, auto-restart | 2 min |
+| 2 | bootstrap, resolves RAW / `EMB_IN` / `MASKS_IN` read-only, defines `sh()` | 1 min |
+| 3 | environment check | instant |
+| 4 | cubes (skips ones already on Drive) | 15 s |
+| 5 | unit tests, expect **0 failed, 5 skipped** | 60 s |
+| 6 | the manifest, **rebuilt** from the cubes; E-OBS join re-verified | 1 min |
+| 7 | the cache audited (100 `.npz`), joined, and the Part A target built | 40 s |
+| 8 | **the gap-axis check on 244 real pairs** — must report 0 pairs where the axes agree | 5 s |
+| 9 | common-masked pair targets + the survival table by gap length | 1 min |
+| 10 | poisoned gap control: held-out poison must not move it, TRAIN poison must (EXHIBIT; the gate is Step 5) | 5 s |
+| 11 | fold disjointness, and no PAIR straddling a fold | 10 s |
+| 12 | **the run** — 600 rows | 9 min |
+| 13 | six table invariants | instant |
+| 14 | gate K2, the four controls, the headline, the structural hypothesis | instant |
+| 15 | robustness: the same margins under every fold mode | instant |
+| 16 | write + re-read the CSV, list what the phase wrote | 5 s |
+
+### What the numbers should look like
+
+Full detail in [log.md](log.md); the archived run is under `notebooks/runs/`.
+
+```
+Step 5   0 failed, 5 skipped
+Step 6   264 rows x 22 cols, 20 cubes, tile 32UNU, 2018; weather join max
+         abs difference 0
+Step 8   244 pairs; gap_days median 10 vs gap_acq_steps median 2 vs
+         frames-between 1 -> 5.0 days per acquisition step,
+         0/244 pairs where the two axes agree
+Step 9   244/244 pairs keep shared pixels, median 88.8% of 16384;
+         survival NOT monotone in gap (0.783 at 15 d, 0.985 at 30 d)
+Step 12  600 rows x 61 cols in ~9 min
+Step 14  K2 at cube_mean/grid_cell/cube: satlas SI +0.545, imagenet +0.521,
+         raw_features +0.440, dinov2 +0.435, band-matched floor +0.417,
+         retention control -0.129; EXCLUDED FROM P3: the MI encoder only
+         delta SIGN: dinov2 +0.536, satlas SI +0.481, control -0.118
+         delta MAGNITUDE: the CONTROL wins at +0.209
+         structural hypothesis: NOT DETERMINABLE (order flips by fold mode)
+```
+
+### Things that will trip you up
+
+- **`gap_days` is not `original_axis_index`.** The latter is the embedding join
+  key and counts ACQUISITIONS. If Step 8 ever reports a non-zero count of pairs
+  where the two axes agree, stop: every gap in the phase is wrong by a factor
+  of about five, and nothing downstream will notice.
+- **`MASKS_IN` empty means common-masking is impossible.** It cannot be
+  approximated from `clear_frac`, which is a per-frame scalar. Re-run Phase
+  1.2b's mask cache.
+- **Do not quote a raw Spearman.** Quote `margin_over_control`. On the magnitude
+  target the gap-length control beats every encoder, so a raw correlation there
+  is a calendar.
+- **Do not quote `k2_verdict` without `k2_verdict_band_matched`.**
+  `raw_features` contains `NDVI_mean`..`NDVI_p90`.
+- Step 5 collecting a different number of tests than you get locally means the
+  bundle is stale. **Commit before `make_zip.sh`.**
+
+### Re-running cleanly
+
+```python
+from data.paths import reset_phase
+reset_phase("phase1_6")     # clears ONLY this phase; data/raw is untouched
+```
+
+
+---
+
+# Phase 1.7 runbook — the scaled embedding cache
+
+**This phase computes no result.** It builds the frozen-encoder cache for the
+115-cube 32UNU set so that P1, P2 and P3 can be re-run at 5.75x the sample size
+**without any of them changing a line of code** — both already take `emb_dir`
+and `mask_dir` as parameters.
+
+**This is the one notebook in the project that wants a GPU.** P4 could scale
+trivially because it reads no embeddings; P1/P2/P3 read the Phase 1.2 `.npz`
+cache, which exists for exactly 20 cubes. Growing that means 1580 retained
+frames through four real networks. Everything downstream stays CPU-only.
+
+Build the bundle with `./make_zip.sh`, drag `phase1_7_repo.zip` into a NEW
+subfolder `My Drive/NeurIPS-CCAI-2026/phase1_7/`, leave it zipped, open
+`notebooks/phase1_7_scaled_encoding.ipynb`. **Set Runtime > Change runtime type
+> T4 GPU before Step 1.** Exactly one restart, at the end of Step 1.
+
+| step | what | time (T4) |
+|---|---|---|
+| 1 | install — **adds `satlaspretrain-models`**, which Phase 1.5 did not need | 3 min |
+| 2 | bootstrap, resolves RAW and the READ-ONLY 20-cube `EMB_IN` | 1 min |
+| 3 | environment check, GPU detect, **python >= 3.10 assertion** | instant |
+| 4 | the 115 cubes (idempotent; ~363 MB on a cold Drive) | 0–10 min |
+| 5 | unit tests, expect **0 failed** | 60 s |
+| 6 | build the five encoders (downloads weights on first run) | 2 min |
+| 7 | smoke test on ONE cube, all five, shapes asserted | 30 s |
+| 8 | **the encode** — 575 `.npz`, resumable | 20–40 min |
+| 9 | audit: 575 embeddings + 115 masks, no holes | 30 s |
+| 10 | **the reproduction cross-check against the 20-cube cache** | 1 min |
+| 11 | manifest, delta pairs, effective n in cubes | 2 min |
+| 12 | report, and the exact call to re-run P2 | instant |
+
+### The two things that will actually bite you
+
+- **Python 3.9 silently loses ONE encoder.** `dinov2_vitb14` loads its code from
+  `torch.hub`, and that code uses `X | None`, a syntax error before 3.10. The
+  other four build fine, so you get a cache with a hole in it and a `TypeError`
+  from inside a downloaded file. Step 3 asserts the version up front. Measured
+  on this repo's own 3.9 venv: 4 of 5 encoders build, DINOv2 fails.
+- **Write the cache to Drive, not the Colab container.** 575 files over ~30
+  minutes; a disconnect at minute 25 with the output in `/content` loses all of
+  it. Step 8 is resumable — re-running the cell skips everything already on disk
+  and re-validates it on load — but only if the files survive the session.
+
+### What the numbers should look like
+
+```
+Step 3   python 3.11+, GPU detected
+Step 4   115 cubes, 20 shared with data/raw, 95 new
+Step 5   0 failed
+Step 7   all five agree on the retained frames of the smoke cube
+Step 8   575 (cube, encoder) pairs, 0 failures
+Step 9   575 embedding .npz + 115 mask .npz, audit COMPLETE
+Step 10  frame selection / timestamps / clear_frac BIT-IDENTICAL on the
+         20 shared cubes; pooled embeddings within 1e-3
+Step 11  1580 retained frames (6.0x), ~1465 delta pairs (6.0x),
+         effective n 115 CUBES (5.75x)
+```
+
+Step 10 is the one that must not be skipped: without it the scaled cache is a
+different experiment and no scaled number is comparable to a published one.
+A non-zero difference there is expected to be small (float32 on different
+hardware — Phase 1.4's Colab reproduction of P1 moved scores by ±0.003) and is
+printed rather than assumed.
+
+### Re-running cleanly
+
+The cache is an INPUT to later phases and lives beside the shared cubes, so
+`reset_phase` does not touch it — that is deliberate. To force a full re-encode:
+
+```python
+import shutil, os
+shutil.rmtree(os.path.join(SCALED_ROOT, "embeddings"))
+shutil.rmtree(os.path.join(SCALED_ROOT, "masks"))
+```
+
+```python
+from data.paths import reset_phase
+reset_phase("phase1_7")     # clears only this phase's own report CSVs
+```
