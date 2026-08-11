@@ -17,6 +17,7 @@ import pytest
 from encoders.pipeline import (
     EncodedCube,
     SCHEMA_VERSION,
+    assert_caches_agree,
     assert_embeddings_complete,
     audit_embeddings,
     inspect_encoded,
@@ -229,3 +230,68 @@ def test_inspect_flags_a_non_canonical_name(emb):
     assert info["canonical"] is False
     assert info["expected_file"] == f"{os.path.splitext(CUBES[0])[0]}__raw_features.npz"
     assert info["cube"] == CUBES[0], "contents are authoritative, not the name"
+
+
+# ---------------------------------------------------------------------------
+# assert_caches_agree: a scaled cache must measure the same thing as the small
+# one, or the two tables cannot be compared and the scale-up proves nothing.
+# ---------------------------------------------------------------------------
+
+def _cache(tmp_path, name, **overrides):
+    """A cache whose one cube/encoder can be perturbed field by field."""
+    d = os.path.join(str(tmp_path), name)
+    os.makedirs(d, exist_ok=True)
+    ec = _encoded(CUBES[0], ENCODERS[0])
+    if overrides:
+        ec = ec._replace(**overrides)
+    save_encoded(d, ec, verbose=False)
+    return d
+
+
+def test_two_identical_caches_agree(tmp_path):
+    a, b = _cache(tmp_path, "a"), _cache(tmp_path, "b")
+    out = assert_caches_agree(a, b, [CUBES[0]], [ENCODERS[0]], verbose=False)
+    assert out["n_pairs"] == 1
+    assert out["max_abs_pooled"] == 0.0
+
+
+def test_float_jitter_inside_the_tolerance_is_accepted_and_reported(tmp_path):
+    """Network outputs on different hardware differ slightly; that is expected
+    and must be MEASURED rather than asserted away."""
+    a = _cache(tmp_path, "a")
+    b = _cache(tmp_path, "b",
+               embeddings=np.full((3, 5), 1e-6, dtype=np.float32))
+    out = assert_caches_agree(a, b, [CUBES[0]], [ENCODERS[0]], verbose=False)
+    assert out["max_abs_pooled"] == pytest.approx(1e-6)
+    assert out["max_abs_pooled"] <= out["tol"]
+
+
+def test_an_embedding_difference_above_tolerance_is_refused(tmp_path):
+    a = _cache(tmp_path, "a")
+    b = _cache(tmp_path, "b", embeddings=np.ones((3, 5), dtype=np.float32))
+    with pytest.raises(AssertionError, match="not comparable"):
+        assert_caches_agree(a, b, [CUBES[0]], [ENCODERS[0]], verbose=False)
+
+
+def test_a_different_frame_selection_is_refused_however_small(tmp_path):
+    """kept_idx comes from the cube and the clear-fraction rule, never from a
+    network, so there is no tolerance for it: a difference means the two caches
+    describe DIFFERENT FRAMES."""
+    a = _cache(tmp_path, "a")
+    b = _cache(tmp_path, "b", kept_idx=np.array([0, 1, 3]))
+    with pytest.raises(AssertionError, match="frame SELECTION differs"):
+        assert_caches_agree(a, b, [CUBES[0]], [ENCODERS[0]], verbose=False)
+
+
+def test_a_changed_mask_definition_is_refused(tmp_path):
+    a = _cache(tmp_path, "a")
+    b = _cache(tmp_path, "b", clear_frac=np.full(3, 0.80000001))
+    with pytest.raises(AssertionError, match="clear_frac differs"):
+        assert_caches_agree(a, b, [CUBES[0]], [ENCODERS[0]], verbose=False)
+
+
+def test_comparing_nothing_is_refused_rather_than_passing(tmp_path):
+    """A vacuous pass is worse than no check: it reads as evidence."""
+    a, b = _cache(tmp_path, "a"), _cache(tmp_path, "b")
+    with pytest.raises(AssertionError, match="compared nothing"):
+        assert_caches_agree(a, b, ["not_a_cube.nc"], [ENCODERS[0]], verbose=False)

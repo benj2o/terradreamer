@@ -41,7 +41,7 @@ __all__ = ["EncodedCube", "CubeMasks", "EmbeddingAudit", "SCHEMA_VERSION",
            "REQUIRED_KEYS", "encode_cube", "save_encoded", "load_encoded",
            "assert_encoded", "inspect_encoded", "migrate_to_current",
            "audit_embeddings", "print_embedding_audit",
-           "assert_embeddings_complete",
+           "assert_embeddings_complete", "assert_caches_agree",
            "cube_masks", "save_masks", "load_masks"]
 
 # Bump whenever a stored field is ADDED, REMOVED or changes meaning.
@@ -509,6 +509,109 @@ def assert_embeddings_complete(audit: EmbeddingAudit, cube_ids, encoders=None) -
     print(f"[audit] COMPLETE: all {len(cube_ids)} x {len(encoders)} = "
           f"{len(cube_ids) * len(encoders)} (cube, encoder) pairs present at "
           f"v{SCHEMA_VERSION}")
+
+
+def assert_caches_agree(old_dir: str, new_dir: str, cubes, encoders,
+                        tol: float = 1e-3, verbose: bool = True) -> dict:
+    """Two caches must describe the same experiment on the cubes they share.
+
+    WHY THIS IS A FUNCTION AND NOT A ONE-OFF. A scaled cache is only useful if
+    its numbers are comparable to the ones already published from the small one.
+    Nothing about a re-encode guarantees that: a changed mask rule, a different
+    clear-fraction threshold, a torch or weights version bump, or a wrapper
+    edited between the two runs all produce a cache that is internally
+    consistent, passes every audit, and quietly answers a different question.
+    The only test is to compare the two on the cubes they have in common, which
+    is what this does.
+
+    TWO STANDARDS, AND THE DIFFERENCE IS THE POINT:
+
+    * ``kept_idx``, ``timestamps`` and ``clear_frac`` must be **BIT-IDENTICAL**.
+      These come from the cube file and the frame-selection rule, not from a
+      network, so there is no legitimate source of variation. A difference here
+      means the two caches describe DIFFERENT FRAMES and no result computed from
+      one may be compared to a result computed from the other.
+    * ``embeddings`` and ``grid`` must agree to ``tol``, and the measured
+      difference is RETURNED and printed rather than merely asserted. These are
+      float32 network outputs; the two caches are routinely written on different
+      hardware (this project's 20-cube cache was verified on a Colab T4, its
+      scaled one likewise, and probes are re-run on local CPU). Phase 1.4
+      measured what that costs end to end: a Colab reproduction of P1 moved
+      balanced accuracies by +-0.003. Demanding bit-equality of network outputs
+      would fail for a reason that has nothing to do with correctness.
+
+    Returns the per-encoder worst differences, so a caller can report the number
+    instead of asserting a bound and saying nothing.
+    """
+    cubes = sorted(set(cubes))
+    encoders = tuple(sorted(set(encoders)))
+    assert cubes and encoders, "nothing to compare"
+
+    rows, n_pairs = [], 0
+    for cube in cubes:
+        stem = os.path.splitext(cube)[0]
+        for enc in encoders:
+            old_p = _npz_path(old_dir, cube, enc)
+            new_p = _npz_path(new_dir, cube, enc)
+            if not (os.path.exists(old_p) and os.path.exists(new_p)):
+                continue
+            old, new = load_encoded(old_p), load_encoded(new_p)
+
+            np.testing.assert_array_equal(
+                old.kept_idx, new.kept_idx,
+                err_msg=f"{cube} x {enc}: frame SELECTION differs between "
+                        f"{old_dir} and {new_dir}. The two caches describe "
+                        "different frames, so no number from one is comparable "
+                        "to a number from the other. This is not device jitter: "
+                        "kept_idx comes from the cube and the clear-fraction "
+                        "rule, never from a network.")
+            np.testing.assert_array_equal(
+                old.timestamps, new.timestamps,
+                err_msg=f"{cube} x {enc}: timestamps differ")
+            np.testing.assert_allclose(
+                old.clear_frac, new.clear_frac, rtol=0, atol=0,
+                err_msg=f"{cube} x {enc}: clear_frac differs; the mask "
+                        "definition changed between the two encodes")
+
+            rows.append({
+                "cube": cube, "encoder": enc,
+                "max_abs_pooled": float(np.abs(old.embeddings - new.embeddings).max()),
+                "max_abs_grid": float(np.abs(old.grid.astype(np.float64)
+                                             - new.grid.astype(np.float64)).max()),
+            })
+            n_pairs += 1
+
+    assert n_pairs, (
+        f"no (cube, encoder) pair exists in BOTH {old_dir} and {new_dir}, so "
+        "this check compared nothing. A vacuous pass is worse than no check: "
+        "verify the two directories and the shared cube list."
+    )
+    worst = {}
+    for r in rows:
+        worst[r["encoder"]] = max(worst.get(r["encoder"], 0.0), r["max_abs_pooled"])
+    worst_overall = max(r["max_abs_pooled"] for r in rows)
+    worst_grid = max(r["max_abs_grid"] for r in rows)
+
+    if verbose:
+        print(f"[audit] {n_pairs} shared (cube, encoder) pairs compared between")
+        print(f"[audit]   old {old_dir}")
+        print(f"[audit]   new {new_dir}")
+        print("[audit] kept_idx / timestamps / clear_frac: BIT-IDENTICAL on all "
+              f"{n_pairs}")
+        for enc in sorted(worst):
+            print(f"[audit]   {enc:<24} max |pooled diff| {worst[enc]:.3g}")
+        print(f"[audit] worst pooled {worst_overall:.3g}, worst grid "
+              f"{worst_grid:.3g} (tolerance {tol})")
+    assert worst_overall <= tol, (
+        f"the two caches differ by {worst_overall:.3g} on the pooled "
+        f"embeddings, above the {tol} tolerance. That is too large to be "
+        "float32/device jitter -- something about the ENCODING changed between "
+        "the two runs (weights, wrapper, preprocessing), and results computed "
+        "from the two caches are not comparable."
+    )
+    return {"n_pairs": n_pairs, "per_encoder_max_pooled": worst,
+            "max_abs_pooled": worst_overall, "max_abs_grid": worst_grid,
+            "tol": tol}
 
 
 def migrate_to_current(path: str, apply: bool = False, verbose: bool = True) -> str:

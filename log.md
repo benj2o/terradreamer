@@ -3,7 +3,137 @@
 Running record of measurements and adopted definitions. Reverse chronological.
 Decisions and their rationale live in [docs/DECISIONS.md](docs/DECISIONS.md).
 
+## 2026-08-11: P2 at 115 cubes -- gate K2 becomes a RANKING, sign holds, magnitude was never there, and the MI exclusion is RETRACTED
+
+`scripts/scale_p2.py` against the Phase 1.7 cache (115 cubes x 5 encoders, built
+on Colab). Identical probe, identical fold machinery, 5.75x the cubes. Nothing
+re-encoded here; nothing fine-tuned anywhere.
+
+```
+cache audit           575/575 (cube, encoder) pairs, 115/115 masks, no holes
+reproduction check    100 shared pairs vs the 20-cube cache:
+                      kept_idx/timestamps/clear_frac BIT-IDENTICAL,
+                      worst pooled diff 1.52e-4 (raw_features exactly 0)
+gap axis check        1465 pairs, 0 where the two axes agree
+run_p2                600 rows x 64 cols, 100.3 min on 7 workers
+invariants            all six PASS
+manifest              1580 retained frames (6.0x), 1465 pairs (6.0x), n = 115 CUBES
+```
+
+The reproduction check is the load-bearing one and its SHAPE is the evidence:
+`raw_features` is pure numpy and came back **exactly 0**; the four networks
+differ by 5e-5 to 1.5e-4. That is GPU-vs-CPU float32 jitter and nothing else.
+The two caches are the same experiment.
+
+### GATE K2: 3 of 4 networks now SEPARABLY beat the hand-crafted baseline
+
+`cube_mean / grid_cell / cube`, cube-clustered, paired per-fold difference
+against `raw_features`:
+
+```
+                          R2       CI width      paired CI on (enc - raw)   verdict
+satlas_s2_swinb_rgb     +0.713   0.126 (0.166)   [+0.094, +0.156]  SEPARABLE  passed
+imagenet_vit_b16        +0.687   0.036 (0.394)   [+0.036, +0.162]  SEPARABLE  passed
+dinov2_vitb14           +0.649   0.096 (0.582)   [+0.021, +0.101]  SEPARABLE  passed
+raw_features            +0.588   0.133 (0.542)   --                           baseline
+satlas_s2_swinb_mi_rgb  +0.519   0.145 (0.822)   [-0.192, +0.053]  not sep.   lossy*
+                                                          effective n = 115 CUBES
+                              (20-cube CI width in brackets)
+```
+
+**At 20 cubes K2 was a floor check; at 115 it is a ranking.** Every interval
+collapsed -- DINOv2's by 6x, ImageNet's by 11x -- and three encoders moved from
+"not separable from a table of percentiles" to separably above it. This is the
+claim the 20-cube run could not make and explicitly declined to make.
+
+**The P3 exclusion is RETRACTED.** `satlas_s2_swinb_mi_rgb` went from
+-0.363 [-0.592, -0.134] (lossy AND separable, excluded) to -0.069
+[-0.192, +0.053] (not separable), and it PASSES the band-matched verdict.
+**No encoder is excluded from P3.** The 20-cube exclusion was a small-sample
+artefact, exactly as `k2_separable` was built to expose -- it is worth noting
+that the column did its job in the other direction too: it stopped DINOv2 being
+excluded at 20 cubes on a -0.006 point estimate, and DINOv2 is now +0.061 and
+separably ABOVE the baseline.
+
+### SIGN: confirmed, and it does not move
+
+`cube_mean / sign / pooled / linear`, margin over the gap-length control:
+
+```
+                          cube     loco   spatial_block      (was, cube)
+raw_features             +0.720   +0.696   +0.741             +0.918
+raw_features/rgb_only    +0.630   +0.600   +0.653             +0.842
+dinov2_vitb14            +0.541   +0.514   +0.547             +0.653
+satlas_s2_swinb_rgb      +0.522   +0.505   +0.527             +0.598
+imagenet_vit_b16         +0.443   +0.434   +0.462             +0.575
+satlas_s2_swinb_mi_rgb   +0.399   +0.377   +0.367             +0.281   si_comparable=False
+GAP CONTROL              +0.065   ...      ...                -0.118
+```
+
+Margins are within 0.05 of each other across all three fold modes. `spatial_block`
+does not kill it -- unlike P1 and P4. This is the strongest result in the phase.
+
+### MAGNITUDE: the 20-cube finding was WRONG, and the truth is worse
+
+The 20-cube run reported "the gap-length control at +0.209 beats every encoder".
+**That control was itself a small-sample artefact.** At 115 cubes it falls to
+**+0.063 [-0.004, +0.130]**, an interval spanning zero, and to +0.018 under
+`spatial_block`.
+
+So 6 of 7 rows now "beat" it -- but the margins are noise:
+
+```
+                          cube     loco   spatial_block
+dinov2_vitb14            +0.043   +0.065   +0.026     <- only consistently positive
+raw_features             +0.033   +0.043   +0.072
+raw_features/rgb_only    +0.029   +0.046   +0.018
+satlas_s2_swinb_mi_rgb   +0.055   -0.001   +0.037     sign flips
+satlas_s2_swinb_rgb      +0.001   +0.035   -0.005     sign flips
+imagenet_vit_b16         -0.005   +0.013   +0.052     sign flips
+```
+
+Three of four encoders flip sign across fold modes, and every absolute
+correlation is between +0.057 and +0.118. **The corrected finding is not "the
+calendar wins" but "nobody recovers magnitude at all"** -- the 20-cube version
+overstated the control and understated nothing. Direction is in these
+representations; rate is not, and now we know that is not a control artefact.
+
+### STRUCTURAL HYPOTHESIS: now determinable, and REFUTED
+
+At 20 cubes DINOv2 and Satlas SI swapped rank between fold modes and
+`structural_hypothesis` returned `supported=None`. At 115 the ordering is
+**stable across all three modes**:
+
+```
+cube           raw_features > dinov2_vitb14 > satlas_s2_swinb_rgb > imagenet_vit_b16
+loco           raw_features > dinov2_vitb14 > satlas_s2_swinb_rgb > imagenet_vit_b16
+spatial_block  raw_features > dinov2_vitb14 > satlas_s2_swinb_rgb > imagenet_vit_b16
+```
+
+`order_stable_across_fold_modes=True`, `supported=False`. research_plan_v3
+Section 3/P2 expected augmentation-invariance training (DINOv2) to discard
+state-change MORE than reconstruction-style training (Satlas). It does the
+opposite, consistently, at every fold mode. Still only 2 EO-relevant SI points,
+so this refutes the stated direction rather than establishing a mechanism.
+
+### What did NOT change
+
+`raw_features` still leads every delta table, because it still contains
+`NDVI_mean..NDVI_p90`. Read `raw_rgb_only` (+0.630 sign margin) as the fair
+comparison; the networks clear it on K2 but not on the delta sign probe.
+
 ## 2026-08-11: Phase 1.6 (P2) exit test PASSED -- 600 rows, K2 cleared by all five, and the delta probe splits in two
+
+> **SUPERSEDED IN PART by the 115-cube run above (2026-08-11).** Two claims
+> below did not survive the scale-up and must not be quoted from here:
+> (1) *"the gap-length control at +0.209 beats every encoder on magnitude"* --
+> the control was itself a small-sample artefact and falls to +0.063 with an
+> interval spanning zero; the corrected finding is that NOBODY recovers
+> magnitude. (2) *"`satlas_s2_swinb_mi_rgb` is excluded from P3"* -- it is not
+> separable from the baseline at 115 cubes and the exclusion is retracted.
+> The sign result, the common-masking behaviour and the gap-axis finding all
+> replicate. Kept in full because the comparison is the evidence that 20 cubes
+> could not support these claims.
 
 `probes/p2_deltas.py`. Two questions: (a) gate K2, can a linear head read
 CURRENT NDVI out of a frozen embedding at all; (b) do embedding CHANGES track

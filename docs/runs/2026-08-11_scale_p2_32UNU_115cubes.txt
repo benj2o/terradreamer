@@ -1,0 +1,81 @@
+[scale-p2] 115 cubes at data/scaled_32UNU/raw
+[scale-p2] 575 embeddings, 115 masks
+[audit] data/scaled_32UNU/embeddings
+[audit]   575 .npz on disk -> 575 usable (115 cubes x 5 encoders)
+[audit]     dinov2_vitb14            115 cubes
+[audit]     imagenet_vit_b16         115 cubes
+[audit]     raw_features             115 cubes
+[audit]     satlas_s2_swinb_mi_rgb   115 cubes
+[audit]     satlas_s2_swinb_rgb      115 cubes
+[audit] COMPLETE: all 115 x 5 = 575 (cube, encoder) pairs present at v3
+
+[scale-p2] reproduction check on 20 shared cubes
+[audit] 100 shared (cube, encoder) pairs compared between
+[audit]   old data/phase1_2/embeddings
+[audit]   new data/scaled_32UNU/embeddings
+[audit] kept_idx / timestamps / clear_frac: BIT-IDENTICAL on all 100
+[audit]   dinov2_vitb14            max |pooled diff| 0.000152
+[audit]   imagenet_vit_b16         max |pooled diff| 5.15e-05
+[audit]   raw_features             max |pooled diff| 0
+[audit]   satlas_s2_swinb_mi_rgb   max |pooled diff| 7.15e-05
+[audit]   satlas_s2_swinb_rgb      max |pooled diff| 9.16e-05
+[audit] worst pooled 0.000152, worst grid 0.0625 (tolerance 0.001)
+[scale-p2] the scaled cache REPRODUCES the published one (worst pooled diff 0.000152)
+
+[scale-p2] manifest (1580, 22), 115 cubes, years [2018], 30s
+[p2] pairs (1465,) over 115 cubes (1580 retained frames -> 1465 consecutive pairs)
+[p2]   gap_days (daily_axis_index): min 5 median 10 max 40 | distinct [5.0, 10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0]
+[p2] GAP AXIS CHECK on 1465 real pairs: gap_days median 10 vs gap_acq_steps median 2 vs frames-between 1 -- 5.0 days per acquisition step, 0/1465 pairs where the two axes agree
+[scale-p2] run_p2: 600 rows in 100.3 min on 7 workers (fold-level; changes wall-clock, never a number)
+[scale-p2] all six table invariants PASS
+[scale-p2] wrote data/scaled_32UNU/p2_scaled_results.csv (600 rows x 64 cols)
+
+==============================================================================
+GATE K2 -- reconstruction floor at cube_mean/grid_cell/cube   (115 cubes   vs 20 cubes)
+==============================================================================
+  encoder                        R2  CI width |      was    width |    paired CI on vs-raw  separable?
+  satlas_s2_swinb_rgb        +0.713     0.126 |  +0.545    0.166 | [ +0.094, +0.156]  SEPARABLE
+  imagenet_vit_b16           +0.687     0.036 |  +0.521    0.394 | [ +0.036, +0.162]  SEPARABLE
+  dinov2_vitb14              +0.649     0.096 |  +0.435    0.582 | [ +0.021, +0.101]  SEPARABLE
+  raw_features               +0.588     0.133 |  +0.440    0.542 | [ +0.000, +0.000]  not separable
+  satlas_s2_swinb_mi_rgb     +0.519     0.145 |  +0.077    0.822 | [ -0.192, +0.053]  not separable
+
+==============================================================================
+DELTA PROBE -- cube_mean / sign / pooled / linear / cube   (115 cubes   vs 20 cubes)
+==============================================================================
+  row                                     rho                 CI   margin |  was rho was margin
+  raw_features                         +0.785 [ +0.747, +0.822]   +0.720 |   +0.801     +0.918
+  raw_features/raw_rgb_only            +0.695 [ +0.634, +0.756]   +0.630 |   +0.724     +0.842
+  dinov2_vitb14                        +0.606 [ +0.546, +0.665]   +0.541 |   +0.536     +0.653
+  satlas_s2_swinb_rgb                  +0.587 [ +0.557, +0.616]   +0.522 |   +0.481     +0.598
+  imagenet_vit_b16                     +0.508 [ +0.416, +0.600]   +0.443 |   +0.458     +0.575
+  satlas_s2_swinb_mi_rgb               +0.464 [ +0.442, +0.486]   +0.399 |   +0.163     +0.281  [si_comparable=False]
+  none/gap_days                        +0.065 [ -0.061, +0.190]   +0.000 |   -0.118     +0.000  <- CONTROL
+
+==============================================================================
+DELTA PROBE -- cube_mean / magnitude / pooled / linear / cube   (115 cubes   vs 20 cubes)
+==============================================================================
+  row                                     rho                 CI   margin |  was rho was margin
+  satlas_s2_swinb_mi_rgb               +0.118 [ +0.063, +0.173]   +0.055 |   +0.081     -0.128  [si_comparable=False]
+  dinov2_vitb14                        +0.105 [ +0.056, +0.155]   +0.043 |   +0.174     -0.035
+  raw_features                         +0.096 [ +0.001, +0.192]   +0.033 |   +0.078     -0.130
+  raw_features/raw_rgb_only            +0.092 [ +0.035, +0.149]   +0.029 |   +0.014     -0.194
+  satlas_s2_swinb_rgb                  +0.063 [ +0.020, +0.107]   +0.001 |   +0.065     -0.143
+  none/gap_days                        +0.063 [ -0.004, +0.130]   +0.000 |   +0.209     +0.000  <- CONTROL
+  imagenet_vit_b16                     +0.057 [ +0.004, +0.111]   -0.005 |   -0.029     -0.237
+
+==============================================================================
+WHAT THE SCALE-UP WAS FOR
+==============================================================================
+1. K2 separability: 3/4 encoders now separable from the baseline
+   (20-cube run: 1/4, and that one was the multi-image control)
+
+2. MAGNITUDE vs the gap-length control: 6/7 rows now beat it
+   control  +0.063 [ -0.004, +0.130]   (20-cube run: +0.209, and it beat EVERY encoder)
+
+3. Structural hypothesis: order stable across fold modes = True, supported = False
+   cube           raw_features > dinov2_vitb14 > satlas_s2_swinb_rgb > imagenet_vit_b16
+   loco           raw_features > dinov2_vitb14 > satlas_s2_swinb_rgb > imagenet_vit_b16
+   spatial_block  raw_features > dinov2_vitb14 > satlas_s2_swinb_rgb > imagenet_vit_b16
+   (20-cube run: NOT determinable -- dinov2 and satlas SI swapped between cube and loco)
+EXIT=0

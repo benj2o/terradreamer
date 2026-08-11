@@ -866,6 +866,90 @@ def test_spearman_returns_nan_rather_than_zero_on_a_constant_side():
     assert p2.spearman(np.arange(20.0), -np.arange(20.0)) == pytest.approx(-1.0)
 
 
+def _same_summary(a, b):
+    """Summaries equal field by field, treating NaN as equal to NaN.
+
+    A plain `a == b` fails on any NaN because NaN != NaN, which would report a
+    difference where there is none -- `n_common_px_median` is legitimately NaN
+    for every Part A row.
+    """
+    assert set(a) == set(b), (set(a) ^ set(b))
+    for k in a:
+        x, y = a[k], b[k]
+        if isinstance(x, float) and isinstance(y, float):
+            assert (x == y) or (np.isnan(x) and np.isnan(y)), (k, x, y)
+        else:
+            assert x == y, (k, x, y)
+    return True
+
+
+def test_n_jobs_changes_wall_clock_and_never_a_number():
+    """Fold-level parallelism must be bit-identical to serial.
+
+    The ridge path is an exact linear solve, the standardiser is exact, and the
+    fold generator has no RNG, so there is no legitimate source of difference.
+    This is the test that lets the scaled run use 8 workers and still be quoted
+    beside the serial 20-cube numbers.
+    """
+    m = _manifest(n_cubes=6, frames=6)
+    arrays = _arrays(m)
+    rng = np.random.default_rng(0)
+    y = rng.normal(0, 1, len(m))
+    block = p2.reconstruction_block(arrays, "grid_cell").with_labels(y)
+
+    serial = p2.evaluate(block, m, "cube", "A_reconstruction", k=3, n_jobs=1)
+    par = p2.evaluate(block, m, "cube", "A_reconstruction", k=3, n_jobs=2)
+    assert len(serial) == len(par)
+    for a, b in zip(serial, par):
+        assert a.score == b.score, (a.score, b.score)
+        assert a.selected == b.selected
+        assert a.n_test == b.n_test and a.effective_n == b.effective_n
+    assert _same_summary(p2.summarise(serial), p2.summarise(par))
+
+
+def test_the_run_log_is_not_thinner_under_parallelism(tmp_path):
+    """A loky worker re-imports the module, so its log handle is None and its
+    lines vanish. The parallel run is the one the scale-up uses, so a log that
+    silently loses its per-fold detail there is a log that documents only the
+    configuration nobody runs."""
+    m = _manifest(n_cubes=6, frames=6)
+    arrays = _arrays(m)
+    rng = np.random.default_rng(0)
+    block = p2.reconstruction_block(arrays, "grid_cell").with_labels(
+        rng.normal(0, 1, len(m)))
+
+    def n_fold_lines(n_jobs, name):
+        path = str(tmp_path / name)
+        p2.open_run_log(path, verbose=False)
+        try:
+            p2.evaluate(block, m, "cube", "A_reconstruction", k=3, n_jobs=n_jobs)
+        finally:
+            p2.close_run_log()
+        with open(path) as fh:
+            return sum(1 for ln in fh if "A fold" in ln)
+
+    serial, par = n_fold_lines(1, "s.log"), n_fold_lines(2, "p.log")
+    assert serial == 3, serial
+    assert par == serial, (
+        f"the parallel run logged {par} fold lines against serial's {serial}")
+
+
+def test_n_jobs_is_bit_identical_on_the_delta_probe_too():
+    """Part B routes its fold selection through pairs.row_a; the parallel path
+    must take the same route, not a re-derived one."""
+    m = _manifest(n_cubes=6, frames=6)
+    pairs = p2.pair_index(m, verbose=False)
+    arrays = _arrays(m)
+    rng = np.random.default_rng(1)
+    y = np.sign(rng.normal(0, 1, pairs.n_pairs))
+    block = p2.delta_block(arrays, pairs, "pooled", "linear").with_labels(y)
+
+    kw = dict(pairs=pairs, readout="linear", k=3)
+    serial = p2.evaluate(block, m, "cube", "B_delta", n_jobs=1, **kw)
+    par = p2.evaluate(block, m, "cube", "B_delta", n_jobs=2, **kw)
+    assert _same_summary(p2.summarise(serial), p2.summarise(par))
+
+
 def test_summarise_reports_a_cube_clustered_interval_and_never_a_bare_mean():
     res = [p2.FoldResult(fold=i, n_train=100, n_test=20, n_train_cubes=16,
                          n_test_cubes=4, effective_n=4, score=0.3 + 0.05 * i,

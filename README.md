@@ -105,8 +105,10 @@ probes/p2_deltas.py          P2, dynamics in deltas. TWO PARTS. Part A is gate
                              never original_axis_index, and
                              assert_gap_axes_disagree proves that on real pairs
                              at run time. FOUR controls -- gap-length-alone
-                             (P2's degenerate control, and it WINS on
-                             magnitude), retention, the raw-pixel delta, and the
+                             (P2's degenerate control; it beat every encoder on
+                             magnitude at 20 cubes and collapsed to +0.063 at
+                             115 -- a control can be a small-sample artefact
+                             too), retention, the raw-pixel delta, and the
                              band-matched raw delta -- with the control's value
                              carried on EVERY row so no filtered view can lose
                              it. The multi-image encoder shares up to 7 of 8
@@ -390,7 +392,7 @@ For Colab, follow [RUNBOOK.md](RUNBOOK.md).
     **not** a small-sample artefact (mean across cells flat at −0.087 → −0.092);
     Stage B still correctly deferred. The linear DOY control is clean at 0.011,
     so the H=4 harmonic order holds at 5.75× the data.
-- 1.7 scaled embedding cache: **READY TO RUN** (not yet executed).
+- 1.7 scaled embedding cache: **DONE** (2026-08-11, Colab GPU).
   `notebooks/phase1_7_scaled_encoding.ipynb` builds
   `data/scaled_32UNU/{embeddings,masks}/` — 115 cubes x 5 encoders, 1580
   retained frames, the same cube set Phase 1.5b measured P4's ceiling on. It
@@ -414,6 +416,34 @@ For Colab, follow [RUNBOOK.md](RUNBOOK.md).
     asserts >= 3.10 up front.
   - P1 and P2 need **no code change** to consume it — both already take
     `emb_dir` / `mask_dir`.
+- **1.6b P2 re-run at 115 cubes** (2026-08-11, `scripts/scale_p2.py`, 100 min
+  on 7 workers; 600-row CSV at `data/scaled_32UNU/p2_scaled_results.csv`).
+  **Two of the 20-cube headline claims did not survive, and both were the
+  confident ones.**
+  - **Gate K2 became a RANKING.** Three of four networks now *separably* beat
+    the hand-crafted baseline on the paired per-fold difference: satlas SI
+    **+0.713** `[+0.094, +0.156]`, imagenet **+0.687** `[+0.036, +0.162]`,
+    dinov2 **+0.649** `[+0.021, +0.101]`, against raw_features +0.588. Every
+    interval collapsed — DINOv2's by 6×, ImageNet's by 11×.
+  - **The P3 exclusion is RETRACTED.** `satlas_s2_swinb_mi_rgb` went from
+    separably lossy (−0.363) to not separable (−0.069) and passes band-matched.
+    **No encoder is excluded from P3.**
+  - **The magnitude finding was wrong, and the control was the artefact.** The
+    gap-length control fell from +0.209 to **+0.063 `[−0.004, +0.130]`**. So
+    the corrected result is not "encoders win" but **"nobody recovers
+    magnitude"** — every ρ is +0.06 to +0.12 and three of four encoders flip
+    margin sign across fold modes.
+  - **SIGN replicates and is the phase's real result.** Margins +0.44 to +0.72,
+    moving by less than 0.05 across all three fold modes. **`spatial_block`
+    does not kill it** — the only probe in the project where that is true.
+  - **The structural hypothesis is now determinable and REFUTED.** Identical
+    ordering under all three fold modes (`raw_features > dinov2 > satlas SI >
+    imagenet`), so `order_stable=True, supported=False`.
+  - **The cache was verified before any number was read from it.**
+    `assert_caches_agree` on the 20 shared cubes: frame selection, timestamps
+    and clear fractions **bit-identical**; `raw_features` (pure numpy) differed
+    by exactly 0 and the four networks by 5e-5 to 1.5e-4 — GPU-vs-CPU float
+    jitter and nothing else.
 - 1.6 P2 dynamics in deltas: **DONE** (2026-08-11; local CPU, 8.6 min).
   `probes/p2_deltas.py` + a 600-row results CSV and a pixel-survival table under
   `data/phase1_6/`. 0 failed, 5 skipped. Full per-pair detail in

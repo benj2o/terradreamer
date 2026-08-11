@@ -339,7 +339,11 @@ def open_run_log(path: str | None = None, verbose: bool = True) -> str:
     close_run_log()
     _LOG_PATH = path or run_log_path()
     os.makedirs(os.path.dirname(_LOG_PATH), exist_ok=True)
-    _LOG_FH = open(_LOG_PATH, "w", encoding="utf-8")
+    # Line-buffered: a scaled run takes tens of minutes and writes tens of
+    # thousands of lines, and a block-buffered log cannot be tailed to see
+    # where it is. The cost is one write syscall per line, against a run whose
+    # unit of work is a ridge solve.
+    _LOG_FH = open(_LOG_PATH, "w", encoding="utf-8", buffering=1)
     if verbose:
         print(f"[p2] per-pair detail -> {_LOG_PATH} (stdout keeps shapes, "
               "K2 verdicts, the four controls and the headlines)")
@@ -1430,21 +1434,59 @@ def evaluate_fold_b(block: FeatureBlock, manifest, pairs: DeltaPairs,
 def evaluate(block: FeatureBlock, manifest, mode: str, part: str,
              pairs: DeltaPairs | None = None, readout: str = "linear",
              n_common_px=None, k: int = 5, inner_k: int = _INNER_K,
-             verbose: bool = False) -> list:
-    """Every outer fold of one mode, from ``probes.cv`` and nowhere else."""
+             n_jobs: int = 1, verbose: bool = False) -> list:
+    """Every outer fold of one mode, from ``probes.cv`` and nowhere else.
+
+    Deterministic; ``n_jobs`` only changes wall-clock, never a number -- the
+    ridge path is an exact linear solve, the standardiser is exact, and the
+    folds come from a generator with no RNG in it. Same guarantee, and the same
+    implementation, as ``p1_appearance.evaluate``.
+
+    It matters more here than there. Leave-one-cube-out is ``k = n_cubes``, so
+    scaling the subset scales the FOLD COUNT as well as the row count: at 20
+    cubes LOCO is 20 folds over 264 rows, at 115 it is 115 folds over 1580.
+    That is 5.75x the folds each costing ~6x as much, and it is why the serial
+    run of the scaled table takes hours while the 20-cube one took nine
+    minutes.
+
+    Arrays are passed to the workers as ARGUMENTS rather than captured in a
+    closure, so joblib memory-maps the large ones instead of pickling a design
+    matrix once per fold. ``inner_max_num_threads=1`` stops each worker's BLAS
+    from also going wide, which on an 8-core box otherwise oversubscribes into
+    being slower than serial.
+    """
     assert part in PARTS, f"part {part!r} not in {PARTS}"
     folds = outer_folds(manifest, mode, k=k, verbose=False)
-    out = []
-    for i, (tr, te) in enumerate(folds):
-        if part == "A_reconstruction":
-            out.append(evaluate_fold_a(block, manifest, tr, te, fold=i,
-                                       inner_k=inner_k, verbose=verbose))
-        else:
-            assert pairs is not None, "Part B needs the pair index"
-            out.append(evaluate_fold_b(block, manifest, pairs, tr, te, readout,
-                                       n_common_px=n_common_px, fold=i,
-                                       inner_k=inner_k, verbose=verbose))
+
+    if part == "A_reconstruction":
+        fn, extra = evaluate_fold_a, dict(inner_k=inner_k, verbose=False)
+        args = lambda tr, te: (block, manifest, tr, te)          # noqa: E731
+    else:
+        assert pairs is not None, "Part B needs the pair index"
+        fn = evaluate_fold_b
+        extra = dict(n_common_px=n_common_px, inner_k=inner_k, verbose=False)
+        args = lambda tr, te: (block, manifest, pairs, tr, te, readout)  # noqa: E731
+
+    if n_jobs == 1 or len(folds) < 2:
+        out = [fn(*args(tr, te), fold=i, **extra)
+               for i, (tr, te) in enumerate(folds)]
+    else:
+        from joblib import Parallel, delayed, parallel_config
+        with parallel_config(backend="loky", inner_max_num_threads=1):
+            out = Parallel(n_jobs=n_jobs)(
+                delayed(fn)(*args(tr, te), fold=i, **extra)
+                for i, (tr, te) in enumerate(folds))
+        # A loky worker re-imports this module, so its ``_LOG_FH`` is None and
+        # the per-fold lines it wrote went nowhere. Every FoldResult carries its
+        # own line precisely so the PARENT can write them, which keeps the run
+        # log identical between serial and parallel rather than quietly thinner
+        # in the mode the scaled run actually uses.
+        for r in out:
+            log(r.log)
     assert out, f"{mode}: no folds"
+    if verbose:
+        for r in out:
+            print(r.log)
     return out
 
 
@@ -1534,19 +1576,23 @@ def run_p2(manifest, cube_dir: str, encoders: Sequence[str] = ENCODER_ORDER,
            fold_modes: Sequence[str] = FOLD_MODES, k: int = 5,
            inner_k: int = _INNER_K, emb_dir: str | None = None,
            mask_dir: str | None = None, log_path: str | None = None,
-           verbose: bool = True):
+           n_jobs: int = 1, verbose: bool = True):
     """The whole table: Part A (gate K2) and Part B (the delta probe).
 
     Returns a pandas DataFrame and writes nothing but the run log. Every fold
     comes from ``probes.cv``; every interval is cube-clustered; every control
     is emitted under every label it is invariant to.
+
+    ``n_jobs`` parallelises OVER FOLDS and changes wall-clock only -- see
+    ``evaluate``. At 20 cubes serial is fine (nine minutes); at 115 the fold
+    count grows with the cube count under LOCO and serial is hours.
     """
     import pandas as pd
 
     open_run_log(log_path, verbose=verbose)
     try:
         rows = _run_p2_rows(manifest, cube_dir, encoders, fold_modes, k,
-                            inner_k, emb_dir, mask_dir, verbose)
+                            inner_k, emb_dir, mask_dir, n_jobs, verbose)
     finally:
         close_run_log()
     df = pd.DataFrame(rows)
@@ -1555,7 +1601,7 @@ def run_p2(manifest, cube_dir: str, encoders: Sequence[str] = ENCODER_ORDER,
 
 
 def _run_p2_rows(manifest, cube_dir, encoders, fold_modes, k, inner_k,
-                 emb_dir, mask_dir, verbose) -> list:
+                 emb_dir, mask_dir, n_jobs, verbose) -> list:
     n = len(manifest)
     n_cubes = int(manifest["cube_id"].nunique())
 
@@ -1596,7 +1642,7 @@ def _run_p2_rows(manifest, cube_dir, encoders, fold_modes, k, inner_k,
                 block = reconstruction_block(arrays[enc], level, fs)
                 block = _attach(block, agg, level, y_rows, keep_rows)
                 res = evaluate(block, manifest, mode, "A_reconstruction",
-                               k=k, inner_k=inner_k)
+                               k=k, inner_k=inner_k, n_jobs=n_jobs)
                 rows.append({**_base_row("A_reconstruction", agg, "", level,
                                          mode, enc, fs, "reconstruction",
                                          "ridge", block.D, n, n_cubes,
@@ -1612,7 +1658,7 @@ def _run_p2_rows(manifest, cube_dir, encoders, fold_modes, k, inner_k,
             ctrl = retention_block(arrays, level)
             ctrl = _attach(ctrl, agg, level, y_rows, keep_rows)
             res = evaluate(ctrl, manifest, mode, "A_reconstruction",
-                           k=k, inner_k=inner_k)
+                           k=k, inner_k=inner_k, n_jobs=n_jobs)
             rows.append({**_base_row("A_reconstruction", agg, "", level, mode,
                                      "none", "retention", "retention", "ridge",
                                      ctrl.D, n, n_cubes, pairs.n_pairs),
@@ -1645,7 +1691,7 @@ def _run_p2_rows(manifest, cube_dir, encoders, fold_modes, k, inner_k,
                         res = evaluate(block, manifest, mode, "B_delta",
                                        pairs=pairs, readout=readout,
                                        n_common_px=y_pair["n_common_px"],
-                                       k=k, inner_k=inner_k)
+                                       k=k, inner_k=inner_k, n_jobs=n_jobs)
                         rows.append({**_base_row("B_delta", agg, dt, level, mode,
                                                  enc, fs, "delta", readout,
                                                  block.D, n, n_cubes,
@@ -2353,5 +2399,17 @@ def assert_results_complete(df, encoders: Sequence[str] = ENCODER_ORDER,
     )
 
 
-def results_path(name: str = "p2_deltas_results.csv") -> str:
-    return os.path.join(phase_dir(PHASE, "results"), name)
+def results_path(name: str = "p2_deltas_results.csv", root: str | None = None) -> str:
+    """Where a P2 table is written.
+
+    ``root`` overrides the phase directory. A SCALED run's results belong beside
+    the cubes they were computed from -- the placement ``scripts/scale_p4.py``
+    already uses -- and not in the 20-cube phase folder, because the two tables
+    answer the same question at different sample sizes and the published one
+    must stay on disk to be compared against. The default is the phase
+    directory, so the 20-cube call is unchanged and a scaled run cannot
+    overwrite the published artefact by forgetting an argument.
+    """
+    base = phase_dir(PHASE, "results") if root is None else root
+    os.makedirs(base, exist_ok=True)
+    return os.path.join(base, name)

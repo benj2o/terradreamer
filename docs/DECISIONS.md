@@ -2129,3 +2129,57 @@ anchors, one tile, one year, 20 cubes, overlapping cube-clustered intervals.
 gets re-proposed next phase. And "not determinable" is a finding about the
 benchmark's resolving power, which is reusable; "false" would have been a claim
 about DINOv2, which the data does not support.
+
+---
+
+## 2026-08-11: P2 at 115 cubes: three of the phase's four headline claims changed, and the two that changed most were the confident ones
+
+**Assumed.** That the 20-cube P2 table was underpowered in a *uniform* way --
+intervals too wide to separate encoders, but point estimates roughly right, so
+scaling would sharpen the same picture.
+
+**Observed.** Scaling did not sharpen the picture; it inverted two of its
+claims, and in both cases the 20-cube version was confidently wrong rather than
+merely wide.
+
+1. **"K2 is a floor check, not a ranking."** At 115 cubes it IS a ranking:
+   satlas SI, imagenet and dinov2 all separably beat `raw_features` on the
+   paired per-fold difference. Every interval collapsed (DINOv2's by 6x,
+   ImageNet's by 11x).
+2. **"`satlas_s2_swinb_mi_rgb` is excluded from P3."** Retracted. It moved from
+   -0.363 `[-0.592, -0.134]` (separably lossy) to -0.069 `[-0.192, +0.053]`
+   (not separable) and passes band-matched. **No encoder is excluded.**
+3. **"The gap-length control beats every encoder on magnitude."** Wrong, and
+   wrong in the direction that flattered the control. The control itself was a
+   small-sample artefact: +0.209 at 20 cubes, **+0.063 `[-0.004, +0.130]`** at
+   115. The corrected finding is not that encoders win but that *nobody*
+   recovers magnitude -- every rho is +0.06 to +0.12 and three of four encoders
+   flip margin sign across fold modes.
+4. **"The structural hypothesis is not determinable."** Now determinable and
+   REFUTED: the ordering is identical under all three fold modes.
+
+Only the SIGN result survived unchanged, and it survived well -- margins move by
+less than 0.05 across fold modes.
+
+**Changed.** Every quotable number in log.md, README.md and HANDOFF_P3.md now
+comes from the 115-cube table. The 20-cube entry is kept in full with a
+SUPERSEDED banner naming exactly which two claims died, because the comparison
+is the evidence for the methodological point below.
+
+**The methodological point, which is the reusable part.** `k2_separable` -- the
+paired per-fold interval added late in the 20-cube run precisely because a
+0.006 point estimate was about to exclude DINOv2 -- was right in BOTH
+directions. It stopped a false exclusion (DINOv2, now separably ABOVE the
+baseline) and it flagged the one exclusion that later reversed (the MI encoder,
+which was separable at 20 and is not at 115). A binary verdict read off a point
+estimate would have been wrong twice.
+
+**And the trap this phase walked into anyway.** A CONTROL can be a small-sample
+artefact exactly as a treatment can. Nothing in the 20-cube protocol was wrong:
+the gap control was fitted in-fold, poisoned in both directions, reported with
+a cube-clustered interval. It was still inflated by a factor of three, and
+because it was a control, its inflation produced a *negative* headline that
+looked conservative and therefore trustworthy. **A conservative-looking result
+is not a safe result.** Controls need the same sample size the treatments do.
+
+**Commit.** `<pending>`
