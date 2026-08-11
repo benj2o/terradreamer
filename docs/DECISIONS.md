@@ -1797,3 +1797,36 @@ to be interesting: on this benchmark, nobody can know, and here is the
 arithmetic.
 
 **Commit.** `e5b7f43`
+
+---
+
+## 2026-08-11: Stage B's climatology has a second-order leak path, recorded before any H1 is quoted from it
+
+**Assumed.** That holding the cube out under `crossed` made Stage B's
+leave-target-year-out target fully clean, because the climatology for a test row
+pools only that cube's other years and the whole cube is out of train.
+
+**Observed.** True for TEST rows, not for TRAIN ones. A train cube's rows in
+year Y' are detrended by a climatology pooling that cube's other years -- which
+can include the fold's HELD-OUT year Y. So test-year information reaches the
+train TARGETS through other cubes.
+
+It is second order: test rows come from held-out cubes whose own climatologies
+never touch train, and the climatology averages over years, so one year moves it
+by roughly 1/(n_years - 1). With four years that is not negligible.
+
+**Changed.** Nothing yet, deliberately -- Stage B is structurally underpowered
+on this benchmark (see the year-limit entry above), so no number is being quoted
+from it and fixing a second-order bias in an estimate whose interval spans 1.4
+would be misplaced effort. What changed is that it is written down at the site
+that would have to change: `probes/p4_ceiling.run_stage_b` carries the mechanism
+and the cost of the fix (rebuild each cube's climatology per FOLD, excluding
+every held-out year rather than only the row's own -- a climatology
+recomputation per (cube, fold) instead of per (cube, year)).
+
+**The condition.** This must be fixed and quantified BEFORE any H1-style number
+is quoted from Stage B, on this benchmark or a future one with more years. It is
+recorded here rather than in a TODO because the cost of discovering it after a
+number is published is a retraction.
+
+**Commit.** `68cce76`

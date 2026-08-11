@@ -572,7 +572,7 @@ per-encoder comparison into a comparison over different cubes.
 | 2 | bootstrap, resolves RAW + EMB_IN read-only, defines `sh()` | 1 min |
 | 3 | environment check; sklearn present, cheap cache audit | instant |
 | 4 | cubes (skips ones already on Drive) | 15 s |
-| 5 | unit tests, expect `323 passed, 5 skipped` | 20 s |
+| 5 | unit tests, expect `323 passed, 5 skipped` at the time of writing; the count GROWS as later phases add tests (383 as of Phase 1.5). The invariant is 0 failed and 5 skipped. | 20 s |
 | 6 | build the REAL manifest from `data/raw/*.nc` | 1 min |
 | 7 | realised class distribution, chance DERIVED from it | instant |
 | 8 | audit + join all 100 pairs, re-asserted against the `.npz` | 20 s |
@@ -672,7 +672,7 @@ via `encoders.pipeline.window_span_days` rather than read from a cache.
 | 2 | bootstrap, resolves RAW read-only, defines `sh()` | 1 min |
 | 3 | environment check, `N_JOBS` from `os.cpu_count() - 1` | instant |
 | 4 | cubes (skips ones already on Drive) | 15 s |
-| 5 | unit tests, expect `382 passed, 5 skipped` | 50 s |
+| 5 | unit tests, expect `383 passed, 5 skipped` | 50 s |
 | 6 | the REAL manifest + **the E-OBS join VERIFIED against the cubes** | 1 min |
 | 7 | day-of-year vs weather structure; severity bin edges and counts | 30 s |
 | 8 | poisoned held-out NDVI: the climatology must not move (EXHIBIT; the gate is Step 5) | 5 s |
@@ -688,7 +688,7 @@ Full detail in [log.md](log.md); the archived run is
 `notebooks/runs/phase1_5_p4_ceiling_2026-08-10_localCPU.ipynb`.
 
 ```
-Step 5   382 passed, 5 skipped
+Step 5   383 passed, 5 skipped
 Step 6   264 rows x 22 cols; the two axes differ on 264/264 rows by 4..122
          steps (median 53); weather join max abs difference 0
 Step 7   36 DISTINCT days of year over 235 days, every row doy % 5 == 2

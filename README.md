@@ -126,7 +126,12 @@ notebooks/runs/                the executed exit-test runs, outputs kept, as
                                evidence. Never re-run in place; excluded from
                                the Colab bundle by make_zip.sh
 RUNBOOK.md                 Colab walkthrough: folders, restarts, expected output
+docs/HANDOFF_P2.md         ONE PAGE, read first: what the next phase inherits,
+                           what changed under it, the findings that constrain
+                           what it may claim, and the traps with reasons
 docs/DECISIONS.md          why the project is shaped this way. Append-only
+docs/runs/                 verbatim stdout of script runs, kept as evidence --
+                           the same role notebooks/runs/ plays for phases
 log.md                     measurements and adopted definitions
 ```
 
@@ -263,6 +268,29 @@ For Colab, follow [RUNBOOK.md](RUNBOOK.md).
     saturation, not truncation (C=10^4 changes 0.1% of predictions).
   - The local embedding cache is the full **100 files**: `dinov2_vitb14` needed
     Python >= 3.10 for its `torch.hub` code, not a GPU (20 cubes, CPU, 42 s).
+- **Three findings from Phase 1.5 that constrain every later phase**, stated
+  here because they change what the project can claim:
+  - **`H1` as originally scoped is not obtainable on this benchmark.** Tile
+    32UNU has **no seasonal-split coverage** (the split covers 15 tiles, no
+    Bavaria-area tile among them), so the leave-target-year-out climatology is
+    not computable there at all — not deferred. And on a tile that *does* have
+    it, `probes.cv.crossed_folds` clamps the fold count to the **number of
+    years**; GreenEarthNet has four, so the interval is irreducibly wide
+    (measured: 3.5× the cubes narrowed it 11%). Any honest leave-year-out
+    evaluation on this dataset inherits a 4-sample interannual denominator.
+    We report the **within-season proxy ceiling** instead, and say why.
+  - **The 20 original cubes are from the `train` split, not `extreme`.** The
+    real extreme split is 32UMC/32UNC/32UPC/32UQC. Nothing measured changes —
+    every property actually used was verified from the files — but
+    `docs/specs/phase1_3_cv.md` reserved "the 20 extreme cubes" for P3 on a
+    false premise, and the real extreme split is untouched.
+  - **Two latent bugs in `encoders/manifest.py`, both invisible on this
+    subset.** E-OBS was joined on the *acquisition* axis into *daily*-axis
+    arrays (0 of 264 rows carried their own day's weather); and `year` came
+    from the cube *filename's* window-start rather than each frame's timestamp,
+    which had silently **blocked P4's Stage B on every tile since Phase 1.3**.
+    Both fixed and pinned by regression tests verified to fail against the old
+    code. **P2 inherits the fixed manifest** — see the handoff below.
 - 1.5 P4 weather-attributability ceiling: **Stage A DONE, Stage B DEFERRED**
   (2026-08-10; local CPU, 3.0 min). `probes/p4_ceiling.py` + a 270-row results
   CSV under `data/phase1_5/`. 382 tests pass, 5 skipped.
