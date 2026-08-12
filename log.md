@@ -3,6 +3,268 @@
 Running record of measurements and adopted definitions. Reverse chronological.
 Decisions and their rationale live in [docs/DECISIONS.md](docs/DECISIONS.md).
 
+## 2026-08-12: Phase 1.8 (P3) exit test PASSED -- forecasting works, and the hand-crafted baseline is still not beaten
+
+`notebooks/phase1_8_p3_forecast.ipynb`, local CPU, 7 workers, 115 cubes / tile
+32UNU / 2018. Archived under `notebooks/runs/`, verbatim stdout at
+`docs/runs/2026-08-12_p3_forecast_32UNU_115cubes.txt`. Nothing fine-tuned; no
+encoder imported.
+
+```
+tests                 496 passed, 5 skipped, 0 failed  (497 after the run: see below)
+manifest              REBUILT FRESH: 1580 retained frames, 115 cubes, 2018
+                      weather join re-derived from the cubes: 0 rows off their day
+horizon axis check    0 of 1653 rows where the two axes agree, 5.0 days per
+                      acquisition step, matching the live check on the pairs
+run_p3                460 rows x 99 cols, 41.6 min on 7 workers
+invariants            all EIGHT PASS
+effective n           CUBES: 115 / 114 / 115 / 94 at Delta = 5 / 25 / 50 / 100
+```
+
+### Rows retained per horizon -- the window boundary is a result
+
+```
+ Delta   rows  cubes  cubes w/ none  % of eligible t  distinct target DOY
+     5    518    115              0            38.4%                   29
+    25    489    114              1            36.2%                   24
+    50    450    115              0            33.3%                   23
+   100    196     94             21            14.5%                   15
+```
+
+1580 frames, minus 230 that cannot be a `t` for lack of 3 prior retained frames,
+leaves 1350 eligible. **At 100 days, 21 cubes contribute no pair at all** and
+62% of the 5-day row count is gone: the median cube covers 135 days of retained
+frames, so a 100-day horizon has almost nowhere to land. The tolerance is not
+doing this -- on a 5-day orbit lattice +/-3 d accepts EXACT matches only, and
++/-2 selects the identical 1653 rows with **0 off-nominal**. Loosening to +/-5
+would buy 2936 rows and move 1283 of them off their horizon by 5 days, which at
+Delta = 5 is the whole horizon.
+
+Common-masked pixel survival does not collapse at any horizon: 0 of 1653 rows
+have zero common pixels, median 0.82-0.88 surviving, minimum 0.23. As in P2 it
+is not monotone in the horizon.
+
+### THREE FRAMES SET THIS TABLE'S R-SQUARED, and they are cloud
+
+```
+ Delta   rows  <floor  medAE(pers)  RMSE(pers)  SSE from top 1%   top 5%
+     5    518       5       0.0221      0.0864            71.2%    85.4%
+    25    489       2       0.0392      0.0730            40.0%    55.8%
+    50    450       3       0.0565      0.1075            32.5%    49.9%
+   100    196       0       0.0530      0.1059             8.4%    33.2%
+```
+
+Three frames of 1580 carry a common-masked cube-mean NDVI **below zero in
+midsummer**:
+
+```
+32UNU_..._441_569_3257_3385_...  DOY 177  clear_frac 0.624  ->  NDVI -0.0404
+32UNU_..._441_569_1977_2105_...  DOY 202  clear_frac 0.587  ->  NDVI -0.0336
+32UNU_..._441_569_2233_2361_...  DOY 202  clear_frac 0.627  ->  NDVI -0.0279
+```
+
+Bare soil is ~0.15 and summer canopy ~0.85. Both filters passed them: the frames
+are 59-63% "clear", and the per-pixel mask marked the survivors valid. They
+produce five forecast rows with a persistence error of 0.66-0.86 NDVI against a
+median of 0.022, and **the worst 1% of rows carry 71% of the persistence sum of
+squares at 5 days**. Nothing is dropped -- `sse_share_top1pct` and a MEDIAN
+absolute error are on every row instead, because the same three frames are
+inside P2's and P4's targets through `p4_ceiling.cube_frame_targets` and a
+private filter here would make P3's row set incomparable to theirs.
+
+### HEADLINE: `cube_mean`, ridge, cube folds. Pooled out-of-fold R-squared
+
+```
+                              D=5      D=25     D=50     D=100
+raw_features + weather      +0.672   +0.704   +0.368   +0.628    <- BASELINE, autoregressive
+satlas_s2_swinb_mi_rgb      +0.412   +0.597   +0.454   +0.569    [si_comparable=False]
+dinov2_vitb14               +0.486   +0.529   +0.432   +0.554
+imagenet_vit_b16            +0.473   +0.566   +0.390   +0.411
+satlas_s2_swinb_rgb         +0.442   +0.565   +0.369   +0.512
+raw_rgb_only + weather      +0.464   +0.566   +0.329   +0.588    <- BAND-MATCHED baseline
+--------------------------------------------------------------
+persistence                 +0.169   +0.344   -0.009   +0.129    <- BASELINE
+weather only                +0.038   +0.216   +0.190   +0.285    <- BASELINE
+proxy climatology           +0.021   +0.130   +0.104   -0.164    <- BASELINE (proxy, NOT Stage B)
+observation control         +0.016   +0.056   +0.039   -0.031    <- CONTROL
+horizon-alone control       -0.004   -0.007   -0.006   -0.023    <- CONTROL
+permutation                 -0.037   -0.035   -0.014   -0.103    <- CONTROL (empirical zero)
+                              effective n = 115 / 114 / 115 / 94 CUBES
+```
+
+**The three controls are where they should be.** The observation-process control
+never exceeds +0.056, the horizon-alone control is negative at every horizon, and
+the permutation null sits at -0.014 to -0.103. So the headline is not a calendar
+and not cloud retention.
+
+**Every model beats persistence and the proxy climatology at every horizon.**
+Best skill against persistence: +0.605 (5 d), +0.549 (25 d), +0.459 (50 d),
++0.573 (100 d). The 5-day case needs care -- persistence's own R-squared is only
++0.169 because those three cloud frames dominate its squared error, and its
+median absolute error is 0.0221, the best in the table.
+
+### The result the project has to report: the hand-crafted rows are still not beaten
+
+```
+best network minus BAND-MATCHED raw_rgb_only, ridge, cube_mean
+                    D=5      D=25     D=50     D=100
+cube              +0.022   +0.031   +0.126   -0.018
+loco              +0.035   +0.007   +0.112   -0.018
+spatial_block     +0.044   -0.009   +0.154   +0.127
+```
+
+Seven percentiles of three bands, no NDVI column, no network: within 0.03 of the
+best frozen encoder at 5 and 25 days, **ahead of it at 100 days** under the two
+primary modes, and behind by 0.11-0.15 only at 50 days. And the full
+`raw_features` row -- which legitimately holds `NDVI_mean(t)` here, because the
+target is at t+Delta, so this is autoregression and not the K2 leakage case --
+**wins outright at 3 of the 4 horizons**.
+
+This is P2's finding again, on a different target: on the delta SIGN probe
+`raw_rgb_only` reached +0.695 against DINOv2's +0.606. **"NDVI is forecastable
+from a frozen representation plus weather" is established. "Frozen foundation
+models are the best way to do it" is not.**
+
+### `spatial_block` does NOT kill P3 -- the second probe in the project to survive it
+
+```
+dinov2_vitb14, ridge, cube_mean, pooled R2
+                    D=5      D=25     D=50     D=100
+cube              +0.486   +0.529   +0.432   +0.554
+loco              +0.509   +0.556   +0.445   +0.572
+spatial_block     +0.448   +0.491   +0.360   +0.488  [+0.433, +0.543]
+```
+
+The penalty is 0.04 to 0.08 and the intervals still exclude zero at 25, 50 and
+100 days. P1 and P4 both collapse under the strictest geography holdout; P2's
+sign result survived it, and P3's does too. Going in this was UNKNOWN and both
+precedents existed -- it was measured, not inherited.
+
+### What `spatial_block` DOES kill is the proxy climatology
+
+```
+proxy climatology, cube_mean, pooled R2
+                    D=5        D=25      D=50        D=100
+cube              +0.021     +0.130    +0.104      -0.164
+loco              +0.007     +0.119    +0.098      -0.149
+spatial_block     -8.641     -0.011  -1328.396   -2784.151
+```
+
+A tile-level day-of-year curve fitted on one geographic cluster does not transfer
+to another. `assert_climatology_identifiable` passed -- the thinnest training
+fold has 12 distinct target days of year against the curve's 9 parameters -- and
+12 for 9 is exactly the regime where a 4-harmonic fit interpolates its training
+days and then extrapolates wildly. This bounds the CLIMATOLOGY BASELINE, not the
+encoders, and it is a further reason the P4 open item (validate the proxy) is
+still open.
+
+### The extreme / dynamic subset reverses the reading, and it is horizon-dependent
+
+Skill against persistence, per severity bin, `cube_mean` / cube / ridge:
+
+```
+Delta = 5      extreme_low     low  near_normal    high  extreme_high    (n = 52/104/206/104/52)
+raw_features        +0.084  +0.415       +0.868  +0.563        +0.919
+dinov2_vitb14       -0.139  -0.185       +0.726  -0.399        +0.809
+raw_rgb_only        -0.266  +0.114       +0.832  -0.982        +0.744
+
+Delta = 50     extreme_low     low  near_normal    high  extreme_high    (n = 45/90/180/90/45)
+satlas_MI           +0.238  +0.702       +0.728  +0.202        -0.862
+dinov2_vitb14       +0.264  +0.611       +0.722  +0.004        -1.220
+raw_rgb_only        +0.154  +0.653       +0.600  +0.262        -3.143
+
+Delta = 100    extreme_low     low  near_normal    high  extreme_high    (n = 20/39/78/39/20)
+raw_features        +0.739  +0.676       +0.476  -0.225        -0.063
+dinov2_vitb14       +0.673  +0.691       +0.422  -0.524        -0.644
+```
+
+**The headline lives in `near_normal`.** At 5 and 25 days every network is
+NEGATIVE against persistence in `extreme_low` and in `high` -- persistence is
+better there -- and only the autoregressive `raw_features` row is positive in
+`extreme_low` at 25 days (+0.204). At 50 and 100 days the encoders do become
+positive on `extreme_low` (+0.17 to +0.26, then +0.47 to +0.72), but every row
+goes negative on `extreme_high`, down to -3.14. **No row in this table beats
+persistence on both extreme tails at any horizon.** Reporting only the overall
+number would have hidden that completely, which is exactly what the spec
+anticipated.
+
+### The MLP is unusable at this width and sample size, and the table says why
+
+```
+Delta = 100, cube_mean / cube        D    n_train   D/n     pooled R2
+dinov2_vitb14                    11536       158    73.0     -324.24
+satlas_s2_swinb_rgb               3088       158    19.5      -25.65
+imagenet_vit_b16                  4624       158    29.3      -24.61
+satlas_s2_swinb_mi_rgb            1040       158     6.6      -15.58
+raw_features + weather             121       158     0.77      -4.01
+```
+
+A k=3 DINOv2 context is 11 520 columns against 158 to 416 training rows. The MLP
+carries P4's fixed a-priori configuration and an L2 of 1e-3, so it is
+essentially unregularised at that width and it diverges. Every row carries
+`d_over_n_train`, so the p >> n regime is a measured property of the row rather
+than a caveat in prose. **Ridge, whose penalty is alpha = D by rule, is fine at
+the same width.** This is P4's "capacity is sample-size dependent" a third time,
+in the direction where capacity loses.
+
+### Secondary aggregations
+
+`cell_mean` (16 cells per row, the resolution axis, cube folds) is where the
+outlier concentration falls -- `sse_share_top1pct` drops from 65% to 50% at
+5 days and to 11-13% at 100 -- and the ordering is the same:
+
+```
+cell_mean / cube             D=5      D=25     D=50     D=100
+raw_features + weather     +0.778   +0.680   +0.441   +0.513
+dinov2_vitb14              +0.593   +0.561   +0.466   +0.572
+raw_rgb_only + weather     +0.639   +0.570   +0.366   +0.443
+persistence                +0.576   +0.487   +0.107   +0.057
+```
+
+At cell level and 5 days **persistence is nearly unbeatable** (+0.576, and
+DINOv2's skill against it is only +0.040): the shorter the horizon and the finer
+the target, the less there is to add.
+
+### The multi-image encoder is the best NETWORK at 3 of 4 horizons, and that is a lookback result
+
+`satlas_s2_swinb_mi_rgb` leads the single-image encoders at 25, 50 and 100 days
+under `cube` and `loco`. It is flagged `si_comparable=False` on every row and it
+is not a like-for-like win: its ONE embedding at t already max-pools up to 8
+retained frames -- a 0-105 day lookback, median 55 -- while the single-image
+encoders get 3 frames spanning perhaps 10-20 days. It is being given more
+history, not a better representation of the same history. `context_block`
+REFUSES a 3-frame stack for it, because that would double-count the lookback it
+already contains.
+
+### Cross-probe: P3's ordering DIVERGES from P2's
+
+P2 (delta sign, 115 cubes, stable under all three fold modes):
+`raw_features > dinov2 > satlas_SI > imagenet`.
+P3 (`cube_mean`, ridge, single-image encoders only):
+
+```
+cube            raw_features > dinov2 > imagenet > satlas_SI
+loco            raw_features > dinov2 > satlas_SI > imagenet
+spatial_block   raw_features > dinov2 > imagenet > satlas_SI
+```
+
+`raw_features` first and `dinov2` second in every mode, as in P2; the two weaker
+networks swap. Reported as a cross-probe observation only -- P2 settled that
+hypothesis (refuted, `supported=False`) and nothing here re-tests it.
+
+### One assertion was strengthened AFTER the run, and no number moved
+
+Re-checking the eight invariants against the WRITTEN CSV rather than the
+in-memory table caught `assert_climatology_rows_labelled` comparing
+`climatology_def` to `""` on non-climatology rows. An empty string written to
+CSV reads back as NaN, so the assertion passed in memory and failed on the
+artefact that table was written to -- the worst direction for an assertion to
+fail in, because the CSV is what anyone else reads. Fixed to test the value's
+MEANING (NaN or empty = unlabelled), and pinned by
+`test_every_table_invariant_survives_a_CSV_ROUND_TRIP`. **497 passed, 5 skipped,
+0 failed** afterwards; the archived notebook records 496 because that test did
+not exist when it ran. No number in the table changed.
+
 ## 2026-08-11: P2 at 115 cubes -- gate K2 becomes a RANKING, sign holds, magnitude was never there, and the MI exclusion is RETRACTED
 
 `scripts/scale_p2.py` against the Phase 1.7 cache (115 cubes x 5 encoders, built

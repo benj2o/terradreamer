@@ -2183,3 +2183,223 @@ looked conservative and therefore trustworthy. **A conservative-looking result
 is not a safe result.** Controls need the same sample size the treatments do.
 
 **Commit.** `930cc01`
+
+---
+
+## 2026-08-12: Phase 1.8, P3: the multi-image encoder gets ONE embedding as its context, and the code refuses a stack
+
+**Assumed.** That "context = the k=3 most recent retained frames" was a uniform
+rule, and that applying it to `satlas_s2_swinb_mi_rgb` alongside the four
+single-image encoders would simply give it a wider input.
+
+**Observed.** It would give it the SAME input three times. The MI encoder's
+embedding at t already max-pools up to 8 preceding retained frames -- a lookback
+of 0 to 105 days on this subset, median 55 -- so consecutive MI embeddings share
+up to 7 of their 8 source frames. A k=3 stack is therefore three heavily
+overlapping summaries of one window presented to the read-out as three
+observations, and it double-counts the lookback the encoder was built to
+contain. This is the sharper version of the same fact P1 flagged (a single
+"month" label is ill-defined for a 105-day lookback) and P2 flagged harder
+(`E(t+1) - E(t)` is a sliding-window increment, not a state change).
+
+Nothing about the failure is visible downstream. The stacked design matrix has
+the right shape, the right dtype, no non-finite entries, and produces a
+plausible R-squared.
+
+**Changed.** `context_frames_for(encoder)` is the single source of the k: 3 for
+every single-image encoder, 1 for the MI encoder. `context_block` REFUSES a
+3-frame request for the MI encoder with a message that states the reason, rather
+than silently honouring or silently ignoring it -- a silently-ignored argument is
+indistinguishable from one that was honoured, and the row would then claim a
+3-frame context while carrying a 1-frame one. Every MI row carries
+`si_comparable=False` and `context_frames=1`, and
+`assert_mi_flagged_and_single_frame` asserts both halves on the table.
+
+**What was deliberately NOT done.** The MI encoder is not dropped, and its rows
+are not excluded from the results table. P2's 115-cube run RETRACTED its
+exclusion (the encoder is no longer separably lossy on gate K2), so excluding it
+here would re-impose a verdict the data withdrew. It is reported, flagged, and
+kept out of any single-image ranking.
+
+**A consequence worth stating.** The k>=3 rule defines the ROW SET, and it is
+applied ONCE before any encoder is chosen -- so the MI encoder is scored on
+exactly the rows the others are scored on, even though it needs only one of the
+three. Letting its single-frame context buy it extra rows would make the table's
+`n` depend on which column a reader filtered to.
+
+**Commit.** `TBD`
+
+---
+
+## 2026-08-12: Phase 1.8, P3: persistence is scored through common-masking, which makes its residual P2's delta by construction
+
+**Assumed.** That persistence -- "predict NDVI(t+Delta) = NDVI(t)" -- was the one
+baseline too simple to get wrong, and that it could be scored by taking each
+frame's own spatial mean.
+
+**Observed.** That is exactly P2's differencing trap, one level up. Frame t's own
+mean is over t's valid pixels; frame t+Delta's own mean is over ITS valid pixels.
+The difference between them is partly a comparison of two different pieces of
+ground, attributed to time. The two answers agree only when the masks agree --
+i.e. exactly when the distinction does not matter -- so no spot check finds it,
+and on this subset the intersection keeps a median of only 82-88% of pixels.
+
+It matters more for persistence than for anything else in the table, because
+persistence's error IS a frame-to-frame difference. Every other row's error is a
+model residual, in which a mask mismatch is one more noise term; in persistence
+it is the whole quantity.
+
+**Changed.** The TARGET itself is common-masked: `y` is the aggregate of NDVI at
+t+Delta over the pixels valid in BOTH frames, and persistence predicts the
+aggregate of NDVI at t over that same intersection. The persistence residual is
+then `p2_deltas.common_masked_delta`'s change, **by construction rather than by
+coincidence**, and every other model in the table is scored against the same
+target definition, so the comparison is like-for-like.
+
+`common_masked_levels` adds the two LEVELS -- which a forecast needs and a delta
+probe did not -- on top of P2's imported, unmodified `common_masked_delta`, and
+then PINS them to it: for all three aggregations it asserts
+`level_b - level_a == the delta p2 returned` to 1e-12 on every pair. The
+intersection arithmetic is not duplicated, and the two cannot drift.
+
+**The test that can fail.** A synthetic pair with deliberately non-overlapping
+masks, where the naive answer and the common-masked answer differ by more than
+1e-6; the test asserts the residual equals p2's delta AND does not equal the
+difference of the two frames' own means. A fixture whose masks agreed would pass
+both ways and prove nothing.
+
+**Commit.** `TBD`
+
+---
+
+## 2026-08-12: Phase 1.8, P3: the horizon drop policy is a boundary drop, never a wrap, and the tolerance is measured rather than chosen
+
+**Assumed.** That "the nearest retained acquisition to t + Delta_days" needed a
+tolerance, and that +/-3 days was a mild, unimportant setting.
+
+**Observed.** Two things, and the second changes how the first is read.
+
+1. **The tolerance does no work here.** Every retained frame on this subset
+   satisfies `doy % 5 == 2` -- one Sentinel-2 orbit lattice -- so every
+   realisable horizon is a multiple of 5 days, and so are all four nominal
+   horizons. A +/-3 day tolerance therefore accepts EXACT matches only: +/-2 and
+   +/-3 select the identical 1653 rows, 0 of them off the nominal horizon.
+   Loosening to +/-5 admits the neighbouring lattice point, which nearly doubles
+   the row count (1653 -> 2936) and moves 1283 rows off their nominal horizon --
+   by 5 days, which at Delta = 5 d is 100% of the horizon.
+2. **The window boundary is where the rows actually go.** Cubes cover about 150
+   days and their retained frames span a median of 135, so a 100-day horizon has
+   almost nowhere to land: 196 rows over 94 cubes, against 518 rows over 115
+   cubes at 5 days. **21 cubes contribute no 100-day pair at all.**
+
+**Changed.** A row with no retained frame within the tolerance of t + Delta,
+inside the SAME cube, is DROPPED. It is never wrapped to another cube, never
+extrapolated past the cube's window, and never filled. `TOLERANCE_DAYS = 3` is
+kept -- exact matching is what it means here -- and
+`horizon_tolerance_sensitivity` prints the row counts and the off-nominal counts
+at several tolerances so the choice is a measurement in the run log rather than
+an unexamined constant.
+
+The shrinkage is REPORTED, not hidden: `print_horizon_retention` prints it before
+anything is fitted, `n_retained` and `n_cubes` travel on every row of the CSV,
+and `assert_retention_shrinks` asserts it -- because if the count did NOT fall at
+100 days over 135-day cubes, the row set would be including pairs the cubes
+cannot support, and a wrap, an extrapolation or a too-loose tolerance is silent
+in the score.
+
+**Where the assertion binds, and why that is not a loophole.** A horizon that is
+a small fraction of the cube's covered window loses nothing at the boundary and
+has no reason to shrink. The requirement therefore applies when the longest
+horizon reaches at least half the median cube day-span (100/135 = 74% here), and
+otherwise the check PRINTS that it did not apply and gives the fraction. That is
+the "or explained if it does not" half of the rule expressed as data. A blanket
+requirement would be a false invariant that a future run with shorter horizons
+would have to work around, and worked-around assertions stop being read.
+
+**Commit.** `TBD`
+
+---
+
+## 2026-08-12: Phase 1.8, P3: three cloud-contaminated frames set this table's R-squared, and they are reported rather than dropped
+
+**Assumed.** That the clear-fraction filter plus the cached per-pixel mask left a
+target clean enough that an R-squared over ~500 rows was a property of the bulk
+of them.
+
+**Observed.** It is not. **Three frames of 1580 carry a common-masked cube-mean
+NDVI below ZERO in midsummer** -- days of year 177, 202 and 202, at clear
+fractions of 0.587, 0.624 and 0.627, in three different cubes that share a pixel
+column near the western edge of the tile. Bare soil is about 0.15 and dense
+summer canopy about 0.85; NDVI near zero in July over Allgau farmland is cloud,
+not vegetation. Both filters passed them: the frames are 59-63% "clear" so the
+clear-fraction rule kept them, and the per-pixel mask marked the surviving pixels
+valid, so the contamination sits INSIDE the pixels this phase, P2 and P4 all
+treat as good data.
+
+Those three frames produce about five forecast rows whose persistence error is
+0.66 to 0.86 NDVI, against a median persistence error of 0.022 at Delta = 5 d.
+**The worst 1% of rows carry 71% of the persistence sum of squares at Delta = 5
+d**, 40% at 25 d and 33% at 50 d. An R-squared computed over them is a statement
+about three frames.
+
+**Changed, and what was deliberately NOT changed.** Nothing is dropped. A
+plausibility screen here would be a filter P2 and P4 do not apply, which would
+make P3's row set incomparable to theirs -- and their numbers rest on the same
+three frames, so the right fix is in the SHARED frame-target code, not in a
+private filter in this phase. Instead:
+
+* `print_target_outliers` measures the concentration and names the three frames,
+  before anything is fitted, with the physical floor stated.
+* `sse_share_top1pct` travels on EVERY row of the CSV, so any R-squared can be
+  read against how concentrated it is.
+* `medae_pooled` -- a MEDIAN absolute error, which five rows cannot set -- sits
+  beside every mean.
+
+**Recorded as an open item for the shared code**, not for P3: a physical
+plausibility screen at frame level in `p4_ceiling.cube_frame_targets` would
+change P2's magnitude table and P4's ceiling as well as P3's headline, and that
+is a decision about all three phases.
+
+**The reusable point.** P2's lesson was that a CONTROL can be a small-sample
+artefact. This is the neighbouring one: a squared-error metric can be an
+OUTLIER artefact, and it looks exactly like a measurement -- finite, in range,
+with a plausible interval and a cube-clustered CI. The diagnostic that catches it
+is not a better model, it is printing which rows the score came from.
+
+**Commit.** `TBD`
+
+---
+
+## 2026-08-12: Phase 1.8, P3: the margins are taken on the POOLED out-of-fold R-squared, because leave-one-cube-out has two-row folds
+
+**Assumed.** That P3 would report the mean of per-fold R-squareds with a
+fold-clustered interval, as P1, P2 and P4 all do.
+
+**Observed.** That works in those phases because a fold holds dozens of rows.
+Here it does not. A P3 row is a (cube, t, Delta) triple, and a cube contributes
+about 4-5 of them at Delta = 5 d and 2 at Delta = 100 d. Under leave-one-cube-out
+a test fold is therefore two to five rows, and an R-squared against the mean of
+three points is not a measurement -- `r2` is NaN for essentially every LOCO fold,
+so `r2_mean` is NaN for every LOCO row and a margin built on it would go missing
+for an entire fold mode.
+
+**Changed.** Every margin -- `margin_over_control`, `margin_over_persistence`,
+`margin_over_climatology`, `margin_over_horizon_control`,
+`margin_over_permutation`, `margin_over_band_matched` -- and `control_score`
+itself are taken on `r2_pooled`: the R-squared over every held-out prediction,
+each used exactly once. It is defined wherever any row was predicted at all.
+
+Its uncertainty is a **delete-one-FOLD jackknife**: recompute the pooled
+statistic with each fold's rows removed and form a t interval from the spread.
+Folds hold disjoint sets of cubes, so deleting one deletes a CLUSTER -- the same
+clustering `p4_ceiling.fold_clustered_ci` applies to a mean, extended to a
+statistic that is not one.
+
+`r2_mean` and its fold-clustered interval stay on the table beside it and are the
+right number to quote under `cube` and `spatial_block`. Where `r2_mean` is NaN
+the row carries `n_folds_nan`, and `assert_results_complete` asserts that a NaN
+mean is always accompanied by a non-zero NaN-fold count -- so the NaN is a
+reported fact rather than a hole, and `print_headlines` prints `n/a` in that
+column rather than a mean over whichever folds happened to survive.
+
+**Commit.** `TBD`

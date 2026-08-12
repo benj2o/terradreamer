@@ -25,7 +25,8 @@ NOTEBOOK = os.path.join(_NOTEBOOKS, "phase1_3_cv.ipynb")
 # are asserted character-identical below.
 RESOLVER_NOTEBOOKS = ("phase1_3_cv.ipynb", "phase1_4_p1_appearance.ipynb",
                       "phase1_5_p4_ceiling.ipynb", "phase1_6_p2_deltas.ipynb",
-                      "phase1_7_scaled_encoding.ipynb")
+                      "phase1_7_scaled_encoding.ipynb",
+                      "phase1_8_p3_forecast.ipynb")
 _BEGIN = "# === RESOLVER (pinned by tests/test_notebook_resolver.py) -- BEGIN ==="
 _END = "# === RESOLVER -- END ==="
 
