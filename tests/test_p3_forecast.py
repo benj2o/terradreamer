@@ -474,6 +474,83 @@ def test_fit_readout_poison_pair(estimator):
     )
 
 
+def test_fit_readout_uses_the_alpha_it_is_given_and_only_for_the_ridge():
+    """A selected penalty must actually reach the estimator, and nowhere else.
+
+    An override that were silently ignored would produce a ``nested_cv`` row
+    identical to its ``fixed_alpha_D`` twin -- a column claiming a rule the fit
+    never followed, which is worse than not having the rule.
+    """
+    from sklearn.linear_model import Ridge
+    X, y, tr, te = _design()
+    a, _, _ = p3.fit_readout(X, y, tr, te, "linear", alpha=1e-3)
+    b, _, _ = p3.fit_readout(X, y, tr, te, "linear", alpha=1e5)
+    assert not np.allclose(a, b), "the alpha override did not reach the ridge"
+    assert isinstance(p4.make_estimator("linear", 4, alpha=7.0), Ridge)
+    assert p4.make_estimator("linear", 4, alpha=7.0).alpha == 7.0
+    assert p4.make_estimator("linear", 4).alpha == 4.0     # the alpha = D rule
+    with pytest.raises(AssertionError, match="RIDGE only"):
+        p4.make_estimator("hgb", 4, alpha=7.0)
+    with pytest.raises(AssertionError, match="alpha must be"):
+        p4.make_estimator("linear", 4, alpha=0.0)
+
+
+def test_select_alpha_poison_pair():
+    """The penalty is chosen on the TRAINING fold only -- both directions.
+
+    ``p2_deltas.select_ridge_alpha`` already carries this pair; it is re-run
+    here through P3's own wrapper, with P3's row-to-manifest mapping, because a
+    guard is only a control in the phase that actually runs it -- and because
+    the mapping (a feature row's fold is decided by the manifest row of ``t``)
+    is P3's and not P2's.
+    """
+    m = _manifest(n_cubes=9, frames=12)
+    rng = np.random.default_rng(0)
+    n = len(m)
+    X = rng.normal(size=(n, 5))
+    y = X[:, 0] * 3.0 + rng.normal(scale=0.2, size=n)
+    row_of = np.arange(n)
+    folds = list(cv.folds(m, "cube", k=3, verbose=False))
+    tr_rows, te_rows = folds[0]
+    tr = np.flatnonzero(np.isin(row_of, tr_rows))
+
+    base = p3.select_alpha(X, y, tr, m, tr_rows, row_of, name="poison")["param"]
+
+    y_test_poison = y.copy()
+    y_test_poison[np.isin(row_of, te_rows)] += 1000.0
+    got = p3.select_alpha(X, y_test_poison, tr, m, tr_rows, row_of)["param"]
+    assert got == base, (
+        "poisoning the HELD-OUT rows changed the selected penalty, so the "
+        "selection read rows this fold is not allowed to read"
+    )
+
+    y_train_poison = y.copy()
+    y_train_poison[tr[:20]] += 1000.0
+    moved = p3.select_alpha(X, y_train_poison, tr, m, tr_rows, row_of)["param"]
+    assert moved != base, (
+        "poisoning a TRAINING row did not move the selected penalty, so the "
+        "held-out poison test above proved nothing"
+    )
+
+
+def test_select_alpha_refuses_a_tuning_index_wider_than_the_fit():
+    """The rows the tuner reads must be the rows the fold's fit reads."""
+    m = _manifest(n_cubes=9, frames=12)
+    n = len(m)
+    X = np.random.default_rng(1).normal(size=(n, 4))
+    y = X[:, 0] + 0.1
+    row_of = np.arange(n)
+    tr_rows, _ = list(cv.folds(m, "cube", k=3, verbose=False))[0]
+    tr = np.flatnonzero(np.isin(row_of, tr_rows))
+    with pytest.raises(AssertionError, match="same set of rows"):
+        p3.select_alpha(X, y, tr[:-5], m, tr_rows, row_of, name="narrow")
+    # ...and narrower, too: a tuner that read FEWER rows than the fit would
+    # choose a penalty for a model that is not the one being fitted.
+    wide = np.concatenate([tr, np.setdiff1d(np.arange(n), tr)[:5]])
+    with pytest.raises(AssertionError, match="same set of rows"):
+        p3.select_alpha(X, y, wide, m, tr_rows, row_of, name="wide")
+
+
 def test_horizon_control_poison_pair():
     """P3's horizon control is ``p2_deltas.fit_gap_control``, imported.
 
@@ -580,47 +657,85 @@ def test_folds_come_from_probes_cv_and_the_refusals_stand(manifest):
 # The table: controls, baselines, labels
 # ---------------------------------------------------------------------------
 
+_VIEWS = (("forecast", "dinov2_vitb14", "embedding"),
+          ("forecast", "dinov2_vitb14_cir", "embedding"),
+          ("raw_rgb_only_weather", "raw_features", "raw_rgb_only"),
+          ("raw_features_weather", "raw_features", "embedding"),
+          ("weather_only", "none", "weather"))
+_CONTROL_VIEWS = (("observation", "none", "observation"),
+                  ("permutation", "none", "weather"))
+
+
+def _row(H, kind, enc, fs, est, rule, base, score):
+    return {"delta_days": H, "aggregation": "cube_mean", "fold_mode": "cube",
+            "estimator": est, "alpha_rule": rule, "feature_base": base,
+            "model_kind": kind, "encoder": enc,
+            "encoder_base": p3.base_encoder(enc) if enc != "none" else "none",
+            "band_composite": p3.band_composite(enc), "feature_set": fs,
+            "is_control": kind in p3.CONTROL_KINDS,
+            "is_baseline": kind in p3.BASELINE_KINDS,
+            "si_comparable": p3.base_encoder(enc) != p3.MI_ENCODER,
+            "plausibility_screen": True,
+            "plausibility_screen_def": p3.PLAUSIBILITY_SCREEN_LABEL,
+            "n_rows_dropped_implausible": 4,
+            "r2_mean": score, "r2_std": 0.01, "r2_ci_lo": score - 0.1,
+            "r2_ci_hi": score + 0.1, "per_fold_r2": "0.1000;0.2000",
+            "effective_n": 10, "r2_pooled": score,
+            "r2_pooled_ci_lo": score - 0.1, "r2_pooled_ci_hi": score + 0.1,
+            "n_rows_pooled": 40, "skill_vs_persistence": 0.2,
+            "alpha_per_fold": "1;1", "alpha_median": 1.0,
+            "n_folds_alpha_at_grid_edge": 0}
+
+
 def _table():
-    """A minimal results table with the structure add_margins expects."""
+    """A minimal results table with the structure add_margins expects.
+
+    It spans every axis the keys now run over -- both penalty rules on the
+    ridge, both feature bases on the model rows, and a ``_cir`` view beside its
+    RGB twin -- because a fixture that covered only one value of a key would let
+    a key mismatch through.
+    """
     rows = []
     for H in (5, 25):
         for est in ("linear", "hgb", "mlp"):
-            for kind, enc, fs in (("forecast", "dinov2_vitb14", "embedding"),
-                                  ("raw_rgb_only_weather", "raw_features",
-                                   "raw_rgb_only"),
-                                  ("raw_features_weather", "raw_features",
-                                   "embedding"),
-                                  ("weather_only", "none", "weather"),
-                                  ("observation", "none", "observation"),
-                                  ("permutation", "none", "weather")):
-                rows.append({"delta_days": H, "aggregation": "cube_mean",
-                             "fold_mode": "cube", "estimator": est,
-                             "model_kind": kind, "encoder": enc,
-                             "feature_set": fs,
-                             "is_control": kind in p3.CONTROL_KINDS,
-                             "is_baseline": kind in p3.BASELINE_KINDS,
-                             "r2_mean": 0.1 + 0.01 * H
-                             + 0.001 * len(kind) + 0.0001 * len(est),
-                             "r2_std": 0.01, "r2_ci_lo": 0.0, "r2_ci_hi": 0.2,
-                             "per_fold_r2": "0.1000;0.2000",
-                             "effective_n": 10,
-                             "r2_pooled": 0.1 + 0.01 * H + 0.001 * len(kind)
-                             + 0.0001 * len(est),
-                             "r2_pooled_ci_lo": 0.0, "r2_pooled_ci_hi": 0.2,
-                             "skill_vs_persistence": 0.2})
+            for rule in p3._alpha_rules_for(est):
+                for kind, enc, fs in _VIEWS:
+                    for base in p3.FEATURE_BASES:
+                        rows.append(_row(
+                            H, kind, enc, fs, est, rule, base,
+                            0.1 + 0.01 * H + 0.001 * len(kind)
+                            + 0.0001 * len(est) + 0.002 * len(rule)
+                            + 0.003 * len(base) + 0.0005 * len(enc)))
+                for kind, enc, fs in _CONTROL_VIEWS:
+                    rows.append(_row(
+                        H, kind, enc, fs, est, rule, p3.FEATURE_BASE_NONE,
+                        0.1 + 0.01 * H + 0.001 * len(kind)
+                        + 0.0001 * len(est) + 0.002 * len(rule)))
         for kind in ("persistence", "climatology_proxy", "horizon_only"):
-            rows.append({"delta_days": H, "aggregation": "cube_mean",
-                         "fold_mode": "cube", "estimator": "none",
-                         "model_kind": kind, "encoder": "none",
-                         "feature_set": "none",
-                         "is_control": kind in p3.CONTROL_KINDS,
-                         "is_baseline": kind in p3.BASELINE_KINDS,
-                         "r2_mean": 0.05, "r2_std": 0.01, "r2_ci_lo": 0.0,
-                         "r2_ci_hi": 0.1, "per_fold_r2": "0.0500;0.0500",
-                         "effective_n": 10, "r2_pooled": 0.05,
-                         "r2_pooled_ci_lo": 0.0, "r2_pooled_ci_hi": 0.1,
-                         "skill_vs_persistence": 0.0})
+            rows.append(_row(H, kind, "none", "none", "none",
+                             p3.ALPHA_RULE_NA, p3.FEATURE_BASE_NONE, 0.05))
     return pd.DataFrame(rows)
+
+
+def _payloads(df, seed=0):
+    """Held-out (fold, position, y, prediction) arrays for a synthetic table.
+
+    Every row is scored on the SAME (fold, position) grid -- which is what the
+    real run guarantees and what makes a paired difference possible -- and each
+    row's predictions are noised by its own r2_pooled so no two rows are
+    identical.
+    """
+    rng = np.random.default_rng(seed)
+    fold = np.repeat(np.arange(4), 10)
+    pos = np.tile(np.arange(10), 4)
+    y = rng.normal(size=fold.size)
+    out = []
+    for s in df.r2_pooled.to_numpy(float):
+        out.append({"fold": fold.astype(np.int64), "pos": pos.astype(np.int64),
+                    "y": y.copy(),
+                    "pred": y + rng.normal(scale=1.0 - min(0.9, abs(s)),
+                                           size=y.size)})
+    return out
 
 
 def test_control_score_is_on_every_row_and_identical_across_views():
@@ -631,12 +746,14 @@ def test_control_score_is_on_every_row_and_identical_across_views():
     """
     df = p3.add_margins(_table(), verbose=False)
     assert df.control_score.notna().all()
-    for (H, est), sub in df.groupby(["delta_days", "control_estimator"]):
+    for (H, est, rule), sub in df.groupby(["delta_days", "control_estimator",
+                                           "control_alpha_rule"]):
         assert sub.control_score.nunique() == 1, (
-            f"control_score differs between views at Delta={H}, {est}"
+            f"control_score differs between views at Delta={H}, {est}, {rule}"
         )
         own = df[(df.model_kind == "observation") & (df.delta_days == H)
-                 & (df.estimator == est)].r2_pooled.iloc[0]
+                 & (df.estimator == est)
+                 & (df.alpha_rule == rule)].r2_pooled.iloc[0]
         assert sub.control_score.iloc[0] == own
     p3.assert_control_identical_across_views(df)
 
@@ -650,14 +767,73 @@ def test_assert_control_identical_across_views_catches_a_disagreeing_copy():
 
 def test_margins_are_taken_against_the_same_estimator():
     """Comparing an MLP to a ridge control would compare two learners, not two
-    feature sets."""
+    feature sets -- and so would comparing a tuned ridge to a fixed-alpha one."""
     df = p3.add_margins(_table(), verbose=False)
     for est in ("linear", "hgb", "mlp"):
-        sub = df[(df.estimator == est) & (df.delta_days == 5)]
-        ctrl = df[(df.model_kind == "observation") & (df.estimator == est)
-                  & (df.delta_days == 5)].r2_pooled.iloc[0]
-        np.testing.assert_allclose(sub.margin_over_control,
-                                   sub.r2_pooled - ctrl)
+        for rule in p3._alpha_rules_for(est):
+            sub = df[(df.estimator == est) & (df.alpha_rule == rule)
+                     & (df.delta_days == 5)]
+            ctrl = df[(df.model_kind == "observation") & (df.estimator == est)
+                      & (df.alpha_rule == rule)
+                      & (df.delta_days == 5)].r2_pooled.iloc[0]
+            np.testing.assert_allclose(sub.margin_over_control,
+                                       sub.r2_pooled - ctrl)
+
+
+def test_the_penalty_rule_is_part_of_the_margin_key():
+    """The two ridge rules are two LEARNERS. A margin across them would be a
+    comparison of penalties dressed up as a comparison of feature sets."""
+    df = p3.add_margins(_table(), verbose=False)
+    fixed = df[(df.estimator == "linear") & (df.alpha_rule == p3.ALPHA_RULE_FIXED)]
+    tuned = df[(df.estimator == "linear") & (df.alpha_rule == p3.ALPHA_RULE_TUNED)]
+    assert len(fixed) == len(tuned) and len(fixed)
+    assert fixed.control_score.iloc[0] != tuned.control_score.iloc[0]
+    assert fixed.band_matched_score.iloc[0] != tuned.band_matched_score.iloc[0]
+
+
+def test_the_shared_base_is_part_of_the_band_matched_key():
+    """A row with the base must be measured against the baseline WITH the base."""
+    df = p3.add_margins(_table(), verbose=False)
+    for base in p3.FEATURE_BASES:
+        sub = df[(df.feature_base == base) & (df.estimator == "linear")
+                 & (df.alpha_rule == p3.ALPHA_RULE_FIXED)
+                 & (df.delta_days == 5)]
+        band = sub[(sub.encoder == p3.BASELINE_ENCODER)
+                   & (sub.feature_set == p3.BAND_MATCHED_BASELINE)]
+        assert len(band) == 1
+        np.testing.assert_allclose(sub.margin_over_band_matched,
+                                   sub.r2_pooled - float(band.r2_pooled.iloc[0]))
+
+
+def test_alpha_rules_and_shared_base_are_complete_and_controls_take_no_base():
+    df = p3.add_margins(_table(), verbose=False)
+    p3.assert_alpha_rules_present(df)
+    p3.assert_shared_base_present(df)
+    p3.assert_plausibility_screen_declared(df)
+    half = df[~((df.estimator == "linear")
+                & (df.alpha_rule == p3.ALPHA_RULE_TUNED))]
+    with pytest.raises(AssertionError, match="alpha_rule|both"):
+        p3.assert_alpha_rules_present(half)
+    nobase = df[df.feature_base == p3.FEATURE_BASE_NONE]
+    with pytest.raises(AssertionError, match="feature_base"):
+        p3.assert_shared_base_present(nobase)
+    poisoned = df.copy()
+    poisoned.loc[poisoned.is_control, "feature_base"] = p3.FEATURE_BASE_SHARED
+    with pytest.raises(AssertionError, match="control row"):
+        p3.assert_shared_base_present(poisoned)
+
+
+def test_the_screen_must_be_declared_and_cannot_be_mixed():
+    df = p3.add_margins(_table(), verbose=False)
+    mixed = df.copy()
+    mixed.loc[mixed.index[0], "plausibility_screen"] = False
+    with pytest.raises(AssertionError, match="mixes screened"):
+        p3.assert_plausibility_screen_declared(mixed)
+    off = df.copy()
+    off["plausibility_screen"] = False
+    p3.assert_plausibility_screen_declared(off, required=False)
+    with pytest.raises(AssertionError, match="plausibility_screen=False"):
+        p3.assert_plausibility_screen_declared(off, required=True)
 
 
 def test_controls_and_baselines_are_all_present():
@@ -670,6 +846,179 @@ def test_controls_and_baselines_are_all_present():
     dropped = df[df.model_kind != "horizon_only"]
     with pytest.raises(AssertionError, match="horizon_only"):
         p3.assert_controls_present(dropped)
+
+
+def _paired_table(seed=0):
+    """The synthetic table with its scores DERIVED from its payloads.
+
+    In the real run ``r2_pooled`` and the paired difference come from the same
+    held-out predictions, so they agree by construction and
+    ``assert_separability_is_paired`` can check that they do. A fixture whose
+    scores were invented independently of its payloads would fail that check for
+    a reason that has nothing to do with the code under test.
+    """
+    df = _table()
+    pl = _payloads(df, seed=seed)
+    r2, lo, hi = [], [], []
+    for p in pl:
+        folds = [_fake_fold(i, p["fold"], p) for i in np.unique(p["fold"])]
+        v, a, b = p3._pooled_with_fold_jackknife(folds, p3._r2_pooled)
+        r2.append(v), lo.append(a), hi.append(b)
+    df["r2_pooled"] = r2
+    df["r2_pooled_ci_lo"] = lo
+    df["r2_pooled_ci_hi"] = hi
+    df["n_rows_pooled"] = [int(p["y"].size) for p in pl]
+    df = p3.add_paired_separability(df, pl, verbose=False)
+    return p3.add_margins(df, verbose=False)
+
+
+def test_the_paired_difference_is_the_margin_it_is_the_interval_for():
+    """An interval on a neighbouring quantity is worse than no interval."""
+    df = _paired_table()
+    p3.assert_separability_is_paired(df)
+    for key, margin in p3.REFERENCE_MARGIN.items():
+        d = df[f"paired_diff_vs_{key}"].to_numpy(float)
+        m = df[margin].to_numpy(float)
+        ok = np.isfinite(d) & np.isfinite(m)
+        assert ok.any(), f"no row carries both paired_diff_vs_{key} and {margin}"
+        np.testing.assert_allclose(d[ok], m[ok], rtol=0, atol=1e-9)
+
+
+def test_a_marginal_ci_comparison_cannot_come_back():
+    """THE guard. A verdict rebuilt from the two marginal intervals is refused.
+
+    Both naive combinations are tried, because both are what an edit reaches
+    for: the sum of the half-widths, and their root-sum-square.
+    """
+    df = _paired_table()
+    ref = p3._reference_index(df)[p3.PRIMARY_REFERENCE]
+    ha = ((df.r2_pooled_ci_hi - df.r2_pooled_ci_lo) / 2).to_numpy(float)
+    hb = np.where(ref >= 0, ha[np.maximum(ref, 0)], np.nan)
+    ref_name = p3.PRIMARY_REFERENCE
+    for naive in (ha + hb, np.sqrt(ha ** 2 + hb ** 2)):
+        bad = df.copy()
+        lo, hi = bad.paired_diff - naive, bad.paired_diff + naive
+        sep = (lo > 0) | (hi < 0)
+        for suffix in ("", f"_vs_{ref_name}"):
+            bad[f"paired_ci_lo{suffix}"] = lo
+            bad[f"paired_ci_hi{suffix}"] = hi
+            bad[f"separable{suffix}"] = sep
+        with pytest.raises(AssertionError, match="marginal"):
+            p3.assert_separability_is_paired(bad)
+
+
+def test_separable_is_exactly_the_paired_interval_excluding_zero():
+    df = _paired_table()
+    ok = np.isfinite(df.paired_ci_lo) & np.isfinite(df.paired_ci_hi)
+    want = (df.paired_ci_lo > 0) | (df.paired_ci_hi < 0)
+    assert (df.separable[ok] == want[ok]).all()
+    i = int(np.flatnonzero(ok.to_numpy())[0])
+    flipped = not bool(want.to_numpy()[i])
+    bad = df.copy()
+    bad.loc[bad.index[i], "separable"] = flipped
+    bad.loc[bad.index[i], f"separable_vs_{p3.PRIMARY_REFERENCE}"] = flipped
+    with pytest.raises(AssertionError, match="excludes zero"):
+        p3.assert_separability_is_paired(bad)
+    # and the unsuffixed copy must BE the primary reference's, not resemble it
+    drifted = df.copy()
+    drifted.loc[drifted.index[i], "separable"] = flipped
+    with pytest.raises(AssertionError, match="unsuffixed"):
+        p3.assert_separability_is_paired(drifted)
+
+
+def test_paired_difference_is_antisymmetric_and_zero_against_itself():
+    a, b = _payloads(_table(), seed=3)[:2]
+    same = p3.paired_difference(a, a)
+    assert abs(same["diff"]) < 1e-12 and not same["separable"]
+    fwd, rev = p3.paired_difference(a, b), p3.paired_difference(b, a)
+    np.testing.assert_allclose(fwd["diff"], -rev["diff"], rtol=0, atol=1e-12)
+    np.testing.assert_allclose(fwd["ci_lo"], -rev["ci_hi"], rtol=0, atol=1e-12)
+    assert fwd["n_folds"] == rev["n_folds"] == 4
+
+
+def test_paired_difference_equals_the_difference_of_the_two_pooled_r2():
+    """It is the MARGIN, computed once. The interval is what is new, not the
+    point estimate."""
+    a, b = _payloads(_table(), seed=7)[:2]
+
+    def r2(p):
+        y = p["y"]
+        return 1.0 - ((y - p["pred"]) ** 2).sum() / ((y - y.mean()) ** 2).sum()
+
+    np.testing.assert_allclose(p3.paired_difference(a, b)["diff"],
+                               r2(a) - r2(b), rtol=0, atol=1e-12)
+
+
+def test_paired_difference_refuses_rows_scored_on_different_targets():
+    a, b = _payloads(_table(), seed=11)[:2]
+    b = dict(b, y=b["y"] + 0.5)
+    with pytest.raises(AssertionError, match="TARGET"):
+        p3.paired_difference(a, b)
+
+
+def test_the_paired_interval_is_tighter_than_the_marginal_one():
+    """The reason pairing is not a formality: the shared fold effect cancels.
+
+    Not asserted as a universal law -- it is asserted where the two rows are
+    strongly correlated across folds, which is the regime every comparison in
+    this table lives in, because both rows are fitted on the same folds.
+    """
+    rng = np.random.default_rng(0)
+    fold = np.repeat(np.arange(6), 20)
+    shared = rng.normal(scale=1.0, size=6)[fold]     # a big per-fold effect
+    y = rng.normal(size=fold.size) + shared
+    a = {"fold": fold, "pos": np.arange(fold.size), "y": y,
+         "pred": y - shared - 0.30 * rng.normal(size=y.size)}
+    b = {"fold": fold, "pos": np.arange(fold.size), "y": y,
+         "pred": y - shared - 0.35 * rng.normal(size=y.size)}
+    pr = p3.paired_difference(a, b)
+    half_paired = (pr["ci_hi"] - pr["ci_lo"]) / 2
+
+    def marginal_half(p):
+        r = p3._pooled_with_fold_jackknife(
+            [_fake_fold(i, fold, p) for i in range(6)], p3._r2_pooled)
+        return (r[2] - r[1]) / 2
+
+    naive = marginal_half(a) + marginal_half(b)
+    assert half_paired < naive, (half_paired, naive)
+
+
+def _fake_fold(i, fold, p):
+    m = fold == i
+    return p3.P3FoldResult(
+        fold=i, n_train=0, n_test=int(m.sum()), n_train_cubes=0,
+        n_test_cubes=1, effective_n=1, r2=np.nan, rmse=0.0, mae=0.0, sse=0.0,
+        sse_persistence=0.0, sse_climatology=np.nan, sst=0.0,
+        same_cube_after_permutation=np.nan, converged=True, log="",
+        test_pos=np.flatnonzero(m), test_y=p["y"][m], test_pred=p["pred"][m],
+        test_persistence=p["y"][m])
+
+
+def test_a_cir_row_is_paired_against_its_own_rgb_twin():
+    df = _paired_table()
+    cir = df[df.encoder == "dinov2_vitb14_cir"]
+    assert len(cir) and cir.has_rgb_twin.all()
+    assert not df[df.encoder == "dinov2_vitb14"].has_rgb_twin.any()
+    p3.assert_cir_twins_present(df, encoders=("dinov2_vitb14_cir",))
+    # the twin is matched on the LEARNER and the BASE, not just the name
+    r = cir.iloc[0]
+    twin = df[(df.encoder == "dinov2_vitb14")
+              & (df.delta_days == r.delta_days)
+              & (df.estimator == r.estimator)
+              & (df.alpha_rule == r.alpha_rule)
+              & (df.feature_base == r.feature_base)]
+    assert len(twin) == 1
+    np.testing.assert_allclose(r.margin_over_rgb_twin,
+                               r.r2_pooled - float(twin.r2_pooled.iloc[0]))
+    orphan = df[df.encoder != "dinov2_vitb14"]
+    with pytest.raises(AssertionError, match="RGB twin"):
+        p3.assert_cir_twins_present(orphan, encoders=("dinov2_vitb14_cir",))
+
+
+def test_add_paired_separability_refuses_a_payload_count_mismatch():
+    df = _table()
+    with pytest.raises(AssertionError, match="fold payloads"):
+        p3.add_paired_separability(df, _payloads(df)[:-1], verbose=False)
 
 
 def test_the_five_baselines_and_three_controls_are_named_and_disjoint():
@@ -743,6 +1092,16 @@ def test_mi_rows_are_flagged_and_report_one_context_frame():
 # Real data
 # ---------------------------------------------------------------------------
 
+# The cheapest roster that still exercises every axis: the not-a-network
+# baseline (which carries the band-matched view too), and the MULTI-IMAGE
+# encoder with its colour-infrared twin. The MI pair is chosen over DINOv2's
+# deliberately -- it is k=1 context at D=1024 rather than k=3 at D=3840, so it
+# is a fraction of the cost, and it is the one pair that also exercises the
+# si_comparable flag and the single-frame refusal on BOTH composites.
+_E2E_ENCODERS = ("raw_features", "satlas_s2_swinb_mi_rgb",
+                 "satlas_s2_swinb_mi_rgb_cir")
+
+
 @pytest.fixture(scope="module")
 def real_manifest():
     from data.loader import load_cube
@@ -807,6 +1166,62 @@ def test_real_persistence_residual_is_p2s_common_masked_delta(real_manifest):
 
 
 @needs_scaled
+def test_real_plausibility_screen_drops_rows_that_touch_a_cloud_frame(real_manifest):
+    """The screen is APPLIED here, and it removes rows rather than frames.
+
+    A frame cannot be removed from the manifest: the embedding join contract is
+    ``(cube_id, original_axis_index) == (cube, kept_idx)`` against a cache built
+    over every retained frame, so a shortened manifest would fail the join. The
+    row is what goes.
+    """
+    from data.loader import load_cube
+
+    order = sorted(real_manifest["cube_id"].unique().tolist())
+    per_cube = {"__order__": order}
+    for c in order:
+        per_cube[c] = p4.cube_frame_targets(
+            load_cube(os.path.join(SCALED_RAW, str(c)), verbose=False),
+            verbose=False)
+    ok = p3.manifest_frame_plausible(real_manifest, per_cube, verbose=False)
+    assert ok.shape == (len(real_manifest),) and ok.dtype == bool
+
+    off = p3.horizon_index(real_manifest, 25, verbose=False)
+    on = p3.horizon_index(real_manifest, 25, frame_plausible=ok, verbose=False)
+    assert not off.plausibility_screen and on.plausibility_screen
+    assert on.n_rows + on.n_dropped_implausible == off.n_rows
+    assert on.n_rows <= off.n_rows
+    # every frame of every surviving row is plausible -- context, t and target
+    assert ok[on.manifest_rows()].all()
+    if int((~ok).sum()):
+        assert on.n_rows < off.n_rows, (
+            "an implausible frame exists in this manifest but no row was "
+            "dropped; the screen reached the row set but did nothing"
+        )
+
+
+@needs_scaled
+def test_real_twin_caches_are_not_the_same_arrays(real_manifest):
+    """The one way this phase could produce a persuasive zero.
+
+    Reading the colour-infrared views out of the RGB directory does not raise --
+    the files simply are not there under that name -- but a mis-wired default
+    that pointed both at one cache would give every twin difference of exactly
+    zero, which looks like a finding.
+    """
+    from probes.p1_appearance import load_encoder_arrays
+    a = load_encoder_arrays(real_manifest, "dinov2_vitb14_cir",
+                            emb_dir=p3.encoder_embeddings_dir(
+                                "dinov2_vitb14_cir", SCALED_EMB), verbose=False)
+    b = load_encoder_arrays(real_manifest, "dinov2_vitb14", emb_dir=SCALED_EMB,
+                            verbose=False)
+    p3._assert_twins_are_distinct({"dinov2_vitb14_cir": a,
+                                   "dinov2_vitb14": b}, verbose=False)
+    with pytest.raises(AssertionError, match="IDENTICAL"):
+        p3._assert_twins_are_distinct({"dinov2_vitb14_cir": b,
+                                       "dinov2_vitb14": b}, verbose=False)
+
+
+@needs_scaled
 def test_real_run_end_to_end_is_shaped_and_labelled(real_manifest, tmp_path):
     """One aggregation, three horizons -- the whole path, cheaply.
 
@@ -815,8 +1230,9 @@ def test_real_run_end_to_end_is_shaped_and_labelled(real_manifest, tmp_path):
     the phase's own run log -- which is the archived evidence for the published
     table, and which a notebook may be writing at the same moment.
     """
+    encs = _E2E_ENCODERS
     df, data = p3.run_p3(real_manifest, SCALED_RAW, horizons=(5, 25, 50),
-                         aggregations=("cube_mean",),
+                         aggregations=("cube_mean",), encoders=encs,
                          emb_dir=SCALED_EMB, mask_dir=SCALED_MASKS, k=3,
                          log_path=str(tmp_path / "p3_test_run.log"),
                          n_jobs=1, verbose=False)
@@ -829,9 +1245,55 @@ def test_real_run_end_to_end_is_shaped_and_labelled(real_manifest, tmp_path):
     p3.assert_climatology_rows_labelled(df)
     p3.assert_mi_flagged_and_single_frame(df)
     p3.assert_effective_n_counts_cubes(df)
+    p3.assert_alpha_rules_present(df)
+    p3.assert_shared_base_present(df)
+    p3.assert_plausibility_screen_declared(df)
+    p3.assert_cir_twins_present(df, encoders=("satlas_s2_swinb_mi_rgb_cir",))
+    p3.assert_separability_is_paired(df)
     assert (df.horizon_source == "daily_axis_index").all()
     assert df.common_masked.all()
     assert (df.effective_n <= df.n_cubes).all()
     # persistence must be exactly itself
     pers = df[df.model_kind == "persistence"]
     np.testing.assert_allclose(pers.skill_vs_persistence, 0.0, atol=1e-12)
+    # the shared base ADDS exactly one column, and it is NDVI(t)
+    for enc in encs:
+        r = df[(df.encoder == enc) & (df.feature_set == "embedding")
+               & (df.estimator == "linear")
+               & (df.alpha_rule == p3.ALPHA_RULE_FIXED)
+               & (df.delta_days == 25)]
+        wide = float(r[r.feature_base == p3.FEATURE_BASE_SHARED].D.iloc[0])
+        narrow = float(r[r.feature_base == p3.FEATURE_BASE_NONE].D.iloc[0])
+        assert wide == narrow + 1, (enc, wide, narrow)
+    # the tuned rule really tuned: at least one row moved off alpha = D
+    tuned = df[(df.estimator == "linear")
+               & (df.alpha_rule == p3.ALPHA_RULE_TUNED)]
+    assert (tuned.alpha_median.to_numpy() != tuned.D.to_numpy()).any(), (
+        "every nested-CV row selected exactly alpha = D, which would mean the "
+        "selection never ran"
+    )
+
+
+@needs_scaled
+def test_real_run_survives_a_CSV_ROUND_TRIP_with_the_new_columns(real_manifest,
+                                                                tmp_path):
+    """The CSV is what anyone else reads, so the new invariants must hold ON IT."""
+    df, _ = p3.run_p3(real_manifest, SCALED_RAW, horizons=(5, 25, 50),
+                      aggregations=("cube_mean",),
+                      encoders=_E2E_ENCODERS,
+                      emb_dir=SCALED_EMB, mask_dir=SCALED_MASKS, k=3,
+                      log_path=str(tmp_path / "p3_roundtrip.log"),
+                      n_jobs=1, verbose=False)
+    p3.close_run_log()
+    df = p3.add_margins(df, verbose=False)
+    path = tmp_path / "p3.csv"
+    df.to_csv(path, index=False)
+    back = pd.read_csv(path)
+    assert back.shape == df.shape
+    p3.assert_separability_is_paired(back)
+    p3.assert_alpha_rules_present(back)
+    p3.assert_shared_base_present(back)
+    p3.assert_plausibility_screen_declared(back)
+    p3.assert_cir_twins_present(back, encoders=("satlas_s2_swinb_mi_rgb_cir",))
+    p3.assert_control_identical_across_views(back)
+    p3.assert_climatology_rows_labelled(back)

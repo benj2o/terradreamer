@@ -567,3 +567,68 @@ For Colab, follow [RUNBOOK.md](RUNBOOK.md).
     `climatology_def`. It is not H1's number and must never be quoted as one.
   - **Convergence page:** [docs/HANDOFF_CONVERGENCE.md](docs/HANDOFF_CONVERGENCE.md)
     — P1/P2/P4/P3 × (prior, measured result, verdict), and the recommendation.
+- **1.9 colour-infrared re-encode:** **DONE** (2026-08-12, Colab GPU).
+  `notebooks/phase1_9_cir_encoding.ipynb` builds
+  `data/scaled_32UNU/embeddings_cir/` — 115 cubes × 4 networks, the SAME frozen
+  weights and the SAME frame selection, fed (B8A, B04, B03) instead of
+  (B04, B03, B02). It computes **no result**; it removes the band-access
+  confound. Frame selection is bit-identical to the RGB cache and the embeddings
+  are materially different (max relative difference 0.29–0.95 per encoder).
+  `raw_features` has no `_cir` twin and asking for one is refused with the
+  reason: it already reads all four bands.
+- **Tier 1 P3 re-run:** **DONE** (2026-08-12, local CPU, 173.7 min on 7 workers;
+  `scripts/rerun_p3_tier1.py`, **1540-row × 153-column** CSV at
+  `data/scaled_32UNU/p3_tier1_results.csv`, verbatim stdout at
+  `notebooks/runs/2026-08-12_p3_tier1_32UNU_115cubes.txt`). 522 tests pass,
+  5 skipped, **0 failed**. **Four corrections at once, each a column, so the old
+  and new tables stay comparable** — and three of the 2026-08-12 headline claims
+  did not survive.
+  - **NO ENCODER SEPARABLY BEATS THE BAND-MATCHED BASELINE, at any horizon.** On
+    the *paired* per-fold difference with a fold-clustered interval — the test
+    P2 used for K2, not two overlapping marginal CIs — all nine encoder views are
+    **separably BELOW** `raw_rgb_only` at Δ = 5 d (−0.141 to −0.267), 4 of 9 are
+    below at 25 d, and none is above at any horizon. The only row separably
+    *above* it is `raw_features` (+0.017 `[+0.008, +0.027]` at 5 d), and that is
+    not a network: it reads all four bands plus seven NDVI statistics. The old
+    table could only say "within 0.03"; the paired test gives the sign.
+  - **Two numbers and no image beat every frozen network at 5 and 25 days.**
+    `[NDVI(t), weather]` — 17 columns — reaches **+0.773 / +0.693 / +0.522 /
+    +0.406** pooled out-of-fold R², above all nine encoder views at the two
+    shorter horizons.
+  - **Three cloud frames were carrying the old result.** Applying
+    `p4_ceiling.cube_frame_targets`' `frame_plausible` screen drops 8 forecast
+    rows of 518 at Δ = 5 d and moves **persistence from +0.169 to +0.690**: its
+    R² was low because three frames of 1580 sat in its residual, not because
+    NDVI moves in five days. Every gap the old table reported shrinks, and the
+    ones the old headline rested on shrink most. **Seven of nine encoder views
+    are now NEGATIVE against persistence at 5 days.**
+  - **The band-access confound is real, small, and does not rescue the claim.**
+    Colour-infrared vs its own RGB twin, paired: **16 of 48 comparisons
+    separable, 22 of 48 with `_cir` ahead at all**. The two single-image
+    networks that gain from NIR gain **+0.05 to +0.14 at 5 and 25 days** and
+    lose it by 50; the multi-image encoder is made worse by NIR beyond 5 days;
+    DINOv2 is worse with NIR short and better long. Not once is it enough to
+    reach the band-matched baseline. So of the two readings the confound left
+    open — "hand-crafted beats learned" vs "NIR beats RGB" — the evidence
+    favours the first: **NIR helps, and it is not the explanation.**
+  - **The penalty rule was measuring design width.** α = D spans **79 → 11536**
+    across these views, a 146× range set by the embedding dimension. Both rules
+    are in the table under `alpha_rule` and neither is deleted. Nested CV on the
+    training fold (`p2_deltas.select_ridge_alpha`, imported, two poisoning tests)
+    is worth +0.03–0.04 to the wide network rows and +0.044/+0.029 to the narrow
+    band-matched row — it helps both sides and closes nothing.
+  - **The shared base removes an unearned advantage worth +0.711.** Adding
+    `NDVI(t)` moves `weather_only` by **+0.711** at 5 d and `raw_features` by
+    **−0.003**, because `raw_features` already held it. It is worth +0.000 to
+    +0.013 to the deep encoders — their embeddings already carry current NDVI,
+    as P2's gate K2 said they must. Controls take no base, ever, and an assertion
+    refuses a table where one does.
+  - **Thirteen table invariants, re-checked ON THE CSV.** New this phase:
+    `assert_separability_is_paired` (a verdict rebuilt from marginal intervals is
+    refused — its fourth check catches the exact half-width a marginal rule
+    produces), `assert_alpha_rules_present`, `assert_shared_base_present`,
+    `assert_plausibility_screen_declared`, `assert_cir_twins_present`.
+  - Unchanged: `spatial_block` does not kill the encoder rows and still destroys
+    the proxy climatology; the MLP is unusable at this width; the multi-image
+    encoder leads the networks at 50 and 100 d and is still `si_comparable=False`;
+    the window boundary still costs 62% of the rows by 100 days.

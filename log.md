@@ -3,6 +3,245 @@
 Running record of measurements and adopted definitions. Reverse chronological.
 Decisions and their rationale live in [docs/DECISIONS.md](docs/DECISIONS.md).
 
+## 2026-08-12: Tier 1 -- P3 re-run under four corrections. NO encoder separably beats the band-matched baseline, and three cloud frames were carrying the old result
+
+`scripts/rerun_p3_tier1.py`, local CPU, 7 workers, 115 cubes / tile 32UNU /
+2018. Verbatim stdout at
+`notebooks/runs/2026-08-12_p3_tier1_32UNU_115cubes.txt`; table at
+`data/scaled_32UNU/p3_tier1_results.csv`. Nothing fine-tuned; no encoder
+imported.
+
+```
+tests                 522 passed, 5 skipped, 0 failed
+manifest              REBUILT FRESH: 1580 retained frames, 115 cubes, 2018
+                      weather join re-derived from the cubes: 0 rows off their day
+encoder views         9 = 5 rgb + 4 cir (Phase 1.9 cache, same weights)
+twin caches distinct  max relative difference 0.288 / 0.947 / 0.296 / 0.306
+run_p3                1540 rows x 153 cols, 173.7 min on 7 workers
+invariants            all THIRTEEN PASS, re-checked on the CSV
+effective n           CUBES: 115 / 114 / 115 / 94 at Delta = 5 / 25 / 50 / 100
+```
+
+Four things changed at once and each is a column, so any pair of rows in the
+table is still comparable: `alpha_rule` (fixed alpha = D vs a penalty selected
+by nested CV on the training fold), `feature_base` (with and without a shared
+[NDVI(t), weather] block), `plausibility_screen` (applied), and 4 new
+colour-infrared encoder views. Every "X beats Y" is now the PAIRED per-fold
+difference with a delete-one-fold jackknife interval.
+
+### THE SCREEN WAS THE BIGGEST SINGLE EFFECT, AND IT MOVED THE BASELINE MOST
+
+`p4_ceiling.cube_frame_targets`' `frame_plausible` flags **3 of 1580** retained
+frames. Dropping every forecast row that touches one costs **8 / 5 / 5 / 0**
+rows at Delta = 5 / 25 / 50 / 100 -- 518 -> 510, 489 -> 484, 450 -> 445, 196
+unchanged. Under otherwise the PUBLISHED protocol (fixed alpha, no shared base),
+pooled out-of-fold R-squared, `cube_mean` / cube folds / ridge:
+
+```
+                              D=5              D=25             D=50             D=100
+raw_features + weather     +0.863 (+0.672)  +0.746 (+0.704)  +0.611 (+0.368)  +0.628 (+0.628)
+raw_rgb_only + weather     +0.744 (+0.464)  +0.677 (+0.566)  +0.580 (+0.329)  +0.588 (+0.588)
+dinov2_vitb14              +0.593 (+0.486)  +0.539 (+0.529)  +0.508 (+0.432)  +0.554 (+0.554)
+satlas_s2_swinb_mi_rgb     +0.541 (+0.412)  +0.590 (+0.597)  +0.628 (+0.454)  +0.569 (+0.569)
+PERSISTENCE                +0.690 (+0.169)  +0.542 (+0.344)  +0.124 (-0.009)  +0.129 (+0.129)
+                                    (2026-08-12 published value in brackets)
+```
+
+**Persistence at 5 days goes +0.169 -> +0.690.** Its R-squared was not low
+because NDVI moves in five days; it was low because three cloudy frames of 1580
+sat in its residual and carried 71% of its sum of squares. Removing eight rows
+of 518 moved it by 0.52. The band-matched baseline gains 0.28 at the same cell
+and the networks gain 0.02-0.11, so **the screen shrinks every gap the old table
+reported, and it shrinks the ones the old headline rested on the most.**
+
+### HEADLINE: `cube_mean`, ridge, cube folds, penalty TUNED, shared base
+
+```
+                              D=5      D=25     D=50     D=100    D (with base)
+raw_features + weather      +0.871   +0.743   +0.625   +0.639      122
+raw_rgb_only + weather      +0.853   +0.727   +0.589   +0.556       80   <- BAND-MATCHED
+[NDVI(t), weather] ALONE    +0.773   +0.693   +0.522   +0.406       17   <- no image at all
+imagenet_vit_b16_cir        +0.712   +0.670   +0.524   +0.451     4625
+satlas_s2_swinb_rgb_cir     +0.698   +0.647   +0.514   +0.370     3089
+satlas_s2_swinb_mi_rgb      +0.640   +0.667   +0.626   +0.570     1041  [si_comparable=False]
+imagenet_vit_b16            +0.656   +0.622   +0.542   +0.421     4625
+satlas_s2_swinb_rgb         +0.616   +0.620   +0.559   +0.500     3089
+dinov2_vitb14               +0.622   +0.577   +0.512   +0.550    11537
+dinov2_vitb14_cir           +0.586   +0.551   +0.517   +0.586    11537
+--------------------------------------------------------------
+persistence                 +0.690   +0.542   +0.124   +0.129
+proxy climatology           +0.026   +0.125   +0.136   -0.164
+observation control         +0.014   +0.056   +0.072   -0.024
+permutation                 -0.014   -0.002   -0.007   -0.024
+horizon-alone control       -0.006   -0.006   -0.007   -0.023
+                              effective n = 115 / 114 / 115 / 94 CUBES
+```
+
+**Two numbers and no image beat every frozen network at 5 and 25 days.** The
+`[NDVI(t), weather]` row is 17 columns -- current NDVI plus 16 weather
+aggregates -- and it reaches +0.773 and +0.693, above all nine encoder views.
+The three controls are still where they should be: the observation control never
+exceeds +0.072, the horizon-alone control is negative at every horizon, and the
+permutation null is at -0.002 to -0.024.
+
+### THE RESULT, PAIRED: NO ENCODER SEPARABLY BEATS THE BAND-MATCHED BASELINE
+
+Paired per-fold difference (encoder minus `raw_rgb_only`, same folds, same
+held-out rows) with a delete-one-fold jackknife interval:
+
+```
+Delta =   5 d   ALL NINE encoder views are SEPARABLY BELOW it, -0.141 to -0.267
+Delta =  25 d   4 of 9 separably below (-0.107 to -0.176); none above
+Delta =  50 d   0 of 9 separable in either direction
+Delta = 100 d   3 of 9 separably below; none above
+```
+
+The only row that is separably ABOVE the band-matched baseline anywhere is
+`raw_features` -- **+0.017 `[+0.008, +0.027]`** at 5 days and **+0.036
+`[+0.004, +0.068]`** at 50 days -- and it is not a network: it reads all four
+bands plus seven NDVI statistics. **On this benchmark, at this sample size, a
+frozen EO foundation model does not add anything measurable over 21 percentiles
+of the same three bands.** The 2026-08-12 table could only say "within 0.03";
+the paired test says the sign.
+
+### rgb vs cir, PAIRED PER TWIN -- the question this run existed to answer
+
+Same weights, same frame selection, same read-out; only the three bands the
+network is fed differ, so a twin difference is BAND ACCESS and nothing else.
+`cube_mean`, ridge, penalty tuned, shared base:
+
+```
+                             cube                 loco                spatial_block
+                      diff    verdict       diff    verdict       diff    verdict
+imagenet    D=5     +0.056  SEPARABLE     +0.063  SEPARABLE     +0.083  SEPARABLE
+            D=25    +0.049  not sep.      +0.054  SEPARABLE     +0.049  not sep.
+            D=50    -0.018  not sep.      -0.020  not sep.      -0.057  not sep.
+            D=100   +0.031  not sep.      +0.028  not sep.      -0.044  not sep.
+satlas SI   D=5     +0.082  SEPARABLE     +0.048  SEPARABLE     +0.126  SEPARABLE
+            D=25    +0.027  not sep.      +0.063  SEPARABLE     +0.137  SEPARABLE
+            D=50    -0.045  not sep.      -0.056  not sep.      -0.146  not sep.
+            D=100   -0.130  not sep.      -0.078  not sep.      -0.076  SEPARABLE
+dinov2      D=5     -0.036  not sep.      -0.055  SEPARABLE     -0.053  not sep.
+            D=25    -0.026  not sep.      -0.022  not sep.      -0.078  not sep.
+            D=50    +0.005  not sep.      +0.024  not sep.      +0.024  not sep.
+            D=100   +0.036  not sep.      -0.001  not sep.      +0.095  SEPARABLE
+satlas MI   D=5     +0.017  not sep.      +0.016  not sep.      +0.033  not sep.
+            D=25    -0.086  not sep.      -0.094  SEPARABLE     -0.125  not sep.
+            D=50    -0.084  not sep.      -0.091  SEPARABLE     -0.094  SEPARABLE
+            D=100   -0.186  SEPARABLE     -0.100  not sep.      -0.091  not sep.
+                                          [satlas MI is si_comparable=False]
+```
+
+**16 of 48 twin comparisons are separable; 22 of 48 have the colour-infrared
+view ahead at all.** The pattern is a HORIZON pattern, not an encoder one: the
+two single-image networks that gain from NIR gain at **5 and 25 days** (+0.05 to
++0.14, separable in 6 of 12 cells) and lose it by 50 days. DINOv2 is the
+exception in both directions -- worse with NIR at short horizons, better at 100
+days under `spatial_block` (+0.095 `[+0.066, +0.124]`). The multi-image encoder
+is made WORSE by NIR at every horizon beyond 5 days.
+
+**So the band-access confound is real but small, and it does not rescue the
+foundation-model claim.** Giving the networks the vegetation band moves them by
+at most 0.14 and never enough to reach the band-matched baseline: at 5 days
+`imagenet_vit_b16_cir` is still -0.141 `[-0.207, -0.076]` below it. The two
+readings the confound left open -- "hand-crafted beats learned" vs "NIR beats
+RGB" -- resolve toward the first: **NIR helps, and it is not the explanation.**
+
+### What the penalty rule alone did
+
+`nested_cv` minus `fixed_alpha_D`, same rows, same folds, `cube_mean`/cube, at
+`feature_base=none` so the two corrections are separated:
+
+```
+row                                D      alpha(cv) med    D=5     D=25    D=50    D=100
+weather_only                        16           55      -0.007  -0.015  -0.008  -0.113
+raw_rgb_only (band-matched)         79            1-10   +0.044  +0.029  +0.008  -0.035
+raw_features                       121          100      +0.011  -0.006  +0.013  +0.006
+satlas_s2_swinb_mi_rgb            1040          550      -0.014  +0.009  -0.011  +0.000
+satlas_s2_swinb_rgb               3088         1000      +0.007  +0.027  +0.038  -0.012
+imagenet_vit_b16                  4624         1000      +0.032  +0.041  +0.041  +0.010
+dinov2_vitb14                    11536         5500      +0.021  +0.033  +0.003  -0.004
+```
+
+Alpha = D spans **79 to 11536** across these rows (80 to 11537 with the shared
+base), a 146x range set by the architecture's embedding dimension rather than by
+anything about the data. Tuning is worth **+0.03 to +0.04 to the wide network
+rows** at 5-50 d and **+0.044 / +0.029** to the narrow band-matched row at 5 and
+25 d -- so it helps both sides, and it does not close the gap between them. The
+selected penalty is far from alpha = D in both directions: DINOv2 picks 5500
+against D = 11536, the band-matched row picks 1-10 against D = 79. **1008 of
+12432 tuned folds (8.1%) select at an edge of the grid**, which is on the table
+as `n_folds_alpha_at_grid_edge` rather than in a footnote -- P1's lesson, where
+the C grid stopped at 1 and selected there in 57% of folds.
+
+**A correction to the preview this phase was specified from, and it matters.**
+The expected move for the band-matched row was **+0.483 -> +0.597** at 5 d and
+**+0.574 -> +0.693** at 25 d. Measured here, at the matching configuration
+(`feature_base=none`, `cube_mean`/cube): **+0.744 -> +0.788** at 5 d and
+**+0.677 -> +0.706** at 25 d. The DIRECTION is confirmed -- tuning helps the
+band-matched row -- but the size is about a third of the preview (+0.044 and
++0.029 against +0.114 and +0.119), and the levels are 0.26 and 0.10 higher.
+
+The preview was computed on the UNSCREENED row set. The screen moves the same
+row from +0.464 to +0.744 on its own, and the two effects are **not additive**:
+much of what the tuned penalty was buying on the unscreened table was a better
+fit to the three cloud frames, and once those rows are gone there is less for it
+to buy. Reported here rather than quietly adopted, because the preview is what
+the correction was specified from.
+
+### What the shared base alone did
+
+`+[NDVI(t)]` minus no base, same rows, same folds, same penalty:
+
+```
+weather_only            +0.711  +0.492  +0.296  +0.234   <- 16 columns -> 17
+satlas_s2_swinb_mi_rgb  +0.113  +0.068  +0.008  -0.000
+raw_rgb_only            +0.065  +0.021  +0.002  +0.004
+imagenet_vit_b16        +0.013  +0.007  +0.002  -0.000
+raw_features            -0.003  +0.002  +0.001  +0.004   <- already had it
+dinov2_vitb14           +0.008  +0.005  +0.000  +0.000
+```
+
+One column moves `weather_only` by **+0.711** at 5 days and `raw_features` by
+**-0.003**, because `raw_features` already held `NDVI_mean(t)`. That gap is
+exactly the unearned advantage the base removes: before it, one row in the table
+had the strongest single predictor in the problem and no other did. **It is
+worth almost nothing to the deep encoders** (+0.000 to +0.013), which is itself
+a result -- their embeddings already carry current NDVI, as P2's gate K2 said
+they must.
+
+### Skill against persistence reverses at the short horizon
+
+```
+skill vs persistence, cube_mean / cube / tuned / shared base
+                              D=5      D=25     D=50     D=100
+raw_features                +0.583   +0.438   +0.572   +0.585
+raw_rgb_only                +0.526   +0.404   +0.531   +0.490
+imagenet_vit_b16_cir        +0.071   +0.280   +0.457   +0.370
+satlas_s2_swinb_rgb_cir     +0.025   +0.229   +0.445   +0.277
+imagenet_vit_b16            -0.110   +0.173   +0.477   +0.335
+satlas_s2_swinb_mi_rgb      -0.161   +0.273   +0.572   +0.506
+dinov2_vitb14               -0.219   +0.076   +0.443   +0.483
+satlas_s2_swinb_rgb         -0.238   +0.169   +0.497   +0.426
+dinov2_vitb14_cir           -0.336   +0.020   +0.449   +0.524
+```
+
+**Seven of nine encoder views are NEGATIVE against persistence at 5 days.** The
+2026-08-12 table reported +0.605 for the best row there; that number was against
+a persistence baseline whose error was three cloud frames. With them gone,
+"predict today's NDVI" is the better forecast at 5 days for every network, and
+only the hand-crafted rows and the two colour-infrared views clear it.
+
+### Nothing else moved
+
+`spatial_block` still does not kill the encoder rows and still destroys the proxy
+climatology. The MLP is still unusable at this width. The multi-image encoder is
+still the best network at 50 and 100 days and still `si_comparable=False`. The
+window boundary still costs 62% of the rows by 100 days, and 21 of 115 cubes
+still contribute no 100-day pair.
+
+---
+
 ## 2026-08-12: Phase 1.8 (P3) exit test PASSED -- forecasting works, and the hand-crafted baseline is still not beaten
 
 `notebooks/phase1_8_p3_forecast.ipynb`, local CPU, 7 workers, 115 cubes / tile

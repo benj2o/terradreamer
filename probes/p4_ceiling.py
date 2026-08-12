@@ -1313,13 +1313,14 @@ def fold_clustered_ci(values, alpha: float = 0.05) -> tuple:
 # Estimators. Nothing is tuned, so nothing can leak through a tuning loop.
 # ---------------------------------------------------------------------------
 
-def make_estimator(name: str, n_features: int = 1):
+def make_estimator(name: str, n_features: int = 1, alpha: float | None = None):
     """One estimator at fixed, a-priori hyperparameters.
 
-    NOTHING HERE IS SELECTED FROM DATA. P1 needed a nested tuning loop and a
-    poisoning test to prove that loop never saw a test fold; here there is no
-    loop, which is strictly stronger than a guarded one. Every value is printed
-    by ``describe_estimators``.
+    NOTHING HERE IS SELECTED FROM DATA unless ``alpha`` is passed, and then the
+    caller has selected it and must say so on the row -- see below. P1 needed a
+    nested tuning loop and a poisoning test to prove that loop never saw a test
+    fold; the default here has no loop, which is strictly stronger than a
+    guarded one. Every default value is printed by ``describe_estimators``.
 
     The one hyperparameter that cannot be a constant is the ridge penalty,
     because the model kinds differ in width by a factor of 30 -- D=2 for the
@@ -1338,13 +1339,34 @@ def make_estimator(name: str, n_features: int = 1):
     sits at -0.12, close to the zero a null should be near. The rule makes the
     empirical zero interpretable.
 
+    THE ONE OVERRIDE, AND WHY IT IS A PARAMETER AND NOT A SECOND FUNCTION.
+    ``alpha`` replaces the alpha = D rule for the ridge, and for the ridge only.
+    It exists because alpha = D spans 79 to 11536 across P3's encoder views -- a
+    146-fold range set by the WIDTH of the design rather than by the data -- and
+    at the narrow end it over-penalises the 79-column band-matched baseline
+    against which every network is scored. A caller that passes ``alpha`` has
+    SELECTED it (``p2_deltas.select_ridge_alpha``, nested CV on the training fold
+    only, two poisoning tests) and owes the table a column saying so; P3 writes
+    ``alpha_rule`` on every row and keeps both rules side by side. Passing it for
+    a non-ridge estimator is refused rather than ignored, because an ignored
+    hyperparameter is a silently different model.
+
     All three estimators are deterministic: the ridge solve is exact, HGB has
     ``early_stopping=False`` with a fixed seed, and the MLP has a fixed seed and
     no validation split. Parallelism changes wall-clock only, never a number.
     """
     assert name in ESTIMATORS, f"estimator {name!r} not in {ESTIMATORS}"
+    assert alpha is None or name == "linear", (
+        f"alpha={alpha!r} was passed for estimator {name!r}. The penalty "
+        "override applies to the RIDGE only; every other estimator's "
+        "hyperparameters are fixed a priori, and silently ignoring the argument "
+        "would fit a different model than the caller asked for."
+    )
     if name == "linear":
         from sklearn.linear_model import Ridge
+        if alpha is not None:
+            assert np.isfinite(alpha) and alpha > 0, f"alpha must be > 0, got {alpha}"
+            return Ridge(alpha=float(alpha))
         assert n_features >= 1, f"alpha = D needs D >= 1, got {n_features}"
         return Ridge(alpha=float(n_features))
     if name == "hgb":
@@ -1369,8 +1391,12 @@ def describe_estimators(n_features: int = 64) -> None:
           "on the same scale rather than two arbitrary ones")
 
 
-def _fit_predict(estimator: str, X_tr, y_tr, X_te) -> tuple:
-    """Standardise on TRAIN, fit on TRAIN, predict TEST. Never the reverse."""
+def _fit_predict(estimator: str, X_tr, y_tr, X_te, alpha: float | None = None) -> tuple:
+    """Standardise on TRAIN, fit on TRAIN, predict TEST. Never the reverse.
+
+    ``alpha`` overrides the ridge's alpha = D rule and nothing else; it is
+    forwarded to ``make_estimator``, which refuses it for any other estimator.
+    """
     from sklearn.exceptions import ConvergenceWarning
     from sklearn.preprocessing import StandardScaler
 
@@ -1378,7 +1404,7 @@ def _fit_predict(estimator: str, X_tr, y_tr, X_te) -> tuple:
     Z_tr, Z_te = scaler.transform(X_tr), scaler.transform(X_te)
     assert np.isfinite(Z_tr).all() and np.isfinite(Z_te).all()
     D = int(X_tr.shape[1])
-    model = make_estimator(estimator, D)
+    model = make_estimator(estimator, D, alpha=alpha)
     converged = True
     with warnings.catch_warnings():
         # Recorded per fold and reported per row rather than silenced: an MLP
@@ -1391,7 +1417,7 @@ def _fit_predict(estimator: str, X_tr, y_tr, X_te) -> tuple:
             converged = False
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", ConvergenceWarning)
-                model = make_estimator(estimator, D).fit(Z_tr, y_tr)
+                model = make_estimator(estimator, D, alpha=alpha).fit(Z_tr, y_tr)
     pred_tr = model.predict(Z_tr)
     pred_te = model.predict(Z_te)
     return pred_te, pred_tr, converged

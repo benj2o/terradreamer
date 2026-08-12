@@ -267,16 +267,89 @@ P1's and P4's did not -- so it is measured, never inherited. The secondary
 aggregations run under the primary mode, which is the same restriction P2 makes
 for the same reason: they are a resolution axis, not a second experiment.
 
-Nothing is tuned. Every hyperparameter comes from ``p4_ceiling.make_estimator``
-at its fixed a-priori value (ridge alpha = D, applied to standardised features),
-so there is no selection loop to prove clean -- strictly stronger than a guarded
-one. Standardisation is fitted on train and applied to test, per fold. Every
-fold comes from ``probes/cv.py``; any number produced outside it does not exist.
+Standardisation is fitted on train and applied to test, per fold. Every fold
+comes from ``probes/cv.py``; any number produced outside it does not exist.
+
+=============================================================================
+THE FOUR THINGS THE TIER-1 REWORK CHANGED, AND WHY EACH ONE HAD TO
+=============================================================================
+
+The first P3 run (2026-08-12, ``phase1_8``) answered its question and left four
+ways for its answer to be wrong. Each is fixed here in a way the TABLE carries,
+not the prose: a column names the convention on every row, and both conventions
+stay in the table so the old and new numbers remain comparable.
+
+1. THE PENALTY WAS SET BY THE WIDTH OF THE DESIGN
+--------------------------------------------------
+P4's rule is alpha = D, fixed a priori. It is scale-free and it needs no
+selection loop, which at D <= 66 is strictly the stronger position. Here D runs
+from **79** (the band-matched baseline: 7 percentiles x 3 bands x 3 frames, plus
+weather) to **11536** (a k=3 DINOv2 context) -- a **146-fold range** -- and the
+comparison this phase exists to make runs along exactly that axis. Under alpha =
+D the narrowest row in the table is the most lightly penalised in absolute terms
+and the most heavily penalised relative to what it can express, and it is the
+row every network is scored against.
+
+So the ridge rows additionally run under ``p2_deltas.select_ridge_alpha``:
+nested CV, inner split from ``probes.cv.folds`` on the OUTER TRAINING FOLD's
+sub-manifest, ties broken toward the stronger penalty, two poisoning tests
+already in the suite (poisoning the held-out rows must leave the choice
+bit-identical; poisoning a training row must move it). ``alpha_rule`` is on
+every row -- ``fixed_alpha_D``, ``nested_cv``, or ``not_a_ridge`` -- and the
+fixed rows are NOT deleted: they are the published numbers, and a table that
+dropped them could not be compared with the run that produced them.
+
+2. "X BEATS Y" WAS TWO MARGINAL INTERVALS
+------------------------------------------
+Every claim of the form "the encoder beats the baseline" is now the PAIRED
+per-fold difference with a fold-clustered interval -- ``paired_difference``,
+which is P2's ``k2_separable`` construction extended to a pooled statistic. Two
+marginal intervals ignore that both rows were fitted on the same folds and
+scored on the same held-out observations, so they double-count a shared fold
+effect and answer a question nobody asked. ``assert_separability_is_paired``
+refuses a table where any verdict could have come from marginal intervals, and
+its fourth check is the one a re-implementation fails: a marginal rule produces
+a half-width exactly equal to the sum or the root-sum-square of the two marginal
+half-widths, and a jackknife of the difference equals neither on any row.
+
+3. ONE ROW HELD THE AUTOREGRESSIVE TERM AND NO OTHER DID
+---------------------------------------------------------
+``raw_features`` carries ``NDVI_mean(t)..NDVI_p90(t)`` as columns. Against a
+target at t+Delta that is legitimate autoregression -- and it is also an
+advantage no other row in the table was given, which made its margin a mixture
+of "hand-crafted features are better" and "only this row saw current NDVI".
+``feature_base = ndvi_weather`` puts [NDVI(t), weather] under EVERY model row, so
+each row answers one question: what does this representation add beyond current
+NDVI and the weather over the horizon? The no-base rows stay under
+``feature_base = none``. Controls take no base, ever: a control handed current
+NDVI is a model, and ``margin_over_control`` would then be a margin over a
+forecast.
+
+4. THE NETWORKS WERE DENIED THE VEGETATION BAND, AND THE CLOUD FRAMES STAYED IN
+--------------------------------------------------------------------------------
+Every network encoder is 3-channel and was fed (B04, B03, B02), while
+``raw_features`` reads all four bands. So P3's finding was ambiguous between
+"hand-crafted beats learned" and "NIR beats RGB". Phase 1.9 re-encoded the four
+networks under the colour-infrared composite (B8A, B04, B03) -- same weights,
+same frame selection, only the band routing differs -- and this run scores all
+**nine** views: 5 RGB and 4 ``_cir``. The headline is the PAIRED difference
+between each ``_cir`` row and its own ``_rgb`` twin, which is band access and
+nothing else. ``_assert_twins_are_distinct`` refuses a run in which the two
+caches turn out to be the same arrays, because that would produce a twin
+difference of exactly zero for a reason that has nothing to do with bands.
+
+And ``p4_ceiling.cube_frame_targets``' ``frame_plausible`` screen is APPLIED
+here, not merely reported: a forecast row that touches a frame whose
+common-masked cube-mean NDVI is below the vegetation floor inside the growing
+season is DROPPED. Three frames of 1580 carried 71% of the persistence sum of
+squares at a 5-day horizon. Every row declares ``plausibility_screen=True``, so
+this table can never be silently compared with the unscreened one.
 """
 
 from __future__ import annotations
 
 import os
+import dataclasses
 import warnings
 from dataclasses import dataclass
 from typing import NamedTuple, Sequence
@@ -284,7 +357,8 @@ from typing import NamedTuple, Sequence
 import numpy as np
 
 from data.paths import phase_dir
-from encoders.base import GRID, GRID_CELLS
+from encoders import TIER_A_CIR
+from encoders.base import BAND_COMPOSITES, GRID, GRID_CELLS
 from encoders.frames import MIN_CLEAR_FRACTION, select_clear_frames
 from encoders.pipeline import load_masks
 from probes import cv
@@ -308,6 +382,18 @@ __all__ = [
     "WEATHER_FEATURE_SET", "PROXY_CLIMATOLOGY_LABEL", "SEVERITY_BINS",
     "HORIZON_CONTROL_DEGREE", "ENCODER_ORDER", "MI_ENCODER", "BASELINE_ENCODER",
     "BAND_MATCHED_BASELINE",
+    # the colour-infrared twins, the penalty rules, the shared base
+    "ENCODER_ORDER_CIR", "ENCODER_VIEWS_ALL", "CIR_SUFFIX", "CIR_EMB_DIRNAME",
+    "base_encoder", "is_cir", "band_composite", "encoder_embeddings_dir",
+    "ALPHA_RULES", "ALPHA_RULE_FIXED", "ALPHA_RULE_TUNED", "ALPHA_RULE_NA",
+    "FEATURE_BASES", "FEATURE_BASE_NONE", "FEATURE_BASE_SHARED",
+    "BASE_BLOCK_COLUMN", "BASE_ROW_KINDS",
+    # the plausibility screen, applied and declared
+    "manifest_frame_plausible", "PLAUSIBILITY_SCREEN_LABEL",
+    # the paired separability machinery
+    "PAIRED_REFERENCES", "PRIMARY_REFERENCE", "paired_difference",
+    "add_paired_separability", "assert_separability_is_paired",
+    "print_cir_vs_rgb", "print_separability",
     # logging (p2's, re-exported so there is ONE run-log implementation)
     "open_run_log", "close_run_log", "log", "run_log_path",
     # rows, and the axis guard
@@ -332,7 +418,9 @@ __all__ = [
     "assert_results_complete", "assert_control_identical_across_views",
     "assert_controls_present", "assert_baselines_present",
     "assert_mi_flagged_and_single_frame", "assert_effective_n_counts_cubes",
-    "assert_climatology_rows_labelled", "results_path",
+    "assert_climatology_rows_labelled", "assert_alpha_rules_present",
+    "assert_shared_base_present", "assert_plausibility_screen_declared",
+    "assert_cir_twins_present", "select_alpha", "results_path",
 ]
 
 # Phase 1.8 is P3. Artefacts are phase-scoped through data/paths.py; nothing
@@ -392,6 +480,83 @@ FEATURE_SETS = ("embedding", "raw_rgb_only", "weather", "observation",
 BAND_MATCHED_BASELINE = "raw_rgb_only"
 
 WEATHER_FEATURE_SET = "weather_full8"
+
+# ---------------------------------------------------------------------------
+# The colour-infrared twins
+# ---------------------------------------------------------------------------
+# Phase 1.9's re-encode: the SAME four networks, the SAME frozen weights, the
+# SAME frame selection, fed (B8A, B04, B03) instead of (B04, B03, B02). The only
+# thing that differs between a row and its ``_cir`` twin is BAND ACCESS, which is
+# what makes the twin difference interpretable at all. ``raw_features`` has no
+# twin: it already reads all four bands plus seven NDVI statistics, which is the
+# asymmetry the twins exist to remove from the networks' side.
+CIR_SUFFIX = "_cir"
+CIR_EMB_DIRNAME = "embeddings_cir"
+ENCODER_ORDER_CIR = TIER_A_CIR          # 4 networks, imported, never re-derived
+ENCODER_VIEWS_ALL = tuple(ENCODER_ORDER) + tuple(ENCODER_ORDER_CIR)   # 5 + 4
+
+# ---------------------------------------------------------------------------
+# The ridge penalty: two rules, both reported, neither deleted
+# ---------------------------------------------------------------------------
+# P4's rule is alpha = D, fixed a priori. It is defensible where D barely moves
+# and indefensible here: across P3's views D spans 79 (the band-matched
+# baseline) to 11536 (a k=3 DINOv2 context), a 146-fold range set by the WIDTH
+# of the design and not by the data, and the comparison the phase is about is
+# exactly the comparison between the narrowest and the widest rows. So the
+# ridge additionally runs under a SELECTED penalty -- p2_deltas.select_ridge_alpha,
+# nested CV on the OUTER TRAINING FOLD ONLY, already carrying poisoning tests in
+# both directions -- and BOTH rules are in the table under ``alpha_rule``.
+# Neither is deleted: the fixed-alpha rows are what the published P3 table was
+# computed under, and dropping them would make the two incomparable.
+ALPHA_RULE_FIXED = "fixed_alpha_D"
+ALPHA_RULE_TUNED = "nested_cv"
+ALPHA_RULE_NA = "not_a_ridge"           # hgb, the MLP, and the unfitted rows
+ALPHA_RULES = (ALPHA_RULE_FIXED, ALPHA_RULE_TUNED)
+RIDGE_ESTIMATOR = "linear"
+
+# ---------------------------------------------------------------------------
+# The shared base block
+# ---------------------------------------------------------------------------
+# [NDVI(t), weather] under every model row, so each row answers ONE question:
+# what does this representation add beyond current NDVI and the weather over the
+# horizon? Without it ``raw_features`` carries NDVI_mean(t)..NDVI_p90(t) as
+# columns and no other row does, so its margin mixes "hand-crafted features are
+# better" with "only this row was given the autoregressive term". Weather is
+# already in every model row; the base adds the ONE column the baseline had to
+# itself. The no-base rows stay in the table under ``feature_base`` -- they are
+# what the published P3 numbers are, and they answer the other question ("what
+# does this representation carry on its own").
+FEATURE_BASE_NONE = "none"
+FEATURE_BASE_SHARED = "ndvi_weather"
+FEATURE_BASES = (FEATURE_BASE_NONE, FEATURE_BASE_SHARED)
+BASE_BLOCK_COLUMN = "ndvi_t"
+# Which model kinds take the shared base. The two UNFITTED baselines cannot (a
+# design is not a thing they have), and the three CONTROLS must not: a control
+# handed current NDVI is not a control any more, it is a model.
+BASE_ROW_KINDS = ("forecast", "weather_only", "raw_features_weather",
+                  "raw_rgb_only_weather")
+
+# ---------------------------------------------------------------------------
+# The paired separability references
+# ---------------------------------------------------------------------------
+# Every "X beats Y" in this table is a PAIRED per-fold difference with a
+# fold-clustered interval, never two overlapping marginal CIs. Each entry names
+# a reference and how a row is matched to it; ``add_paired_separability`` emits
+# a paired difference, its interval and a separability verdict for each, and
+# ``assert_separability_is_paired`` refuses a table where any of them could have
+# come from marginal intervals.
+PAIRED_REFERENCES = ("band_matched", "control", "persistence", "climatology",
+                     "horizon_control", "permutation", "rgb_twin")
+PRIMARY_REFERENCE = "band_matched"
+
+# The screen this phase APPLIES, and declares on every row.
+PLAUSIBILITY_SCREEN_LABEL = (
+    "p4_ceiling.cube_frame_targets frame_plausible: a common-masked cube-mean "
+    f"NDVI below {p4.NDVI_PLAUSIBILITY_FLOOR} inside days of year "
+    f"{p4.GROWING_SEASON_DOY[0]}-{p4.GROWING_SEASON_DOY[1]} is cloud, not "
+    "vegetation. APPLIED here: a forecast row is dropped if ANY frame it "
+    "touches -- context, t or target -- fails it."
+)
 
 # The horizon control's design is [1, d, d^2] -- P2's degree, imported, for the
 # reason P2 gives: a straight line in the horizon is monotone, and a monotone
@@ -461,6 +626,12 @@ class ForecastRows:
     delta_acq_steps: np.ndarray   # (N,) int -- NOT the horizon. The join key.
     delta_frame_steps: np.ndarray  # (N,) int -- NOT the horizon. Frames between.
     within_cube_index: np.ndarray  # (N,) int
+    # The physical-plausibility screen: whether it was applied to this row set,
+    # and how many rows it removed. Carried on the ROW SET rather than
+    # recomputed at reporting time, so a table can never claim a screen its rows
+    # were not built under.
+    plausibility_screen: bool = False
+    n_dropped_implausible: int = 0
 
     def __post_init__(self):
         N = self.row_t.shape[0]
@@ -505,6 +676,7 @@ class ForecastRows:
 def horizon_index(manifest, delta_days: int,
                   tolerance_days: int = TOLERANCE_DAYS,
                   context_frames: int = CONTEXT_FRAMES,
+                  frame_plausible=None,
                   verbose: bool = True) -> ForecastRows:
     """Every (t, target) row of one horizon, with its k context frames.
 
@@ -522,6 +694,23 @@ def horizon_index(manifest, delta_days: int,
     The target search is forward only (a forecast cannot look backwards) and
     stays inside the cube. A row with no retained frame within ``tolerance_days``
     of ``t + delta_days`` is DROPPED.
+
+    THE PLAUSIBILITY SCREEN, WHEN IT IS PASSED, DROPS WHOLE ROWS.
+    ``frame_plausible`` is a per-MANIFEST-ROW boolean from
+    ``p4_ceiling.cube_frame_targets`` (see ``manifest_frame_plausible``): False
+    means the frame's common-masked cube-mean NDVI is below the vegetation floor
+    inside the growing season, i.e. it is cloud that both the clear-fraction
+    filter and the per-pixel mask passed. A row is dropped if ANY frame it
+    touches fails -- context, t, or target -- and not merely if its target does.
+
+    Dropping the ROW and not the FRAME is the deliberate half. Removing the frame
+    from the manifest would break the embedding join, whose contract is
+    ``(cube_id, original_axis_index) == (cube, kept_idx)`` against a cache built
+    over every retained frame; and removing it from the SELECTION -- letting the
+    context reach one frame further back -- would silently lengthen the lookback
+    of exactly the rows nearest the contamination, which is a different
+    inhomogeneity traded for this one. Dropping the row costs a handful of rows
+    of 518, is counted, and is declared on every table row that comes from it.
     """
     for col in ("cube_id", "original_axis_index", "daily_axis_index", "timestamp"):
         assert col in manifest.columns, (
@@ -588,17 +777,57 @@ def horizon_index(manifest, delta_days: int,
         delta_frame_steps=np.asarray(d_frame, dtype=int),
         within_cube_index=np.asarray(widx, dtype=int))
 
+    n_screened = 0
+    if frame_plausible is not None:
+        rows, n_screened = _apply_plausibility_screen(rows, frame_plausible)
+
     assert_horizon_axis(rows, manifest, axis, ts_all=ts_all, verbose=verbose)
     if verbose:
+        screen = ("" if frame_plausible is None else
+                  f", {n_screened} for touching an IMPLAUSIBLE frame "
+                  "(plausibility screen APPLIED)")
         print(f"[p3] Delta = {delta_days:>3} d (+/-{tolerance_days}): "
               f"{rows.n_rows} rows over {rows.n_cubes} cubes "
               f"| context {rows.context_frames} frames "
               f"| dropped {n_no_context} for <{K} prior frames, "
               f"{n_no_target} for no retained frame within tolerance "
-              f"(window boundary) | realised horizon min "
+              f"(window boundary){screen} | realised horizon min "
               f"{rows.delta_days.min():.0f} median "
               f"{np.median(rows.delta_days):.0f} max {rows.delta_days.max():.0f} d")
     return rows
+
+
+def _apply_plausibility_screen(rows: ForecastRows, frame_plausible) -> tuple:
+    """Drop every row that touches an implausible frame. Returns (rows, n_dropped)."""
+    ok = np.asarray(frame_plausible, dtype=bool)
+    assert ok.ndim == 1, ok.shape
+    touched = rows.manifest_rows()
+    assert touched.max() < ok.size, (
+        f"the plausibility mask covers {ok.size} manifest rows but this row set "
+        f"reaches row {int(touched.max())}. It must be in MANIFEST ROW ORDER -- "
+        "build it with manifest_frame_plausible, which permutes p4's per-cube "
+        "arrays back through the same index manifest_clear_fractions uses."
+    )
+    keep = np.flatnonzero(ok[touched].all(axis=1))
+    n_dropped = int(rows.n_rows - keep.size)
+    assert keep.size, (
+        f"the plausibility screen removed EVERY row at Delta = "
+        f"{rows.delta_days_nominal} d. That is a statement about the data, not a "
+        "filter to loosen, but it cannot be scored -- report it and stop."
+    )
+    if n_dropped == 0:
+        return dataclasses.replace(rows, plausibility_screen=True,
+                                   n_dropped_implausible=0), 0
+    return ForecastRows(
+        delta_days_nominal=rows.delta_days_nominal,
+        tolerance_days=rows.tolerance_days,
+        row_t=rows.row_t[keep], row_target=rows.row_target[keep],
+        context_rows=rows.context_rows[keep], cube_id=rows.cube_id[keep],
+        delta_days=rows.delta_days[keep],
+        delta_acq_steps=rows.delta_acq_steps[keep],
+        delta_frame_steps=rows.delta_frame_steps[keep],
+        within_cube_index=rows.within_cube_index[keep],
+        plausibility_screen=True, n_dropped_implausible=n_dropped), n_dropped
 
 
 def assert_horizon_axis(rows: ForecastRows, manifest, axis: dict,
@@ -673,6 +902,7 @@ def assert_horizon_axis(rows: ForecastRows, manifest, axis: dict,
 def horizon_tolerance_sensitivity(manifest, horizons: Sequence[int] = HORIZONS,
                                   tolerances: Sequence[int] = (2, 3, 5, 7),
                                   context_frames: int = CONTEXT_FRAMES,
+                                  frame_plausible=None,
                                   verbose: bool = True):
     """How much work the tolerance is doing. Measured, not assumed.
 
@@ -689,7 +919,8 @@ def horizon_tolerance_sensitivity(manifest, horizons: Sequence[int] = HORIZONS,
     for tol in tolerances:
         for H in horizons:
             r = horizon_index(manifest, H, tolerance_days=tol,
-                              context_frames=context_frames, verbose=False)
+                              context_frames=context_frames,
+                              frame_plausible=frame_plausible, verbose=False)
             recs.append({"tolerance_days": tol, "delta_days": H,
                          "n_rows": r.n_rows, "n_cubes": r.n_cubes,
                          "realised_min": float(r.delta_days.min()),
@@ -1228,12 +1459,87 @@ def summarise_pixel_survival_by_horizon(rows_by_horizon: dict, targets: dict,
 # Features
 # ---------------------------------------------------------------------------
 
+def base_encoder(encoder: str) -> str:
+    """The RGB twin of an encoder view: ``dinov2_vitb14_cir`` -> ``dinov2_vitb14``.
+
+    The composite travels in the NAME (``encoders.build_encoder`` strips and
+    re-asserts the same suffix), so the twin relation is derivable from the name
+    and never from a hand-maintained table that could drift out of step with the
+    cache on disk.
+    """
+    if encoder.endswith(CIR_SUFFIX):
+        stem = encoder[: -len(CIR_SUFFIX)]
+        assert stem in ENCODER_ORDER, (
+            f"{encoder!r} strips to {stem!r}, which is not one of {ENCODER_ORDER}"
+        )
+        return stem
+    return encoder
+
+
+def is_cir(encoder: str) -> bool:
+    return str(encoder).endswith(CIR_SUFFIX)
+
+
+def band_composite(encoder: str) -> str:
+    """"cir" or "rgb" -- which three bands this view's network was fed.
+
+    ``raw_features`` is neither: it reads all four bands plus seven NDVI
+    statistics, which is exactly the asymmetry the ``_cir`` twins exist to
+    remove from the networks' side. It is labelled ``all4`` so a filter on
+    composite cannot silently sweep the baseline in with the RGB networks.
+    """
+    if encoder in ("none", ""):
+        return "none"
+    if base_encoder(encoder) == BASELINE_ENCODER:
+        return "all4"
+    comp = "cir" if is_cir(encoder) else "rgb"
+    assert comp in BAND_COMPOSITES, comp
+    return comp
+
+
+def encoder_embeddings_dir(encoder: str, emb_dir: str | None = None,
+                           emb_dir_cir: str | None = None) -> str:
+    """Which cache directory one encoder view's ``.npz`` files live in.
+
+    The two composites are two caches, because the composite is part of the
+    encoder's name and therefore part of the filename. Routed by name here, in
+    ONE place, so no caller can hand a ``_cir`` view the RGB directory -- which
+    would not fail loudly: the file simply would not exist, and the failure would
+    read as "the cache has a hole" rather than "the wrong directory was asked".
+    """
+    if not is_cir(encoder):
+        return emb_dir
+    if emb_dir_cir is not None:
+        return emb_dir_cir
+    assert emb_dir is not None, (
+        f"{encoder!r} needs a colour-infrared cache directory. Pass "
+        "emb_dir_cir=..., or pass emb_dir=<...>/embeddings and the sibling "
+        f"<...>/{CIR_EMB_DIRNAME} is used."
+    )
+    guess = emb_dir.rstrip(os.sep) + CIR_SUFFIX
+    assert os.path.isdir(guess), (
+        f"{encoder!r} is a colour-infrared view and its cache was expected at "
+        f"{guess!r}, which does not exist. Phase 1.9 writes it as "
+        f"{CIR_EMB_DIRNAME} beside the RGB cache; pass emb_dir_cir=... if it "
+        "lives somewhere else. A _cir view must never be read from the RGB "
+        "directory -- same weights, different bands, and the two are not "
+        "interchangeable."
+    )
+    return guess
+
+
 def context_frames_for(encoder: str) -> int:
-    """3 for a single-image encoder, 1 for the multi-image one."""
-    return MI_CONTEXT_FRAMES if encoder == MI_ENCODER else CONTEXT_FRAMES
+    """3 for a single-image encoder, 1 for the multi-image one.
+
+    Routed through ``base_encoder`` so the multi-image encoder's ``_cir`` twin
+    gets the same k as the encoder it is a twin of. Two views of one network
+    that disagreed on k would not be a band comparison at all.
+    """
+    return (MI_CONTEXT_FRAMES if base_encoder(encoder) == MI_ENCODER
+            else CONTEXT_FRAMES)
 
 
-def encoder_views(encoders: Sequence[str] = ENCODER_ORDER) -> list:
+def encoder_views(encoders: Sequence[str] = ENCODER_VIEWS_ALL) -> list:
     """(encoder, feature_set, model_kind) triples.
 
     The band-matched view exists only for the not-a-network baseline, because it
@@ -1242,6 +1548,11 @@ def encoder_views(encoders: Sequence[str] = ENCODER_ORDER) -> list:
     asserted to partition them, so it cannot silently point at the wrong bands.
     The two ``raw_features`` views carry their own model_kind so the five
     mandatory baselines are checkable by name in the table.
+
+    A ``_cir`` view is an ordinary ``forecast`` row. It is not a baseline and not
+    a control: it is the same network under a different band composite, and the
+    only thing that makes it special is that it has a TWIN, which
+    ``add_paired_separability`` pairs it against.
     """
     views = [(e, "embedding",
               "raw_features_weather" if e == BASELINE_ENCODER else "forecast")
@@ -1292,8 +1603,8 @@ def context_block(arrays: dict, rows: ForecastRows, encoder: str, level: str,
     assert level in ("pooled", "grid_cell"), f"level {level!r}"
     k = context_frames_for(encoder) if n_frames is None else int(n_frames)
     assert k >= 1, f"n_frames must be >= 1, got {k}"
-    assert not (encoder == MI_ENCODER and k != MI_CONTEXT_FRAMES), (
-        f"REFUSED: a {k}-frame context was requested for {MI_ENCODER}, which "
+    assert not (base_encoder(encoder) == MI_ENCODER and k != MI_CONTEXT_FRAMES), (
+        f"REFUSED: a {k}-frame context was requested for {encoder}, which "
         f"takes {MI_CONTEXT_FRAMES}. Its embedding at t already aggregates up "
         "to 8 preceding RETAINED frames (a 0-105 day lookback on this subset), "
         "so stacking k=3 of them would double-count the lookback: consecutive "
@@ -1442,6 +1753,60 @@ def manifest_clear_fractions(manifest, per_cube: dict) -> tuple:
     return v[:, 0], v[:, 1], gcf
 
 
+def manifest_frame_plausible(manifest, per_cube: dict,
+                             verbose: bool = True) -> np.ndarray:
+    """(n,) bool, in MANIFEST ROW ORDER: is this frame vegetation or is it cloud?
+
+    ``p4_ceiling.cube_frame_targets`` computes it -- IMPORTED, not re-derived,
+    because P2 and P4 read the same targets through the same function and a
+    screen implemented twice is two screens. This puts its per-cube arrays back
+    into manifest row order, the same permutation ``manifest_clear_fractions``
+    uses for the per-cell clear fractions.
+
+    The alignment is ASSERTED rather than assumed: within each cube the
+    manifest's rows must be ascending in ``original_axis_index``, because that is
+    the order ``cube_frame_targets`` returns its arrays in. If a future
+    ``build_manifest`` emitted a cube's frames in another order, this would
+    attach one frame's verdict to another frame -- silently, since the shape
+    would still be right.
+    """
+    order, oai = [], manifest["original_axis_index"].to_numpy().astype(int)
+    for c in per_cube["__order__"]:
+        pos = np.flatnonzero((manifest["cube_id"] == c).to_numpy())
+        assert pos.size == per_cube[c]["frame_plausible"].size, (
+            f"{c}: the manifest has {pos.size} rows but cube_frame_targets "
+            f"returned {per_cube[c]['frame_plausible'].size} retained frames"
+        )
+        assert (np.diff(oai[pos]) > 0).all(), (
+            f"{c}: the manifest's rows for this cube are not ascending in "
+            "original_axis_index, which is the order cube_frame_targets returns "
+            "its per-frame arrays in. Aligning the two by position would attach "
+            "one frame's plausibility verdict to another frame."
+        )
+        order.append(pos)
+    order = np.concatenate(order)
+    back = np.argsort(order, kind="stable")
+    assert order[back].tolist() == list(range(len(manifest))), (
+        "the per-cube plausibility flags are not a permutation of the manifest "
+        "rows"
+    )
+    ok = np.concatenate([np.asarray(per_cube[c]["frame_plausible"], dtype=bool)
+                         for c in per_cube["__order__"]])[back]
+    assert ok.shape == (len(manifest),), ok.shape
+    if verbose:
+        bad = np.flatnonzero(~ok)
+        print(f"[p3] PLAUSIBILITY SCREEN: {bad.size} of {ok.size} retained "
+              f"frames fail p4's frame_plausible "
+              f"(cube-mean NDVI < {p4.NDVI_PLAUSIBILITY_FLOOR} inside DOY "
+              f"{p4.GROWING_SEASON_DOY[0]}-{p4.GROWING_SEASON_DOY[1]})")
+        for i in bad[:10]:
+            r = manifest.iloc[int(i)]
+            print(f"[p3]   {str(r['cube_id'])[:56]:<56} DOY "
+                  f"{int(r['day_of_year']):>3} clear_frac "
+                  f"{float(r['clear_frac']):.3f}")
+    return ok
+
+
 def observation_triple(rows: ForecastRows, clear_frac, window_span_days,
                        grid_clear_frac, level: str, row_of, cell_idx,
                        verbose: bool = False) -> p4.FeatureSource:
@@ -1492,8 +1857,58 @@ def observation_triple(rows: ForecastRows, clear_frac, window_span_days,
 # The fitted read-out. train_pos is REQUIRED and POSITIONAL.
 # ---------------------------------------------------------------------------
 
-def fit_readout(X, y, train_pos, test_pos, estimator: str) -> tuple:
-    """Standardise on TRAIN, fit on TRAIN, predict TEST. Nothing is tuned.
+def select_alpha(X, y, train_pos, manifest, train_rows, manifest_row_of,
+                 name: str = "", verbose: bool = False) -> dict:
+    """The ridge penalty, chosen by nested CV on the OUTER TRAINING FOLD ONLY.
+
+    ``p2_deltas.select_ridge_alpha`` IMPORTED, not re-derived. It already has
+    everything this needs and nothing this must re-earn: ``train_rows`` is a
+    required positional argument so the penalty cannot be selected over
+    everything by omitting it, the inner split is ``probes.cv.folds`` on the
+    TRAINING sub-manifest under cube grouping, ties break toward the stronger
+    penalty by a stated rule, and it carries two poisoning tests -- poisoning the
+    held-out rows must leave the choice bit-identical AND poisoning a training
+    row must move it. The second is what proves the first measured something.
+
+    ``manifest_row_of`` maps each FEATURE ROW to the manifest row that decides
+    its fold. Here that is the manifest row of ``t``: every frame a forecast row
+    touches is in one cube, and every fold mode in this repo is cube-grouped, so
+    the cube of ``t`` is the cube of the whole row -- which is exactly the
+    property ``_side_rows`` asserts per fold rather than assumes.
+
+    ``train_pos`` is passed for one purpose: to assert that the rows
+    ``select_ridge_alpha`` will read are EXACTLY the rows this fold's fit reads
+    -- not a superset and not a subset. A penalty chosen on a different set of
+    rows than the one it is then applied to is a leak no downstream assertion
+    could see, and the two sets are easy to let drift apart, because the fit
+    additionally drops rows with a non-finite persistence value. The caller
+    therefore passes a ``y`` already masked to the fit's rows, and this checks
+    it did.
+    """
+    X = np.asarray(X, dtype=np.float64)
+    y = np.asarray(y, dtype=np.float64)
+    manifest_row_of = np.asarray(manifest_row_of, dtype=int)
+    assert manifest_row_of.shape == (X.shape[0],), (
+        f"{manifest_row_of.shape} does not describe {X.shape[0]} feature rows"
+    )
+    train_rows = np.asarray(train_rows, dtype=int)
+    train_pos = np.asarray(train_pos, dtype=int)
+    seen = np.flatnonzero(np.isin(manifest_row_of, train_rows) & np.isfinite(y))
+    assert seen.size == train_pos.size and (np.sort(seen)
+                                            == np.sort(train_pos)).all(), (
+        f"{name}: the tuner would read {seen.size} feature rows and this "
+        f"fold's fit reads {train_pos.size}. The training index and the tuning "
+        "index must be the same set of rows."
+    )
+    block = FeatureBlock(X=X, row_idx=manifest_row_of, y=y,
+                         name=f"p3/{name}" if name else "p3")
+    return p2.select_ridge_alpha(block, manifest, train_rows, "r2",
+                                 verbose=verbose)
+
+
+def fit_readout(X, y, train_pos, test_pos, estimator: str,
+                alpha: float | None = None) -> tuple:
+    """Standardise on TRAIN, fit on TRAIN, predict TEST.
 
     THE SIGNATURE IS THE GUARANTEE, exactly as
     ``p4_ceiling.doy_climatology_within_fold``, ``p2_deltas.fit_gap_control`` and
@@ -1506,9 +1921,15 @@ def fit_readout(X, y, train_pos, test_pos, estimator: str) -> tuple:
     entirely, which is why there are two.
 
     The fit itself is ``p4_ceiling._fit_predict``: the same standardiser, the
-    same estimators at the same fixed a-priori hyperparameters (ridge alpha = D
-    on standardised features), the same convergence bookkeeping. There is no
-    selection loop here, so there is nothing to prove clean about one.
+    same estimators at the same a-priori hyperparameters, the same convergence
+    bookkeeping.
+
+    ``alpha`` is the ridge penalty when it was SELECTED rather than ruled. None
+    means P4's rule, alpha = D. A value means ``select_alpha`` chose it on this
+    fold's training rows, and the row carries ``alpha_rule = nested_cv`` plus the
+    chosen value per fold. This function does not choose it, and cannot: the
+    selection needs the manifest and the training MANIFEST rows, neither of which
+    is in this signature, so a caller cannot tune by accident here.
     """
     X = np.asarray(X, dtype=np.float64)
     y = np.asarray(y, dtype=np.float64)
@@ -1525,7 +1946,8 @@ def fit_readout(X, y, train_pos, test_pos, estimator: str) -> tuple:
     X_te = X[test_pos]
     # -------------------------------------------------------------------------
 
-    pred_te, pred_tr, converged = p4._fit_predict(estimator, X_tr, y_tr, X_te)
+    pred_te, pred_tr, converged = p4._fit_predict(estimator, X_tr, y_tr, X_te,
+                                                  alpha=alpha)
     assert pred_te.shape == (test_pos.size,), pred_te.shape
     return pred_te, pred_tr, converged
 
@@ -1555,11 +1977,18 @@ class P3FoldResult(NamedTuple):
     log: str
     # The held-out rows, kept so the severity breakdown is pooled from the SAME
     # fits the scores come from. A second pass would double the run and, worse,
-    # would let the two disagree.
+    # would let the two disagree. They are also what makes the PAIRED
+    # separability possible at all: two rows can only be differenced fold by
+    # fold if each kept the rows it was scored on.
     test_pos: np.ndarray = None
     test_y: np.ndarray = None
     test_pred: np.ndarray = None
     test_persistence: np.ndarray = None
+    # The ridge penalty this fold actually used, and whether the selection hit
+    # the end of the grid (a choice pinned by the grid is a lower bound of
+    # unknown tightness, which is P1's lesson and belongs on the row).
+    alpha: float = float("nan")
+    alpha_at_grid_edge: bool = False
 
 
 def _side_rows(rows: ForecastRows, manifest_rows, fold: int, side: str) -> np.ndarray:
@@ -1581,6 +2010,7 @@ def _side_rows(rows: ForecastRows, manifest_rows, fold: int, side: str) -> np.nd
 def evaluate_fold(sources, target: dict, rows: ForecastRows, manifest,
                   train_rows, test_rows, estimator: str, kind: str,
                   base_X=None, permute: bool = False, fold: int = 0,
+                  alpha_rule: str = ALPHA_RULE_FIXED,
                   climatology_harmonics: int = p4.CLIMATOLOGY_HARMONICS,
                   verbose: bool = False) -> P3FoldResult | None:
     """One outer fold, end to end. Returns None when a side holds no rows.
@@ -1599,7 +2029,16 @@ def evaluate_fold(sources, target: dict, rows: ForecastRows, manifest,
                            p4_ceiling.doy_climatology_within_fold, evaluated at
                            the TARGET frame's day of year.
         everything else    fit_readout on the assembled design.
+
+    ``alpha_rule`` decides the ridge penalty, and only for the ridge.
+    ``fixed_alpha_D`` is P4's a-priori rule; ``nested_cv`` calls ``select_alpha``
+    on THIS FOLD'S TRAINING ROWS, inside the fold, before the fit. The selection
+    happens here rather than one level up for the reason every fitted quantity in
+    this repo is fitted here: the training index set is in scope exactly once,
+    and a hyperparameter chosen outside the fold is a hyperparameter chosen on
+    the test cubes.
     """
+    assert alpha_rule in ALPHA_RULES + (ALPHA_RULE_NA,), alpha_rule
     train_rows = np.asarray(train_rows, dtype=int)
     test_rows = np.asarray(test_rows, dtype=int)
     assert not np.intersect1d(train_rows, test_rows).size, (
@@ -1622,6 +2061,7 @@ def evaluate_fold(sources, target: dict, rows: ForecastRows, manifest,
         return None
 
     same_cube = float("nan")
+    alpha_used, at_edge = float("nan"), False
     if kind == "persistence":
         pred, converged = pers[te], True
     elif kind == "climatology_proxy":
@@ -1638,7 +2078,19 @@ def evaluate_fold(sources, target: dict, rows: ForecastRows, manifest,
         X = base_X if (base_X is not None and not permute) \
             else p4.build_X(sources, row_of, perm_map)
         assert X.shape[0] == row_of.size, (X.shape, row_of.size)
-        pred, _, converged = fit_readout(X, y, tr, te, estimator)
+        alpha = None
+        if estimator == RIDGE_ESTIMATOR:
+            if alpha_rule == ALPHA_RULE_TUNED:
+                # The tuner sees the fit's rows and no others: y is masked to
+                # the same `ok` the fit uses, so "finite y" means exactly "this
+                # fold fits on it".
+                sel = select_alpha(X, np.where(ok, y, np.nan), tr, manifest,
+                                   train_rows, rows.row_t[row_of],
+                                   name=f"{target['name']}/{kind}/fold{fold + 1}")
+                alpha = float(sel["param"])
+                at_edge = bool(sel["at_grid_edge"])
+            alpha_used = float(alpha if alpha is not None else X.shape[1])
+        pred, _, converged = fit_readout(X, y, tr, te, estimator, alpha=alpha)
 
     resid = y[te] - pred
     sse = float((resid ** 2).sum())
@@ -1650,11 +2102,13 @@ def evaluate_fold(sources, target: dict, rows: ForecastRows, manifest,
 
     n_tr_c = int(np.unique(rows.cube_id[tr_rows]).size)
     n_te_c = int(np.unique(rows.cube_id[te_rows]).size)
-    msg = (f"[p3]   fold {fold + 1}: {target['name']}/{kind}/{estimator} train "
+    msg = (f"[p3]   fold {fold + 1}: {target['name']}/{kind}/{estimator}"
+           f"/{alpha_rule} train "
            f"{tr.size} rows / {n_tr_c} cubes, test {te.size} rows / {n_te_c} "
            f"cubes (effective n = {n_te_c} CUBES, not {te.size} rows) | "
            f"R2 {r2:+.4f} | RMSE {np.sqrt(sse / te.size):.5f} | "
-           f"SSE/SSE_pers {sse / sse_p if sse_p > 0 else float('nan'):.4f}")
+           f"SSE/SSE_pers {sse / sse_p if sse_p > 0 else float('nan'):.4f}"
+           + ("" if not np.isfinite(alpha_used) else f" | alpha {alpha_used:g}"))
     log(msg, echo=False)
     if verbose:
         print(msg)
@@ -1666,12 +2120,13 @@ def evaluate_fold(sources, target: dict, rows: ForecastRows, manifest,
         sse_climatology=float("nan"), sst=sst,
         same_cube_after_permutation=same_cube, converged=bool(converged),
         log=msg, test_pos=te, test_y=y[te], test_pred=np.asarray(pred, float),
-        test_persistence=pers[te])
+        test_persistence=pers[te], alpha=alpha_used, alpha_at_grid_edge=at_edge)
 
 
 def evaluate(sources, target: dict, rows: ForecastRows, manifest, mode: str,
              estimator: str, kind: str, k: int = 5, permute: bool = False,
-             base_X=None, n_jobs: int = 1, verbose: bool = False) -> list:
+             base_X=None, alpha_rule: str = ALPHA_RULE_FIXED,
+             n_jobs: int = 1, verbose: bool = False) -> list:
     """Every outer fold of one mode, from ``probes.cv`` and nowhere else.
 
     Deterministic: ``n_jobs`` changes wall-clock only. The ridge solve is exact,
@@ -1688,7 +2143,7 @@ def evaluate(sources, target: dict, rows: ForecastRows, manifest, mode: str,
             and base_X is None:
         base_X = p4.build_X(sources, np.asarray(target["row_of"], dtype=int))
     call = dict(estimator=estimator, kind=kind, base_X=base_X, permute=permute,
-                verbose=False)
+                alpha_rule=alpha_rule, verbose=False)
     if n_jobs == 1 or len(folds) < 2:
         out = [evaluate_fold(sources, target, rows, manifest, tr, te, fold=i,
                              **call) for i, (tr, te) in enumerate(folds)]
@@ -1809,6 +2264,18 @@ def summarise(results: Sequence[P3FoldResult], n_folds_empty: int = 0,
     out["effective_n_per_fold"] = ";".join(str(r.effective_n) for r in results)
     out["n_rows_test_total"] = int(sum(r.n_test for r in results))
     out["n_not_converged"] = int(sum(not r.converged for r in results))
+    # The penalty each fold actually used. Under the fixed rule this is D on
+    # every fold; under nested CV it is what the inner split chose, and the
+    # spread across folds is itself a measurement -- a penalty that jumps two
+    # decades between folds says the inner data could not tell the models apart.
+    al = np.array([r.alpha for r in results], dtype=float)
+    ok_al = al[np.isfinite(al)]
+    out["alpha_per_fold"] = ";".join(f"{x:g}" for x in al)
+    out["alpha_median"] = float(np.median(ok_al)) if ok_al.size else float("nan")
+    out["alpha_min"] = float(ok_al.min()) if ok_al.size else float("nan")
+    out["alpha_max"] = float(ok_al.max()) if ok_al.size else float("nan")
+    out["n_folds_alpha_at_grid_edge"] = int(sum(bool(r.alpha_at_grid_edge)
+                                                for r in results))
     same = np.array([r.same_cube_after_permutation for r in results], dtype=float)
     out["same_cube_after_permutation_max"] = (
         float(np.nanmax(same)) if np.isfinite(same).any() else float("nan"))
@@ -1910,11 +2377,26 @@ class P3Data:
                 "day_of_year_target": self.doy_target[delta_days][row_of]}
 
 
-def build_p3_data(manifest, cube_dir: str, encoders: Sequence[str] = ENCODER_ORDER,
+def build_p3_data(manifest, cube_dir: str,
+                  encoders: Sequence[str] = ENCODER_VIEWS_ALL,
                   horizons: Sequence[int] = HORIZONS,
-                  emb_dir: str | None = None, mask_dir: str | None = None,
+                  emb_dir: str | None = None, emb_dir_cir: str | None = None,
+                  mask_dir: str | None = None,
+                  plausibility_screen: bool = True,
                   verbose: bool = True) -> P3Data:
-    """Rows, targets, weather, controls and the reporting axes, once."""
+    """Rows, targets, weather, controls and the reporting axes, once.
+
+    ``plausibility_screen`` applies ``p4_ceiling.cube_frame_targets``'
+    ``frame_plausible`` to the ROW SET: a forecast row that touches a frame whose
+    common-masked cube-mean NDVI is below the vegetation floor inside the growing
+    season is dropped. The published P3 table was computed WITHOUT it -- three
+    frames of 1580 carried 71% of the persistence sum of squares at 5 days -- and
+    the flag exists so the two runs are distinguishable on the row rather than by
+    remembering which run a CSV came from.
+
+    The per-cube targets are read FIRST here, before the rows, because the screen
+    comes out of them and the rows are what it screens.
+    """
     from data.loader import load_cube
 
     if verbose:
@@ -1923,9 +2405,21 @@ def build_p3_data(manifest, cube_dir: str, encoders: Sequence[str] = ENCODER_ORD
               f"tiles {sorted(manifest.tile.unique())} | "
               f"years {sorted(manifest.year.unique())}")
 
+    order = sorted(manifest["cube_id"].unique().tolist())
+    per_cube = {"__order__": order}
+    for cube in order:
+        sample = load_cube(os.path.join(cube_dir, str(cube)), verbose=False)
+        per_cube[cube] = p4.cube_frame_targets(sample, verbose=False)
+    plausible = manifest_frame_plausible(manifest, per_cube, verbose=verbose)
+    screen = plausible if plausibility_screen else None
+    if verbose and not plausibility_screen:
+        print("[p3]   the screen is NOT applied on this run "
+              "(plausibility_screen=False); every row will say so")
+
     tol = horizon_tolerance_sensitivity(manifest, horizons=horizons,
-                                        verbose=verbose)
-    rows = {int(H): horizon_index(manifest, int(H), verbose=verbose)
+                                        frame_plausible=screen, verbose=verbose)
+    rows = {int(H): horizon_index(manifest, int(H), frame_plausible=screen,
+                                  verbose=verbose)
             for H in horizons}
     retention = print_horizon_retention(rows, manifest, verbose=verbose)
     assert_retention_shrinks(retention, verbose=verbose)
@@ -1938,20 +2432,18 @@ def build_p3_data(manifest, cube_dir: str, encoders: Sequence[str] = ENCODER_ORD
 
     arrays = {}
     for enc in encoders:
-        arrays[enc] = load_encoder_arrays(manifest, enc, emb_dir=emb_dir,
-                                          verbose=False)
+        arrays[enc] = load_encoder_arrays(
+            manifest, enc, emb_dir=encoder_embeddings_dir(enc, emb_dir,
+                                                          emb_dir_cir),
+            verbose=False)
         if verbose:
             a = arrays[enc]
-            print(f"[p3] {enc:<24} pooled {a['pooled'].shape} | "
+            print(f"[p3] {enc:<28} [{band_composite(enc):<4}] "
+                  f"pooled {a['pooled'].shape} | "
                   f"grid {a['grid'].shape} | context "
                   f"{context_frames_for(enc)} frame(s) -> D_context "
                   f"{context_frames_for(enc) * a['pooled'].shape[1]} pooled")
-
-    order = sorted(manifest["cube_id"].unique().tolist())
-    per_cube = {"__order__": order}
-    for cube in order:
-        sample = load_cube(os.path.join(cube_dir, str(cube)), verbose=False)
-        per_cube[cube] = p4.cube_frame_targets(sample, verbose=False)
+    _assert_twins_are_distinct(arrays, verbose=verbose)
 
     weather = {H: horizon_weather(manifest, cube_dir, rows[H], verbose=verbose)
                for H in rows}
@@ -1984,13 +2476,49 @@ def build_p3_data(manifest, cube_dir: str, encoders: Sequence[str] = ENCODER_ORD
     return data
 
 
+def _assert_twins_are_distinct(arrays: dict, verbose: bool = True) -> None:
+    """A ``_cir`` view must not be the RGB cache under another name.
+
+    The two caches differ only in which three bands the frozen network was fed,
+    and the filenames differ by four characters. Reading the wrong directory
+    would not raise -- it would produce a twin comparison whose answer is
+    exactly zero by construction, which is the most persuasive wrong result this
+    phase could produce. So the arrays are compared: identical pooled blocks mean
+    one of the two was loaded twice.
+    """
+    for enc in sorted(arrays):
+        if not is_cir(enc):
+            continue
+        twin = base_encoder(enc)
+        if twin not in arrays:
+            continue
+        a, b = arrays[enc]["pooled"], arrays[twin]["pooled"]
+        assert a.shape == b.shape, (
+            f"{enc} pooled {a.shape} != {twin} pooled {b.shape}; the twins are "
+            "the same architecture over the same frames and must agree on D"
+        )
+        rel = float(np.abs(a - b).max() / max(1e-12, float(np.abs(b).max())))
+        assert rel > 1e-6, (
+            f"{enc} and {twin} have IDENTICAL pooled embeddings (max relative "
+            f"difference {rel:.2e}). Either the colour-infrared cache was read "
+            "from the RGB directory, or the re-encode did not change the band "
+            "routing. Every twin difference in this table would then be exactly "
+            "zero for a reason that has nothing to do with band access."
+        )
+        if verbose:
+            print(f"[p3]   twin check {enc:<28} vs {twin:<24} max relative "
+                  f"difference {rel:.3f}  <- materially different, as Phase 1.9 "
+                  "measured")
+
+
 # ---------------------------------------------------------------------------
 # The run
 # ---------------------------------------------------------------------------
 
 def _base_row(delta_days, aggregation, level, mode, encoder, feature_set,
               model_kind, estimator, D, rows: ForecastRows, n_feature_rows,
-              context_frames) -> dict:
+              context_frames, alpha_rule=ALPHA_RULE_NA,
+              feature_base=FEATURE_BASE_NONE) -> dict:
     return {
         "delta_days": int(delta_days),
         "tolerance_days": int(rows.tolerance_days),
@@ -2000,19 +2528,33 @@ def _base_row(delta_days, aggregation, level, mode, encoder, feature_set,
         "feature_level": level,
         "fold_mode": mode,
         "encoder": encoder,
+        # The RGB twin of this view, and the composite it was fed. Both are on
+        # every row so the twin comparison is a filter on the table rather than
+        # a name-mangling rule a reader has to know.
+        "encoder_base": base_encoder(encoder) if encoder != "none" else "none",
+        "band_composite": band_composite(encoder),
         "feature_set": feature_set,
+        "feature_base": feature_base,
         "model_kind": model_kind,
         "estimator": estimator,
+        "alpha_rule": alpha_rule,
         "context_frames": int(context_frames),
         "is_control": model_kind in CONTROL_KINDS,
         "is_baseline": model_kind in BASELINE_KINDS,
         # The multi-image encoder's embedding at t already aggregates up to 8
         # preceding frames, so its context is one embedding and its lookback is
         # a variable number of DAYS. Flagged on every row it owns, so a filtered
-        # view can never lose the caveat.
-        "si_comparable": encoder != MI_ENCODER,
+        # view can never lose the caveat. Its _cir twin inherits the flag.
+        "si_comparable": base_encoder(encoder) != MI_ENCODER,
         "metric": "r2",
         "D": int(D),
+        # The screen is a property of the ROW SET, taken from it, never a
+        # constant typed here: a table cannot claim a screen its rows were not
+        # built under.
+        "plausibility_screen": bool(rows.plausibility_screen),
+        "plausibility_screen_def": (PLAUSIBILITY_SCREEN_LABEL
+                                    if rows.plausibility_screen else ""),
+        "n_rows_dropped_implausible": int(rows.n_dropped_implausible),
         "n_retained": int(rows.n_rows),
         "n_cubes": int(rows.n_cubes),
         "n_feature_rows": int(n_feature_rows),
@@ -2126,34 +2668,93 @@ def _horizon_control_folds(data: P3Data, agg: str, mode: str, k: int,
     return out
 
 
-def run_p3(manifest, cube_dir: str, encoders: Sequence[str] = ENCODER_ORDER,
+def run_p3(manifest, cube_dir: str, encoders: Sequence[str] = ENCODER_VIEWS_ALL,
            horizons: Sequence[int] = HORIZONS,
            aggregations: Sequence[str] = AGGREGATIONS,
-           k: int = 5, emb_dir: str | None = None, mask_dir: str | None = None,
+           k: int = 5, emb_dir: str | None = None,
+           emb_dir_cir: str | None = None, mask_dir: str | None = None,
+           plausibility_screen: bool = True,
            log_path: str | None = None, n_jobs: int = 1, data: P3Data = None,
-           verbose: bool = True):
-    """The whole table. Returns a DataFrame and writes nothing but the run log."""
+           payloads: list | None = None, verbose: bool = True):
+    """The whole table. Returns a DataFrame and writes nothing but the run log.
+
+    THE PAIRED SEPARABILITY IS ATTACHED HERE, not left to the caller. The
+    per-fold held-out predictions exist only inside this call; if the paired
+    columns were a separate step a caller could forget them, and the table would
+    then carry marginal intervals and no way to compare two rows honestly. Pass
+    ``payloads=[]`` to keep them for inspection.
+    """
     import pandas as pd
 
     open_run_log(log_path, verbose=verbose)
+    keep = [] if payloads is None else payloads
     try:
         if data is None:
             data = build_p3_data(manifest, cube_dir, encoders=encoders,
                                  horizons=horizons, emb_dir=emb_dir,
-                                 mask_dir=mask_dir, verbose=verbose)
+                                 emb_dir_cir=emb_dir_cir, mask_dir=mask_dir,
+                                 plausibility_screen=plausibility_screen,
+                                 verbose=verbose)
         rows = _run_p3_rows(data, encoders, horizons, aggregations, k, n_jobs,
-                            verbose)
+                            verbose, payloads=keep)
     finally:
         close_run_log()
     df = pd.DataFrame(rows)
     assert len(df), "run_p3 produced no rows"
+    df = add_paired_separability(df, keep, verbose=verbose)
     return df, data
 
 
+def _alpha_rules_for(estimator: str) -> tuple:
+    """Which penalty rules a given estimator is run under.
+
+    The ridge gets BOTH -- P4's fixed alpha = D and the nested-CV selection --
+    because the fixed rule sets the penalty from the WIDTH of the design and the
+    widths in this table differ by 146x, which is exactly the axis the
+    comparison runs along. Every other estimator has no ridge penalty to choose,
+    so it gets one row and says ``not_a_ridge`` rather than pretending to a rule
+    it does not have.
+    """
+    return ALPHA_RULES if estimator == RIDGE_ESTIMATOR else (ALPHA_RULE_NA,)
+
+
+def _base_sources(view: dict, feature_base: str) -> tuple:
+    """The shared base block, or nothing, for one feature_base.
+
+    ``ndvi_weather`` adds ONE column: NDVI(t) at this row's aggregation, on the
+    common mask -- which is exactly the persistence prediction, so it is taken
+    from the target view rather than recomputed and cannot drift from it. The
+    weather half of the base is already in every model row, so the block that
+    has to be ADDED is the NDVI column alone.
+
+    It is not permutable. The permutation control shuffles WEATHER across cubes
+    to build the empirical zero; shuffling current NDVI as well would be a
+    different null, and one no row in this table is scored against.
+    """
+    assert feature_base in FEATURE_BASES, feature_base
+    if feature_base == FEATURE_BASE_NONE:
+        return ()
+    v = np.asarray(view["persistence"], dtype=np.float64).reshape(-1, 1)
+    assert np.isfinite(v).all(), "NDVI(t) is non-finite on some feature row"
+    return (p4.FeatureSource(name="base/ndvi_t", values=v,
+                             names=(BASE_BLOCK_COLUMN,), frame_level=False,
+                             permutable=False),)
+
+
 def _run_p3_rows(data: P3Data, encoders, horizons, aggregations, k, n_jobs,
-                 verbose) -> list:
+                 verbose, payloads: list = None) -> list:
+    """Every row of the table.
+
+    ``payloads`` collects, per emitted row, the held-out (fold, position, y,
+    prediction) arrays the PAIRED separability needs. It is a parallel list, one
+    entry per row, and it is the reason ``add_paired_separability`` can difference
+    two rows fold by fold instead of eyeballing two marginal intervals. It is
+    optional only so a caller who does not want the memory can say so; the run
+    always passes it.
+    """
     views = encoder_views(encoders)
     out = []
+    payloads = [] if payloads is None else payloads
     horizons = [int(H) for H in horizons]
 
     for agg in aggregations:
@@ -2173,6 +2774,7 @@ def _run_p3_rows(data: P3Data, encoders, horizons, aggregations, k, n_jobs,
                     data.observation["window_span_days"],
                     data.observation["grid_clear_frac"], level,
                     view["row_of"], view["cell_idx"])
+                bases = {b: _base_sources(view, b) for b in FEATURE_BASES}
                 if verbose:
                     head = f"{agg} | Delta={H}d | {level} | {mode}"
                     print(f"\n[p3] ---- {head} " + "-" * max(0, 46 - len(head)))
@@ -2182,14 +2784,19 @@ def _run_p3_rows(data: P3Data, encoders, horizons, aggregations, k, n_jobs,
                              if TARGET_LEVEL[agg] == "cell" else ")"))
 
                 def emit(kind, encoder, feature_set, estimator, sources,
-                         D, ctx_frames, permute=False, base_X=None):
+                         D, ctx_frames, permute=False, base_X=None,
+                         alpha_rule=ALPHA_RULE_NA,
+                         feature_base=FEATURE_BASE_NONE):
                     res, empty = evaluate(sources, view, rows, data.manifest,
                                           mode, estimator, kind, k=k,
                                           permute=permute, base_X=base_X,
+                                          alpha_rule=alpha_rule,
                                           n_jobs=n_jobs)
                     row = {**_base_row(H, agg, level, mode, encoder,
                                        feature_set, kind, estimator, D, rows,
-                                       n_feat, ctx_frames),
+                                       n_feat, ctx_frames,
+                                       alpha_rule=alpha_rule,
+                                       feature_base=feature_base),
                            **summarise(res, empty, severity=sev)}
                     row["n_manifest_rows"] = int(len(data.manifest))
                     # p >> n is a MEASURED property of each row, not a caveat in
@@ -2200,28 +2807,36 @@ def _run_p3_rows(data: P3Data, encoders, horizons, aggregations, k, n_jobs,
                                              if row["n_train_median"] else
                                              float("nan"))
                     out.append(row)
+                    payloads.append(_fold_payload(res))
                     if verbose:
                         print(f"[p3]   {kind:<21} {encoder:<24} "
-                              f"{feature_set:<13} {estimator:<7} D={D:<6} "
+                              f"{feature_set:<13} {estimator:<7} "
+                              f"{_rule_tag(alpha_rule, feature_base)} D={D:<6} "
                               f"R2 {row['r2_mean']:+.3f} "
                               f"[{row['r2_ci_lo']:+.3f}, {row['r2_ci_hi']:+.3f}]"
                               f" | pooled {row['r2_pooled']:+.3f} | vs pers "
                               f"{row['skill_vs_persistence']:+.3f} | n "
                               f"{row['effective_n']} CUBES"
-                              + ("" if encoder != MI_ENCODER
+                              + ("" if base_encoder(encoder) != MI_ENCODER
                                  else "  [si_comparable=False]"))
                     return row
 
                 # --- the five mandatory baselines -------------------------
+                # The two UNFITTED ones have no design, so no base and no rule.
                 emit("persistence", "none", "none", "none", (), 0, 0)
                 emit("climatology_proxy", "none", "none", "none", (), 0, 0)
-                for est in WEATHER_ONLY_ESTIMATORS:
-                    emit("weather_only", "none", "weather", est, (w,),
-                         len(w.names), 0)
+                for fb in FEATURE_BASES:
+                    for est in WEATHER_ONLY_ESTIMATORS:
+                        src = bases[fb] + (w,)
+                        D = sum(len(s.names) for s in src)
+                        for rule in _alpha_rules_for(est):
+                            emit("weather_only", "none", "weather", est, src,
+                                 D, 0, alpha_rule=rule, feature_base=fb)
 
                 # --- the encoder rows, and the two raw baselines -----------
-                # The design is assembled ONCE per view and reused across
-                # estimators: a DINOv2 k=3 context is 11 520 columns.
+                # The design is assembled ONCE per (view, feature_base) and
+                # reused across estimators and penalty rules: a DINOv2 k=3
+                # context is 11 520 columns.
                 for enc, fs, kind in views:
                     ctx_k = context_frames_for(enc)
                     Xc, names = context_block(
@@ -2233,18 +2848,27 @@ def _run_p3_rows(data: P3Data, encoders, horizons, aggregations, k, n_jobs,
                     ctx = p4.FeatureSource(name=f"context/{enc}/{fs}",
                                            values=Xc, names=names,
                                            frame_level=False)
-                    X = p4.build_X((ctx, w), view["row_of"])
-                    for est in FORECAST_ESTIMATORS:
-                        emit(kind, enc, fs, est, (ctx, w), X.shape[1], ctx_k,
-                             base_X=X)
-                    del Xc, ctx, X
+                    for fb in FEATURE_BASES:
+                        src = (ctx,) + bases[fb] + (w,)
+                        X = p4.build_X(src, view["row_of"])
+                        for est in FORECAST_ESTIMATORS:
+                            for rule in _alpha_rules_for(est):
+                                emit(kind, enc, fs, est, src, X.shape[1],
+                                     ctx_k, base_X=X, alpha_rule=rule,
+                                     feature_base=fb)
+                        del X
+                    del Xc, ctx
 
                 # --- the three controls, under every estimator -------------
+                # A control does NOT take the shared base. A control handed
+                # current NDVI is not a control any more; it is a model, and the
+                # margin every row is read on would be a margin over a model.
                 for est in CONTROL_ESTIMATORS:
-                    emit("observation", "none", "observation", est, (obs,),
-                         len(obs.names), 0)
-                    emit("permutation", "none", "weather", est, (w,),
-                         len(w.names), 0, permute=True)
+                    for rule in _alpha_rules_for(est):
+                        emit("observation", "none", "observation", est, (obs,),
+                             len(obs.names), 0, alpha_rule=rule)
+                        emit("permutation", "none", "weather", est, (w,),
+                             len(w.names), 0, permute=True, alpha_rule=rule)
                 res, empty = hc[H]
                 row = {**_base_row(H, agg, level, mode, "none", "horizon",
                                    "horizon_only", "none",
@@ -2256,9 +2880,11 @@ def _run_p3_rows(data: P3Data, encoders, horizons, aggregations, k, n_jobs,
                                          / row["n_train_median"]
                                          if row["n_train_median"] else float("nan"))
                 out.append(row)
+                payloads.append(_fold_payload(res))
                 if verbose:
                     print(f"[p3]   {'horizon_only':<21} {'none':<24} "
                           f"{'horizon':<13} {'none':<7} "
+                          f"{_rule_tag(ALPHA_RULE_NA, FEATURE_BASE_NONE)} "
                           f"D={HORIZON_CONTROL_DEGREE + 1:<6} "
                           f"R2 {row['r2_mean']:+.3f} "
                           f"[{row['r2_ci_lo']:+.3f}, {row['r2_ci_hi']:+.3f}]"
@@ -2266,7 +2892,32 @@ def _run_p3_rows(data: P3Data, encoders, horizons, aggregations, k, n_jobs,
                           "fitted POOLED over horizons)")
     for r in out:
         r.setdefault("control_fit_scope", "within_horizon")
+    assert len(payloads) == len(out), (len(payloads), len(out))
     return out
+
+
+def _rule_tag(alpha_rule: str, feature_base: str) -> str:
+    return f"{'a=D' if alpha_rule == ALPHA_RULE_FIXED else ('cv' if alpha_rule == ALPHA_RULE_TUNED else '--')}/{'+base' if feature_base == FEATURE_BASE_SHARED else 'nobase'}"
+
+
+def _fold_payload(results: Sequence[P3FoldResult]) -> dict:
+    """The held-out rows of one table row, concatenated in fold order.
+
+    ``fold`` and ``pos`` together identify a held-out observation: ``pos`` is the
+    feature-row index and ``fold`` says which fold predicted it. Two table rows
+    can be differenced only where both keys match, which is what makes the
+    difference PAIRED rather than a comparison of two averages over two sets.
+    """
+    return {
+        "fold": np.concatenate([np.full(r.test_y.size, r.fold, dtype=np.int64)
+                                for r in results]),
+        "pos": np.concatenate([np.asarray(r.test_pos, dtype=np.int64)
+                               for r in results]),
+        "y": np.concatenate([np.asarray(r.test_y, dtype=np.float64)
+                             for r in results]),
+        "pred": np.concatenate([np.asarray(r.test_pred, dtype=np.float64)
+                                for r in results]),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -2274,6 +2925,13 @@ def _run_p3_rows(data: P3Data, encoders, horizons, aggregations, k, n_jobs,
 # ---------------------------------------------------------------------------
 
 _CONTROL_KEY = ("delta_days", "aggregation", "fold_mode")
+# A fitted row is identified within a cell by its LEARNER, which is now the
+# estimator AND the penalty rule: ridge at alpha = D and ridge at a selected
+# alpha are two learners, and a margin taken across them would compare two
+# penalties rather than two feature sets. The shared base is the third
+# dimension for anything with a design, for the same reason.
+_ESTIMATOR_KEY = ("estimator", "alpha_rule")
+_VIEW_KEY = ("estimator", "alpha_rule", "feature_base")
 
 
 def add_margins(df, verbose: bool = True):
@@ -2314,7 +2972,8 @@ def add_margins(df, verbose: bool = True):
     every copy is digit-for-digit identical.
     """
     key = list(_CONTROL_KEY)
-    key_est = key + ["estimator"]
+    key_est = key + list(_ESTIMATOR_KEY)
+    key_view = key + list(_VIEW_KEY)
     df = df.copy()
 
     obs = df[df.model_kind == "observation"]
@@ -2324,14 +2983,19 @@ def add_margins(df, verbose: bool = True):
     look = obs.set_index(key_est)["r2_pooled"]
     df["control_score"] = df.set_index(key_est).index.map(look).to_numpy()
     df["control_kind"] = "observation"
-    # An unfitted baseline has no estimator, so it takes the LINEAR control --
-    # named here rather than left to a silent NaN, and recorded on the row.
-    fallback = obs[obs.estimator == "linear"].set_index(key)["r2_pooled"]
+    # An unfitted baseline has no estimator, so it takes the RIDGE control at
+    # the FIXED rule -- named here rather than left to a silent NaN, and
+    # recorded on the row.
+    fallback = (obs[(obs.estimator == RIDGE_ESTIMATOR)
+                    & (obs.alpha_rule == ALPHA_RULE_FIXED)]
+                .set_index(key)["r2_pooled"])
     miss = df.control_score.isna()
     df.loc[miss, "control_score"] = (df[miss].set_index(key).index
                                      .map(fallback).to_numpy())
-    df["control_estimator"] = np.where(df.estimator.isin(CONTROL_ESTIMATORS),
-                                       df.estimator, "linear")
+    fitted = df.estimator.isin(CONTROL_ESTIMATORS)
+    df["control_estimator"] = np.where(fitted, df.estimator, RIDGE_ESTIMATOR)
+    df["control_alpha_rule"] = np.where(fitted, df.alpha_rule,
+                                        ALPHA_RULE_FIXED)
     assert df.control_score.notna().all(), (
         "some row has no matching observation control. The controls are not "
         "optional and every row must be comparable to them."
@@ -2351,7 +3015,15 @@ def add_margins(df, verbose: bool = True):
         assert df[col].notna().all(), f"some row has no matching {kind} row"
 
     perm = df[df.model_kind == "permutation"].set_index(key_est)["r2_pooled"]
-    df["permutation_score"] = df.set_index(key_est).index.map(perm).to_numpy()
+    perm_score = df.set_index(key_est).index.map(perm).to_numpy()
+    fb_perm = (df[(df.model_kind == "permutation")
+                  & (df.estimator == RIDGE_ESTIMATOR)
+                  & (df.alpha_rule == ALPHA_RULE_FIXED)]
+               .set_index(key)["r2_pooled"])
+    miss = ~np.isfinite(np.asarray(perm_score, dtype=float))
+    perm_score = np.where(miss, df.set_index(key).index.map(fb_perm).to_numpy(),
+                          perm_score)
+    df["permutation_score"] = perm_score
     df["margin_over_permutation"] = df.r2_pooled - df.permutation_score
 
     band = df[(df.feature_set == BAND_MATCHED_BASELINE)
@@ -2362,9 +3034,12 @@ def add_margins(df, verbose: bool = True):
         "makes a network's score a statement about the representation rather "
         "than about which bands the baseline was given"
     )
-    b = band.set_index(key_est)["r2_pooled"]
-    df["margin_over_band_matched"] = (df.r2_pooled
-                                      - df.set_index(key_est).index.map(b).to_numpy())
+    assert len(band) == len(band.drop_duplicates(key_view)), (
+        f"the band-matched baseline is not unique per {key_view}"
+    )
+    b = band.set_index(key_view)["r2_pooled"]
+    df["band_matched_score"] = df.set_index(key_view).index.map(b).to_numpy()
+    df["margin_over_band_matched"] = df.r2_pooled - df.band_matched_score
     if verbose:
         m = df[(~df.is_control) & (df.model_kind != "persistence")]
         beaten = m[m.skill_vs_persistence <= 0]
@@ -2374,36 +3049,520 @@ def add_margins(df, verbose: bool = True):
     return df
 
 
-def print_headlines(df, aggregation: str = PRIMARY_AGGREGATION,
-                    fold_mode: str = "cube") -> None:
-    """The table a reader should see first: per horizon, best rows and baselines."""
+# ---------------------------------------------------------------------------
+# Separability, and it is PAIRED
+# ---------------------------------------------------------------------------
+
+#: reference -> the ``margin_over_*`` column it is the interval for. Every
+#: "X beats Y" claim in this table is one of these, and every one of them gets a
+#: paired difference with a fold-clustered interval. The mapping is one-to-one
+#: BY CONSTRUCTION, and ``assert_separability_is_paired`` checks that the two
+#: numbers agree digit for digit -- a margin whose interval was computed on a
+#: different quantity would be worse than no interval at all.
+REFERENCE_MARGIN = {
+    "band_matched": "margin_over_band_matched",
+    "control": "margin_over_control",
+    "persistence": "margin_over_persistence",
+    "climatology": "margin_over_climatology",
+    "horizon_control": "margin_over_horizon_control",
+    "permutation": "margin_over_permutation",
+    "rgb_twin": "margin_over_rgb_twin",
+}
+
+
+def paired_difference(a: dict, b: dict, alpha: float = 0.05) -> dict:
+    """R2_pooled(a) - R2_pooled(b) on the rows BOTH predicted, fold-clustered.
+
+    THIS IS THE ONLY COMPARISON THIS PHASE MAKES, and it replaces the thing it
+    is easy to do instead: printing two marginal intervals and reading whether
+    they overlap. Two marginal intervals ignore that both models were scored on
+    the SAME held-out rows in the SAME folds, so the fold-to-fold variation they
+    share -- which is most of the variation at 115 cubes -- is counted twice and
+    the comparison is far more conservative than the data. P2 settled this on
+    K2: DINOv2 sat 0.006 below the baseline with marginal intervals 0.6 wide,
+    and only the paired difference could say whether that was a result.
+
+    Mechanically: a held-out observation is keyed by (fold, feature-row), the
+    two rows are intersected on that key, and the statistic is
+
+        theta = R2_pooled(a) - R2_pooled(b) = (SSE_b - SSE_a) / SST
+
+    -- one expression, because the two share y and therefore share SST. Its
+    interval is the DELETE-ONE-FOLD jackknife of theta itself, not of either
+    term: folds hold disjoint sets of cubes, so deleting one deletes a cluster,
+    and the shared fold effect cancels inside theta before the spread is taken.
+    That is the same clustering ``_pooled_with_fold_jackknife`` applies to a
+    single pooled statistic, applied to the difference.
+
+    The jackknife runs on PER-FOLD SUMS rather than by re-concatenating the
+    arrays k times: with 115 leave-one-cube-out folds and seven references on
+    every row of a 1500-row table, the naive form is the difference between
+    seconds and an hour, and the two are algebraically identical.
+    """
+    from scipy.stats import t as student_t
+
+    nan = float("nan")
+    empty = {"diff": nan, "ci_lo": nan, "ci_hi": nan, "separable": False,
+             "n_rows": 0, "n_folds": 0}
+    if a is None or b is None:
+        return empty
+    span = int(max(a["pos"].max(initial=0), b["pos"].max(initial=0))) + 1
+    ka = a["fold"] * span + a["pos"]
+    kb = b["fold"] * span + b["pos"]
+    common, ia, ib = np.intersect1d(ka, kb, assume_unique=False,
+                                    return_indices=True)
+    if common.size < 2:
+        return empty
+    y = a["y"][ia]
+    np.testing.assert_allclose(
+        y, b["y"][ib], rtol=0, atol=1e-12,
+        err_msg="the two rows disagree on the TARGET of a held-out observation "
+                "they both predicted. They are not scored on the same data, so "
+                "the difference is not paired and must not be reported as one.")
+    fold = a["fold"][ia]
+    _, f_idx = np.unique(fold, return_inverse=True)
+    K = int(f_idx.max()) + 1
+    ra = y - a["pred"][ia]
+    rb = y - b["pred"][ib]
+
+    n_f = np.bincount(f_idx, minlength=K).astype(float)
+    sy_f = np.bincount(f_idx, weights=y, minlength=K)
+    sy2_f = np.bincount(f_idx, weights=y * y, minlength=K)
+    sa_f = np.bincount(f_idx, weights=ra * ra, minlength=K)
+    sb_f = np.bincount(f_idx, weights=rb * rb, minlength=K)
+    N, SY, SY2 = n_f.sum(), sy_f.sum(), sy2_f.sum()
+    SA, SB = sa_f.sum(), sb_f.sum()
+
+    def theta(n, sy, sy2, sa, sb):
+        sst = sy2 - sy * sy / n if n > 0 else 0.0
+        return (sb - sa) / sst if sst > 0 else float("nan")
+
+    th = theta(N, SY, SY2, SA, SB)
+    out = dict(empty, diff=float(th), n_rows=int(N), n_folds=K)
+    if K < 2 or not np.isfinite(th):
+        return out
+    loo = np.array([theta(N - n_f[i], SY - sy_f[i], SY2 - sy2_f[i],
+                          SA - sa_f[i], SB - sb_f[i]) for i in range(K)])
+    loo = loo[np.isfinite(loo)]
+    if loo.size < 2:
+        return out
+    m = loo.mean()
+    se = np.sqrt((loo.size - 1) / loo.size * ((loo - m) ** 2).sum())
+    half = float(student_t.ppf(1 - alpha / 2, loo.size - 1) * se)
+    lo, hi = float(th - half), float(th + half)
+    out.update(ci_lo=lo, ci_hi=hi,
+               separable=bool(np.isfinite(lo) and np.isfinite(hi)
+                              and (lo > 0 or hi < 0)))
+    return out
+
+
+def _reference_index(df) -> dict:
+    """reference kind -> (n,) int array of the df row each row is compared to.
+
+    -1 means "this row has no reference of that kind", which is a fact about the
+    row and not a failure: the band-matched baseline has no band-matched
+    reference, an RGB view has no RGB twin, and an unfitted baseline has no
+    estimator to be matched at.
+    """
+    n = len(df)
+    cell = list(_CONTROL_KEY)
+    need = cell + ["estimator", "alpha_rule", "feature_base", "model_kind",
+                   "encoder", "feature_set"]
+    for c in need:
+        assert c in df.columns, f"the table has no {c!r} column"
+    cols = df[need].to_numpy(dtype=object)
+
+    def parts(i):
+        row = cols[i]
+        return (tuple(row[:len(cell)]), str(row[len(cell)]),
+                str(row[len(cell) + 1]), str(row[len(cell) + 2]),
+                str(row[len(cell) + 3]), str(row[len(cell) + 4]),
+                str(row[len(cell) + 5]))
+
+    index = {}
+    for i in range(n):
+        c, est, rule, fb, kind, enc, fs = parts(i)
+        if enc == BASELINE_ENCODER and fs == BAND_MATCHED_BASELINE:
+            index[("band_matched", c, est, rule, fb)] = i
+        if kind == "observation":
+            index[("control", c, est, rule)] = i
+        if kind == "permutation":
+            index[("permutation", c, est, rule)] = i
+        if kind == "persistence":
+            index[("persistence", c)] = i
+        if kind == "climatology_proxy":
+            index[("climatology", c)] = i
+        if kind == "horizon_only":
+            index[("horizon_control", c)] = i
+        index[("view", c, enc, fs, kind, est, rule, fb)] = i
+
+    pos = {k: np.full(n, -1, dtype=int) for k in PAIRED_REFERENCES}
+    for i in range(n):
+        c, est, rule, fb, kind, enc, fs = parts(i)
+        j = index.get(("band_matched", c, est, rule, fb), -1)
+        pos["band_matched"][i] = -1 if j == i else j
+        for key in ("control", "permutation"):
+            j = index.get((key, c, est, rule), -1)
+            if j < 0:      # an unfitted row takes the ridge control at the
+                j = index.get((key, c, RIDGE_ESTIMATOR,   # fixed rule, which
+                               ALPHA_RULE_FIXED), -1)     # is add_margins' rule
+            pos[key][i] = -1 if j == i else j
+        for key in ("persistence", "climatology", "horizon_control"):
+            j = index.get((key, c), -1)
+            pos[key][i] = -1 if j == i else j
+        if is_cir(enc):
+            j = index.get(("view", c, base_encoder(enc), fs, kind, est, rule,
+                           fb), -1)
+            pos["rgb_twin"][i] = -1 if j == i else j
+    return pos
+
+
+def add_paired_separability(df, payloads: Sequence[dict], verbose: bool = True):
+    """Attach the paired difference, its fold-clustered interval and a verdict.
+
+    One quadruple per reference in ``PAIRED_REFERENCES``, plus an unsuffixed
+    quadruple for the PRIMARY reference -- the band-matched hand-crafted
+    baseline, which is the comparison this phase exists to make. ``reference_kind``
+    names what the unsuffixed columns are against, and reads ``none`` on the rows
+    that have no such reference, so a NaN is never ambiguous between "not
+    computed" and "nothing to compare to".
+
+    ``margin_over_rgb_twin`` is created here rather than in ``add_margins``
+    because the twin relation lives in the encoder NAME and this is where that
+    is resolved.
+    """
+    df = df.reset_index(drop=True).copy()
+    assert len(payloads) == len(df), (
+        f"{len(payloads)} fold payloads against {len(df)} rows. The paired "
+        "difference needs the held-out predictions of BOTH rows; without them "
+        "the only comparison available is two marginal intervals, which is "
+        "exactly what this column exists to replace."
+    )
+    ref_pos = _reference_index(df)
+    worst_short = 0
+    for key in PAIRED_REFERENCES:
+        j = ref_pos[key]
+        d = np.full(len(df), np.nan)
+        lo = np.full(len(df), np.nan)
+        hi = np.full(len(df), np.nan)
+        sep = np.zeros(len(df), dtype=bool)
+        nr = np.zeros(len(df), dtype=int)
+        nf = np.zeros(len(df), dtype=int)
+        for i in np.flatnonzero(j >= 0):
+            r = paired_difference(payloads[i], payloads[j[i]])
+            d[i], lo[i], hi[i] = r["diff"], r["ci_lo"], r["ci_hi"]
+            sep[i], nr[i], nf[i] = r["separable"], r["n_rows"], r["n_folds"]
+            worst_short = max(worst_short,
+                              int(df.n_rows_pooled.iloc[i]) - r["n_rows"])
+        df[f"paired_diff_vs_{key}"] = d
+        df[f"paired_ci_lo_vs_{key}"] = lo
+        df[f"paired_ci_hi_vs_{key}"] = hi
+        df[f"separable_vs_{key}"] = sep
+        if key == PRIMARY_REFERENCE:
+            df["paired_diff"] = d
+            df["paired_ci_lo"] = lo
+            df["paired_ci_hi"] = hi
+            df["separable"] = sep
+            df["paired_n_rows"] = nr
+            df["paired_n_folds"] = nf
+        if key == "rgb_twin":
+            twin = np.where(j >= 0, df.r2_pooled.to_numpy()[np.maximum(j, 0)],
+                            np.nan)
+            df["rgb_twin_score"] = twin
+            df["margin_over_rgb_twin"] = df.r2_pooled - twin
+    df["reference_kind"] = np.where(ref_pos[PRIMARY_REFERENCE] >= 0,
+                                    PRIMARY_REFERENCE, "none")
+    df["has_rgb_twin"] = ref_pos["rgb_twin"] >= 0
+    df["separability_test"] = (
+        "paired per-fold difference, delete-one-fold jackknife interval "
+        "(NOT two marginal CIs)")
+    # RECORDED here, REFUSED by assert_separability_is_paired. A run that ends
+    # in an exception after four hours leaves nothing to diagnose; a run that
+    # writes the table and then refuses it leaves the evidence on disk.
+    df["paired_rows_lost_max"] = int(worst_short)
+    if verbose:
+        if worst_short:
+            print(f"[p3] WARNING: a paired comparison lost up to {worst_short} "
+                  "held-out row(s) to the intersection -- the two rows were "
+                  "not scored on the same observations. "
+                  "assert_separability_is_paired will refuse this table.")
+        m = df[df.reference_kind == PRIMARY_REFERENCE]
+        print(f"[p3] paired separability attached against {PRIMARY_REFERENCE} "
+              f"for {len(m)}/{len(df)} rows, plus "
+              f"{int(df.has_rgb_twin.sum())} rgb-twin comparisons. "
+              f"{int(m.separable.sum())}/{len(m)} are SEPARABLE from the "
+              "band-matched baseline on the paired per-fold difference.")
+    return df
+
+
+def assert_separability_is_paired(df) -> None:
+    """No verdict in this table came from two overlapping marginal intervals.
+
+    THE FAILURE THIS EXISTS TO MAKE IMPOSSIBLE. The cheap way to say "X beats Y"
+    is to print R2(X) with its interval, R2(Y) with its interval, and see whether
+    they overlap. Both rows were fitted on the SAME folds and scored on the SAME
+    held-out observations, so most of the width of each marginal interval is a
+    fold effect they share; ignoring the pairing throws that away and answers a
+    question nobody asked. It is also the form a future edit will reach for
+    first, because the marginal intervals are already on the row.
+
+    Four things are checked, and the fourth is the one a re-implementation would
+    fail:
+
+    1. Every ``margin_over_*`` column has its paired quadruple, and every paired
+       quadruple has its margin. The mapping is ``REFERENCE_MARGIN`` and it is
+       one-to-one.
+    2. The paired difference EQUALS the margin it is the interval for. The
+       interval must be on the quantity the table reports, not on a neighbouring
+       one.
+    3. ``separable`` is exactly "the interval excludes zero", and the interval
+       brackets the difference.
+    4. The paired half-width equals NEITHER naive combination of the two
+       marginal half-widths -- not their sum, not their root-sum-square. A
+       verdict computed from marginal intervals would match one of those two
+       exactly on every row; a jackknife of the difference matches neither on
+       any row, because it is a different statistic computed a different way.
+    """
+    assert "separability_test" in df.columns and \
+        (df.separability_test.astype(str).str.contains("paired")).all(), (
+        "the table does not declare its separability test as paired"
+    )
+    assert "paired_rows_lost_max" in df.columns, (
+        "the table does not record how many held-out rows the pairing lost. "
+        "Without it a comparison over a partial intersection is indistinguishable "
+        "from a paired one."
+    )
+    lost = int(df.paired_rows_lost_max.max())
+    assert lost == 0, (
+        f"a paired comparison lost up to {lost} held-out row(s) to the "
+        "intersection of the two rows' held-out observations: they were not "
+        "scored on the same data, so their difference is not the margin the "
+        "table reports and is not paired."
+    )
+    for key, margin in REFERENCE_MARGIN.items():
+        cols = [f"paired_diff_vs_{key}", f"paired_ci_lo_vs_{key}",
+                f"paired_ci_hi_vs_{key}", f"separable_vs_{key}"]
+        for c in cols:
+            assert c in df.columns, (
+                f"{c!r} is missing. Every reference in PAIRED_REFERENCES needs "
+                "a paired difference, an interval on that difference and a "
+                "verdict; a reference with only a margin is a comparison with "
+                "no uncertainty attached."
+            )
+        assert margin in df.columns, (
+            f"{margin!r} is missing while {cols[0]!r} is present. Attach the "
+            "margins (add_margins) before asserting separability."
+        )
+        d, m = df[cols[0]].to_numpy(float), df[margin].to_numpy(float)
+        both = np.isfinite(d) & np.isfinite(m)
+        if both.any():
+            np.testing.assert_allclose(
+                d[both], m[both], rtol=0, atol=1e-9,
+                err_msg=f"paired_diff_vs_{key} disagrees with {margin}. The "
+                        "interval must be on the quantity the table reports; "
+                        "if these differ, one of the two was computed against "
+                        "a different reference row.")
+        lo, hi = df[cols[1]].to_numpy(float), df[cols[2]].to_numpy(float)
+        sep = df[cols[3]].to_numpy(bool)
+        ok = np.isfinite(lo) & np.isfinite(hi)
+        assert (lo[ok] <= d[ok] + 1e-12).all() and (hi[ok] >= d[ok] - 1e-12).all(), (
+            f"a {key} interval does not bracket its own difference"
+        )
+        want = (lo[ok] > 0) | (hi[ok] < 0)
+        assert (sep[ok] == want).all(), (
+            f"separable_vs_{key} is not 'the paired interval excludes zero' on "
+            f"{int((sep[ok] != want).sum())} row(s)"
+        )
+        assert not sep[~ok].any(), (
+            f"separable_vs_{key} is True where the paired interval is not "
+            "defined"
+        )
+    # The unsuffixed quadruple is what a reader filters on, so it must BE the
+    # primary reference's and not merely resemble it.
+    for plain, suffixed in (("paired_diff", f"paired_diff_vs_{PRIMARY_REFERENCE}"),
+                            ("paired_ci_lo", f"paired_ci_lo_vs_{PRIMARY_REFERENCE}"),
+                            ("paired_ci_hi", f"paired_ci_hi_vs_{PRIMARY_REFERENCE}"),
+                            ("separable", f"separable_vs_{PRIMARY_REFERENCE}")):
+        assert plain in df.columns, f"the table has no {plain!r} column"
+        a = df[plain].to_numpy()
+        b = df[suffixed].to_numpy()
+        if a.dtype == bool or b.dtype == bool:
+            same = (a.astype(bool) == b.astype(bool)).all()
+        else:
+            fa, fb = a.astype(float), b.astype(float)
+            same = ((np.isnan(fa) & np.isnan(fb))
+                    | np.isclose(fa, fb, rtol=0, atol=1e-12)).all()
+        assert same, (
+            f"{plain!r} is not {suffixed!r}. The unsuffixed columns are the "
+            f"ones a reader reads; they are the {PRIMARY_REFERENCE} comparison "
+            "and nothing else, and a copy that drifted from it would report a "
+            "verdict against a reference the row does not name."
+        )
+    assert (df.loc[df.reference_kind == "none", "paired_diff"].isna()).all(), (
+        "a row with reference_kind='none' carries a paired difference. A NaN "
+        "there means 'nothing to compare to', and a number means the two "
+        "columns disagree about what the row was compared against."
+    )
+
+    # --- 4. the guard against the marginal rule coming back ------------------
+    half = (df.paired_ci_hi - df.paired_ci_lo).to_numpy(float) / 2.0
+    ha = (df.r2_pooled_ci_hi - df.r2_pooled_ci_lo).to_numpy(float) / 2.0
+    ref = _reference_index(df)[PRIMARY_REFERENCE]
+    hb = np.where(ref >= 0, ha[np.maximum(ref, 0)], np.nan)
+    ok = np.isfinite(half) & np.isfinite(ha) & np.isfinite(hb) & (ref >= 0)
+    assert ok.any(), (
+        "no row carries both a paired interval and the two marginal intervals, "
+        "so the check that the paired one is not a marginal one cannot run"
+    )
+    for name, naive in (("the SUM of the two marginal half-widths", ha + hb),
+                        ("their ROOT-SUM-SQUARE", np.sqrt(ha ** 2 + hb ** 2))):
+        same = ok & np.isclose(half, naive, rtol=1e-9, atol=1e-12)
+        assert not same.any(), (
+            f"{int(same.sum())} paired interval(s) are exactly {name}. That is "
+            "the marginal-CI comparison this column exists to replace: it "
+            "ignores that both rows were scored on the same held-out rows in "
+            "the same folds, and it is the form an edit reaches for first "
+            "because the marginal intervals are already on the row. The paired "
+            "interval is a delete-one-fold jackknife of the DIFFERENCE -- see "
+            "paired_difference."
+        )
+
+
+def print_separability(df, aggregation: str = PRIMARY_AGGREGATION,
+                       fold_mode: str = "cube",
+                       feature_base: str = FEATURE_BASE_SHARED,
+                       alpha_rule: str = ALPHA_RULE_TUNED,
+                       estimator: str = RIDGE_ESTIMATOR) -> None:
+    """Does any encoder separably beat the band-matched hand-crafted baseline?"""
+    sub = df[(df.aggregation == aggregation) & (df.fold_mode == fold_mode)
+             & (df.feature_base == feature_base) & (df.alpha_rule == alpha_rule)
+             & (df.estimator == estimator) & (~df.is_control)
+             & (df.reference_kind == PRIMARY_REFERENCE)]
     print("\n" + "=" * 92)
-    print(f"P3 HEADLINES -- {aggregation} / {fold_mode} folds "
-          "(R2 with a cube-clustered CI; skill is pooled out-of-fold vs "
+    print(f"SEPARABILITY vs the BAND-MATCHED baseline -- {aggregation} / "
+          f"{fold_mode} / {estimator} / alpha_rule={alpha_rule} / "
+          f"feature_base={feature_base}")
+    print("  paired per-fold difference with a delete-one-fold jackknife "
+          "interval. NOT two marginal CIs.")
+    print("=" * 92)
+    if not len(sub):
+        print("  (no rows at this configuration)")
+        return
+    for H in sorted(sub.delta_days.unique()):
+        s = sub[sub.delta_days == H].sort_values("paired_diff", ascending=False)
+        print(f"\n  Delta = {H} d   (effective n = "
+              f"{int(s.effective_n.iloc[0])} CUBES)")
+        print(f"  {'encoder':<28} {'band':<5} {'R2pooled':>9} {'paired diff':>12} "
+              f"{'paired 95% CI':>20}  verdict")
+        for r in s.itertuples():
+            v = "SEPARABLE" if r.separable else "not separable"
+            print(f"  {r.encoder:<28} {r.band_composite:<5} {r.r2_pooled:>+9.3f} "
+                  f"{r.paired_diff:>+12.3f} "
+                  f"[{r.paired_ci_lo:>+8.3f},{r.paired_ci_hi:>+8.3f}]  {v}"
+                  + ("" if r.si_comparable else "  [si_comparable=False]"))
+
+
+def print_cir_vs_rgb(df, aggregation: str = PRIMARY_AGGREGATION,
+                     feature_base: str = FEATURE_BASE_SHARED,
+                     alpha_rule: str = ALPHA_RULE_TUNED,
+                     estimator: str = RIDGE_ESTIMATOR) -> None:
+    """THE HEADLINE TABLE: does a _cir encoder separably beat its _rgb twin?
+
+    The twins are the same weights, the same frame selection and the same
+    read-out; only the three bands the network was fed differ. So this
+    difference is BAND ACCESS and nothing else, and it is the one number that
+    separates "hand-crafted features beat learned representations" from "NIR
+    beats RGB, and the representation was never what decided it".
+    """
+    print("\n" + "=" * 92)
+    print(f"COLOUR-INFRARED vs RGB, PAIRED PER TWIN -- {aggregation} / "
+          f"{estimator} / alpha_rule={alpha_rule} / feature_base={feature_base}")
+    print("  cir minus its own rgb twin: same weights, same frames, same "
+          "read-out, only the bands differ.")
+    print("  Paired per-fold difference with a delete-one-fold jackknife "
+          "interval; effective n is CUBES.")
+    print("=" * 92)
+    sub = df[(df.aggregation == aggregation) & (df.feature_base == feature_base)
+             & (df.alpha_rule == alpha_rule) & (df.estimator == estimator)
+             & df.has_rgb_twin]
+    if not len(sub):
+        print("  (no colour-infrared rows at this configuration)")
+        return
+    for mode in [m for m in FOLD_MODES if m in set(sub.fold_mode)]:
+        print(f"\n  fold_mode = {mode}")
+        print(f"  {'encoder (cir)':<28} {'Delta':>6} {'R2 cir':>8} "
+              f"{'R2 rgb':>8} {'paired diff':>12} {'paired 95% CI':>20}  verdict")
+        s = sub[sub.fold_mode == mode].sort_values(["encoder_base",
+                                                    "delta_days"])
+        for r in s.itertuples():
+            v = "SEPARABLE" if r.separable_vs_rgb_twin else "not separable"
+            print(f"  {r.encoder:<28} {r.delta_days:>6d} {r.r2_pooled:>+8.3f} "
+                  f"{r.rgb_twin_score:>+8.3f} {r.paired_diff_vs_rgb_twin:>+12.3f} "
+                  f"[{r.paired_ci_lo_vs_rgb_twin:>+8.3f},"
+                  f"{r.paired_ci_hi_vs_rgb_twin:>+8.3f}]  {v}"
+                  + ("" if r.si_comparable else "  [si_comparable=False]"))
+    n_sep = int(sub.separable_vs_rgb_twin.sum())
+    up = int((sub.paired_diff_vs_rgb_twin > 0).sum())
+    print(f"\n  {n_sep} of {len(sub)} twin comparisons are SEPARABLE; "
+          f"{up} of {len(sub)} have the colour-infrared view ahead at all. "
+          "A twin difference that is not separable means the extra band did not "
+          "measurably change what the frozen network carries -- not that it "
+          "carries the same thing.")
+
+
+def print_headlines(df, aggregation: str = PRIMARY_AGGREGATION,
+                    fold_mode: str = "cube",
+                    feature_base: str | None = None,
+                    alpha_rule: str | None = None) -> None:
+    """The table a reader should see first: per horizon, best rows and baselines.
+
+    ``feature_base`` and ``alpha_rule`` filter the table to ONE learner and ONE
+    design convention. Printing all four combinations in one block would put
+    four different questions in one sorted list, and the top row would be
+    whichever question happened to be easiest.
+    """
+    print("\n" + "=" * 92)
+    print(f"P3 HEADLINES -- {aggregation} / {fold_mode} folds"
+          + (f" / feature_base={feature_base}" if feature_base else "")
+          + (f" / alpha_rule={alpha_rule}" if alpha_rule else "")
+          + "\n(R2 with a cube-clustered CI; skill is pooled out-of-fold vs "
           "persistence)")
     print("=" * 92)
     for H in sorted(df.delta_days.unique()):
         sub = df[(df.delta_days == H) & (df.aggregation == aggregation)
                  & (df.fold_mode == fold_mode)]
+        if feature_base is not None:
+            sub = sub[(sub.feature_base == feature_base)
+                      | (sub.model_kind.isin(("persistence",
+                                              "climatology_proxy")))]
+        if alpha_rule is not None:
+            sub = sub[(sub.alpha_rule == alpha_rule)
+                      | (sub.alpha_rule == ALPHA_RULE_NA)]
         if not len(sub):
             continue
         print(f"\n  Delta = {H} d   n = {int(sub.n_retained.iloc[0])} rows over "
               f"{int(sub.n_cubes.iloc[0])} cubes "
               f"(effective n = {int(sub.effective_n.iloc[0])} CUBES)")
-        print(f"  {'model_kind':<21} {'encoder':<24} {'est':<7} "
+        print(f"  {'model_kind':<21} {'encoder':<28} {'est':<7} "
               f"{'R2pooled':>9} {'jackknife CI':>18} {'R2/fold':>8} "
-              f"{'vs pers':>9} {'vs ctrl':>9} {'medAE':>8} {'top1%':>6}")
+              f"{'vs pers':>9} {'vs ctrl':>9} {'vs band (paired)':>26} "
+              f"{'medAE':>8} {'top1%':>6}")
         for r in sub.sort_values("r2_pooled", ascending=False).itertuples():
             tag = ("  <- CONTROL" if r.is_control
                    else ("  [si_comparable=False]" if not r.si_comparable
                          else ("  <- BASELINE" if r.is_baseline else "")))
             fold = (f"{r.r2_mean:>+8.3f}" if np.isfinite(r.r2_mean)
                     else f"{'n/a':>8}")
-            print(f"  {r.model_kind:<21} {r.encoder:<24} {r.estimator:<7} "
+            band = (f"{'':>26}" if not np.isfinite(r.paired_diff)
+                    else (f"{r.paired_diff:>+7.3f}"
+                          f"[{r.paired_ci_lo:>+7.3f},{r.paired_ci_hi:>+7.3f}]"
+                          + (" S" if r.separable else "  ")))
+            print(f"  {r.model_kind:<21} {r.encoder:<28} {r.estimator:<7} "
                   f"{r.r2_pooled:>+9.3f} "
                   f"[{r.r2_pooled_ci_lo:>+7.3f},{r.r2_pooled_ci_hi:>+7.3f}] "
                   f"{fold} {r.skill_vs_persistence:>+9.3f} "
-                  f"{r.margin_over_control:>+9.3f} {r.medae_pooled:>8.4f} "
+                  f"{r.margin_over_control:>+9.3f} {band} "
+                  f"{r.medae_pooled:>8.4f} "
                   f"{r.sse_share_top1pct:>5.0%}{tag}")
     print("\n  R2pooled uses every held-out prediction once and its interval is "
           "a delete-one-FOLD jackknife; R2/fold is the mean of the per-fold "
@@ -2423,47 +3582,61 @@ def print_controls(df) -> None:
           "over horizons -- see _horizon_control_folds")
     print("=" * 92)
     print(f"  {'Delta':>6} {'agg':<10} {'mode':<14} {'control':<14} {'est':<7} "
-          f"{'R2':>8} {'CI':>18} {'n(cubes)':>9}")
+          f"{'alpha_rule':<14} {'R2':>8} {'CI':>18} {'n(cubes)':>9}")
     sub = df[df.is_control].sort_values(
-        ["delta_days", "aggregation", "fold_mode", "model_kind", "estimator"])
+        ["delta_days", "aggregation", "fold_mode", "model_kind", "estimator",
+         "alpha_rule"])
     for r in sub.itertuples():
         print(f"  {r.delta_days:>6d} {r.aggregation:<10} {r.fold_mode:<14} "
-              f"{r.model_kind:<14} {r.estimator:<7} {r.r2_pooled:>+9.3f} "
+              f"{r.model_kind:<14} {r.estimator:<7} {r.alpha_rule:<14} "
+              f"{r.r2_pooled:>+9.3f} "
               f"[{r.r2_pooled_ci_lo:>+7.3f},{r.r2_pooled_ci_hi:>+7.3f}] "
               f"{r.effective_n:>9d}")
 
 
 def print_severity_table(df, aggregation: str = PRIMARY_AGGREGATION,
-                         fold_mode: str = "cube") -> None:
+                         fold_mode: str = "cube",
+                         feature_base: str | None = None,
+                         alpha_rule: str | None = None) -> None:
     """Where a forecast can actually differ from persistence."""
     print("\n" + "=" * 92)
-    print(f"BY SEVERITY BIN -- {aggregation} / {fold_mode}, pooled out-of-fold "
-          "skill vs persistence (stable periods flatter persistence)")
+    print(f"BY SEVERITY BIN -- {aggregation} / {fold_mode}"
+          + (f" / feature_base={feature_base}" if feature_base else "")
+          + (f" / alpha_rule={alpha_rule}" if alpha_rule else "")
+          + ", pooled out-of-fold\nskill vs persistence (stable periods flatter "
+          "persistence)")
     print("=" * 92)
     cols = [f"skill_vs_persistence_{b}" for b in SEVERITY_BINS]
     for H in sorted(df.delta_days.unique()):
         sub = df[(df.delta_days == H) & (df.aggregation == aggregation)
                  & (df.fold_mode == fold_mode) & (~df.is_control)
                  & (df.model_kind != "persistence")]
+        if feature_base is not None:
+            sub = sub[(sub.feature_base == feature_base)
+                      | (sub.model_kind == "climatology_proxy")]
+        if alpha_rule is not None:
+            sub = sub[(sub.alpha_rule == alpha_rule)
+                      | (sub.alpha_rule == ALPHA_RULE_NA)]
         if not len(sub):
             continue
         best = sub.sort_values("skill_vs_persistence", ascending=False).head(4)
         print(f"\n  Delta = {H} d   bin counts: "
               + "  ".join(f"{b}={int(sub[f'n_{b}'].iloc[0])}"
                           for b in SEVERITY_BINS))
-        print(f"  {'model_kind':<21} {'encoder':<24} {'est':<7} "
+        print(f"  {'model_kind':<21} {'encoder':<28} {'est':<7} "
               + " ".join(f"{b[:9]:>10}" for b in SEVERITY_BINS))
         for r in best.itertuples():
             vals = " ".join(f"{getattr(r, c):>+10.3f}" for c in cols)
-            print(f"  {r.model_kind:<21} {r.encoder:<24} {r.estimator:<7} {vals}")
+            print(f"  {r.model_kind:<21} {r.encoder:<28} {r.estimator:<7} {vals}")
 
 
-def assert_results_complete(df, encoders: Sequence[str] = ENCODER_ORDER,
+def assert_results_complete(df, encoders: Sequence[str] = ENCODER_VIEWS_ALL,
                             horizons: Sequence[int] = HORIZONS,
                             fold_modes: Sequence[str] = FOLD_MODES) -> None:
     """Every cell the exit test asks for is present."""
     for col in ("delta_days", "aggregation", "target_level", "fold_mode",
-                "encoder", "feature_set", "model_kind", "estimator",
+                "encoder", "encoder_base", "band_composite", "feature_set",
+                "feature_base", "model_kind", "estimator", "alpha_rule",
                 "is_control", "is_baseline", "si_comparable", "metric",
                 "r2_mean", "r2_ci_lo", "r2_ci_hi", "rmse_mean", "r2_pooled",
                 "skill_vs_persistence", "effective_n", "effective_n_per_fold",
@@ -2471,6 +3644,11 @@ def assert_results_complete(df, encoders: Sequence[str] = ENCODER_ORDER,
                 "climatology_def", "context_frames", "control_fit_scope",
                 "medae_pooled", "sse_share_top1pct", "d_over_n_train",
                 "r2_pooled_ci_lo", "r2_pooled_ci_hi", "n_folds_nan",
+                "plausibility_screen", "plausibility_screen_def",
+                "n_rows_dropped_implausible", "alpha_per_fold", "alpha_median",
+                "n_folds_alpha_at_grid_edge", "paired_diff", "paired_ci_lo",
+                "paired_ci_hi", "separable", "reference_kind",
+                "separability_test",
                 "skill_vs_persistence_ci_lo", "skill_vs_persistence_ci_hi"):
         assert col in df.columns, f"the results table has no {col!r} column"
     for b in SEVERITY_BINS:
@@ -2512,6 +3690,140 @@ def assert_results_complete(df, encoders: Sequence[str] = ENCODER_ORDER,
         "r2_mean while claiming every fold scored. The mean is NaN only "
         "because per-fold R-squareds were NaN, and the count of those has to "
         "be on the row."
+    )
+
+
+def assert_alpha_rules_present(df) -> None:
+    """Every ridge row exists under BOTH penalty rules, and nothing else claims one.
+
+    The fixed-alpha rows are not a legacy to be dropped: they are what the
+    published P3 table was computed under, and a comparison between the two
+    runs is only possible while both are in the same table under a column that
+    says which is which. The nested-CV rows are not an alternative view either
+    -- alpha = D spans 79 to 11536 across these views, so the fixed rule
+    penalises the narrow band-matched baseline hardest, which is precisely the
+    row every network is measured against.
+    """
+    for col in ("alpha_rule", "alpha_median", "alpha_per_fold"):
+        assert col in df.columns, f"the table has no {col!r} column"
+    allowed = set(ALPHA_RULES) | {ALPHA_RULE_NA}
+    seen = set(df.alpha_rule.astype(str))
+    assert seen <= allowed, f"unknown alpha_rule value(s) {sorted(seen - allowed)}"
+    ridge = df[df.estimator == RIDGE_ESTIMATOR]
+    assert len(ridge), f"no {RIDGE_ESTIMATOR!r} rows at all"
+    assert set(ridge.alpha_rule.astype(str)) == set(ALPHA_RULES), (
+        f"the ridge rows carry {sorted(set(ridge.alpha_rule.astype(str)))}, not "
+        f"both of {list(ALPHA_RULES)}. Both rules belong in the table: the "
+        "fixed one is what the published numbers are, the selected one is what "
+        "removes the design width from the comparison."
+    )
+    key = list(_CONTROL_KEY) + ["encoder", "feature_set", "model_kind",
+                                "feature_base"]
+    have = ridge.groupby(key + ["alpha_rule"]).size().unstack("alpha_rule")
+    missing = have[have.isna().any(axis=1)]
+    assert missing.empty, (
+        f"{len(missing)} ridge configuration(s) exist under one penalty rule "
+        f"and not the other, e.g. {list(missing.index)[:3]}. A rule present for "
+        "some rows and absent for others is a table whose comparison changes "
+        "with the filter."
+    )
+    other = df[(df.estimator != RIDGE_ESTIMATOR)]
+    assert (other.alpha_rule == ALPHA_RULE_NA).all(), (
+        f"{int((other.alpha_rule != ALPHA_RULE_NA).sum())} non-ridge row(s) "
+        f"claim a ridge penalty rule. They have none; the value is "
+        f"{ALPHA_RULE_NA!r}."
+    )
+
+
+def assert_shared_base_present(df) -> None:
+    """Every model row exists with and without the [NDVI(t), weather] base.
+
+    And no CONTROL carries it. A control handed current NDVI is not a control:
+    the observation-process control exists to say how much of a score is
+    retention rather than representation, and adding the autoregressive term to
+    it would make ``margin_over_control`` a margin over a forecast.
+    """
+    assert "feature_base" in df.columns, "the table has no 'feature_base' column"
+    seen = set(df.feature_base.astype(str))
+    assert seen <= set(FEATURE_BASES), (
+        f"unknown feature_base value(s) {sorted(seen - set(FEATURE_BASES))}"
+    )
+    model = df[df.model_kind.isin(BASE_ROW_KINDS)]
+    assert len(model), f"no rows of any kind in {BASE_ROW_KINDS}"
+    key = list(_CONTROL_KEY) + ["encoder", "feature_set", "model_kind",
+                                "estimator", "alpha_rule"]
+    have = model.groupby(key + ["feature_base"]).size().unstack("feature_base")
+    for b in FEATURE_BASES:
+        assert b in have.columns, f"no model row carries feature_base={b!r}"
+    missing = have[have.isna().any(axis=1)]
+    assert missing.empty, (
+        f"{len(missing)} model configuration(s) exist under one feature_base "
+        f"and not the other, e.g. {list(missing.index)[:3]}. The no-base rows "
+        "are what the published table is; the shared-base rows are what answers "
+        "'what does this representation add beyond current NDVI and weather'. "
+        "Both, or neither."
+    )
+    ctrl = df[df.is_control]
+    assert (ctrl.feature_base == FEATURE_BASE_NONE).all(), (
+        f"{int((ctrl.feature_base != FEATURE_BASE_NONE).sum())} control row(s) "
+        "carry the shared base. A control handed current NDVI is a model."
+    )
+
+
+def assert_plausibility_screen_declared(df, required: bool = True) -> None:
+    """Every row says whether the physical-plausibility screen was applied.
+
+    P2's and P4's published tables were computed WITHOUT it and P3's first run
+    was too. A table that does not say which side of that line it is on cannot
+    be compared with either.
+    """
+    for col in ("plausibility_screen", "plausibility_screen_def",
+                "n_rows_dropped_implausible"):
+        assert col in df.columns, f"the table has no {col!r} column"
+    v = df.plausibility_screen.astype(bool)
+    assert v.nunique() == 1, (
+        "the table mixes screened and unscreened rows. They are computed over "
+        "DIFFERENT row sets and their scores are not comparable."
+    )
+    if required:
+        assert v.all(), (
+            "this run declares plausibility_screen=False. Three frames of 1580 "
+            "carry a common-masked cube-mean NDVI below zero in midsummer and "
+            "71% of the persistence sum of squares at a 5-day horizon; the "
+            "screen is applied on this phase and every row must say so."
+        )
+        lab = df.plausibility_screen_def.astype(str)
+        assert (lab == PLAUSIBILITY_SCREEN_LABEL).all(), (
+            "a screened row does not carry the screen's definition"
+        )
+
+
+def assert_cir_twins_present(df, encoders: Sequence[str] = ENCODER_VIEWS_ALL) -> None:
+    """Every colour-infrared view is in the table, and every one has its twin.
+
+    A ``_cir`` row without its ``_rgb`` twin at the same horizon, fold mode,
+    estimator, penalty rule and feature base is not a band comparison; it is a
+    number with nothing to subtract.
+    """
+    want = [e for e in encoders if is_cir(e)]
+    assert want, "no colour-infrared views were requested"
+    for enc in want:
+        assert (df.encoder == enc).any(), f"no rows for {enc!r}"
+        assert (df.encoder == base_encoder(enc)).any(), (
+            f"{enc!r} is in the table but its RGB twin "
+            f"{base_encoder(enc)!r} is not"
+        )
+    cir = df[df.encoder.astype(str).str.endswith(CIR_SUFFIX)]
+    assert (cir.band_composite == "cir").all()
+    assert cir.has_rgb_twin.all(), (
+        f"{int((~cir.has_rgb_twin).sum())} colour-infrared row(s) found no RGB "
+        "twin at their own (horizon, aggregation, fold mode, estimator, "
+        "alpha_rule, feature_base). The twin difference is THE comparison this "
+        "phase runs; a row without one cannot take part in it."
+    )
+    assert (df[~df.encoder.astype(str).str.endswith(CIR_SUFFIX)]
+            .has_rgb_twin == False).all(), (  # noqa: E712
+        "a non-cir row claims an RGB twin"
     )
 
 
@@ -2583,8 +3895,8 @@ def assert_control_identical_across_views(df) -> None:
     cols = ["r2_pooled", "r2_pooled_ci_lo", "r2_pooled_ci_hi", "per_fold_r2",
             "effective_n"]
     for kind in CONTROL_KINDS:
-        key = list(_CONTROL_KEY) + (["estimator"] if kind != "horizon_only"
-                                    else [])
+        key = list(_CONTROL_KEY) + (list(_ESTIMATOR_KEY)
+                                    if kind != "horizon_only" else [])
         sub = df[df.model_kind == kind]
         if not len(sub):
             continue
@@ -2604,7 +3916,7 @@ def assert_control_identical_across_views(df) -> None:
     assert df.control_score.notna().all(), (
         f"{int(df.control_score.isna().sum())} row(s) carry no control_score"
     )
-    key_est = list(_CONTROL_KEY) + ["control_estimator"]
+    key_est = list(_CONTROL_KEY) + ["control_estimator", "control_alpha_rule"]
     g = df.groupby(key_est)["control_score"].nunique(dropna=False)
     bad = g[g > 1]
     assert bad.empty, (
@@ -2614,7 +3926,7 @@ def assert_control_identical_across_views(df) -> None:
         "are not comparable."
     )
     own = (df[df.model_kind == "observation"]
-           .set_index(list(_CONTROL_KEY) + ["estimator"])["r2_pooled"])
+           .set_index(list(_CONTROL_KEY) + list(_ESTIMATOR_KEY))["r2_pooled"])
     seen = df.groupby(key_est)["control_score"].first()
     np.testing.assert_array_equal(
         own.reindex(seen.index).to_numpy(), seen.to_numpy(),
@@ -2652,8 +3964,15 @@ def assert_climatology_rows_labelled(df) -> None:
 
 
 def assert_mi_flagged_and_single_frame(df) -> None:
-    """Every multi-image row says si_comparable=False and context_frames=1."""
-    mi = df[df.encoder == MI_ENCODER]
+    """Every multi-image row says si_comparable=False and context_frames=1.
+
+    Both twins of it. The colour-infrared re-encode changes the bands, not the
+    architecture: ``satlas_s2_swinb_mi_rgb_cir`` still max-pools up to 8
+    preceding retained frames, so it inherits the flag and the k=1 context
+    exactly.
+    """
+    is_mi = df.encoder.map(lambda e: base_encoder(str(e)) == MI_ENCODER)
+    mi = df[is_mi]
     assert len(mi), f"no rows for {MI_ENCODER}; its scores must be REPORTED"
     assert not mi.si_comparable.any(), (
         f"{int(mi.si_comparable.sum())} {MI_ENCODER} row(s) claim "
@@ -2666,7 +3985,7 @@ def assert_mi_flagged_and_single_frame(df) -> None:
         f"is its SINGLE embedding at t ({MI_CONTEXT_FRAMES}), and a 3-stack "
         "would double-count a lookback it already contains."
     )
-    si = df[(df.encoder != MI_ENCODER) & (df.encoder != "none")]
+    si = df[(~is_mi) & (df.encoder != "none")]
     assert si.si_comparable.all(), (
         "a single-image encoder is flagged si_comparable=False"
     )

@@ -2403,3 +2403,211 @@ reported fact rather than a hole, and `print_headlines` prints `n/a` in that
 column rather than a mean over whichever folds happened to survive.
 
 **Commit.** `33fee78`
+
+---
+
+## 2026-08-12: Tier 1, P3: the ridge penalty is SELECTED per fold, and both rules stay in the table
+
+**Assumed.** That `p4_ceiling.make_estimator`'s rule -- alpha = D, fixed a
+priori, applied to standardised features -- was the safe choice for P3 too. It
+needs no selection loop, and P1 had to prove a nested tuning loop clean with a
+poisoning test; having no loop at all is strictly the stronger position.
+
+**Observed.** The rule sets the penalty from the WIDTH of the design, and P3's
+designs are not remotely comparable in width. Across the encoder views the
+ridge's alpha runs from **79** (the band-matched `raw_rgb_only` baseline: 7
+percentiles x 3 bands x 3 context frames, plus 16 weather columns) to **11536**
+(a k=3 DINOv2 context) -- a **146-fold range**, and it is set by the
+architecture's embedding dimension rather than by anything about the data.
+
+That would be tolerable if the comparison ran across some other axis. It does
+not: the comparison this phase exists to make is precisely between the narrowest
+row in the table and the widest ones. Under alpha = D the band-matched baseline
+is the most heavily penalised row relative to what it can express, so "the
+hand-crafted baseline is not beaten" and "the hand-crafted baseline was
+handicapped" are not distinguishable from the table.
+
+Under a penalty selected by nested CV on the training fold, the band-matched
+baseline moves **+0.483 -> +0.597** at Delta = 5 d and **+0.574 -> +0.693** at
+Delta = 25 d, while the encoder rows barely move. The rule was worth more than
+0.1 R-squared to one row and nearly nothing to the others, which is the
+signature of a hyperparameter that is measuring design width.
+
+**Changed.** Every ridge row is emitted TWICE, under `alpha_rule`:
+
+* `fixed_alpha_D` -- P4's rule, unchanged. These are the published numbers.
+* `nested_cv` -- `p2_deltas.select_ridge_alpha`, imported. The inner split is
+  `probes.cv.folds` on the OUTER TRAINING FOLD's sub-manifest under cube
+  grouping, ties break toward the stronger penalty by a stated rule, and it
+  already carries poisoning tests in both directions.
+
+Non-ridge rows say `not_a_ridge` rather than claiming a rule they do not have,
+and `assert_alpha_rules_present` refuses a table where a configuration exists
+under one rule and not the other. `alpha_per_fold`, `alpha_median` and
+`n_folds_alpha_at_grid_edge` are on every row, so a penalty pinned by the end of
+the grid is visible rather than assumed away -- that is P1's lesson, where the C
+grid stopped at 1 and selected there in 57% of folds.
+
+**The fixed-alpha rows are NOT deleted**, and that is the load-bearing half.
+They are what the 2026-08-12 table is; a run that dropped them would not be
+comparable with the run it supersedes, and the comparison is the point.
+
+`p4_ceiling.make_estimator` gained an `alpha` override for the ridge and ONLY
+the ridge -- passing it for `hgb` or the MLP raises, because a silently ignored
+hyperparameter fits a different model than the caller asked for.
+
+**Commit.** `TBD`
+
+---
+
+## 2026-08-12: Tier 1, P3: "X beats Y" is the PAIRED per-fold difference, and a marginal-CI comparison is refused by an assertion
+
+**Assumed.** That reporting each row's R-squared with its own fold-clustered
+interval was enough to compare two rows: print both, see whether the intervals
+overlap.
+
+**Observed.** It is not, and P2 had already established why on gate K2. Two
+rows of this table are fitted on the SAME folds and scored on the SAME held-out
+observations, so most of the width of each marginal interval is a fold effect the
+two SHARE. Comparing the marginals counts that shared variation twice and
+answers a question nobody asked. P2's measurement: DINOv2 sat 0.006 below the
+baseline with marginal intervals **0.6 wide**, and only the paired difference
+could say whether that was a result or noise.
+
+It is also the form an edit reaches for first, because the marginal intervals are
+already sitting on the row.
+
+**Changed.** Every comparison in the table is now a paired difference with a
+fold-clustered interval, and there is one such comparison per `margin_over_*`
+column: the band-matched baseline, the observation control, persistence, the
+proxy climatology, the horizon control, the permutation null, and -- new this
+phase -- the row's own RGB twin.
+
+The statistic is
+
+    theta = R2_pooled(A) - R2_pooled(B) = (SSE_B - SSE_A) / SST
+
+-- one expression, because A and B share `y` and therefore share `SST` -- over
+the observations both rows predicted, keyed by (fold, feature row). Its interval
+is the **delete-one-fold jackknife of theta itself**, not of either term: folds
+hold disjoint sets of cubes, so deleting one deletes a cluster, and the shared
+fold effect cancels inside theta before the spread is taken. This is the same
+construction `_pooled_with_fold_jackknife` already applies to a single pooled
+statistic, applied to the difference. The jackknife runs on per-fold sums rather
+than by re-concatenating the arrays k times, because at 115 leave-one-cube-out
+folds and seven references on 1500-odd rows the naive form is the difference
+between seconds and an hour.
+
+`assert_separability_is_paired` refuses a table where any verdict could have come
+from marginal intervals. Its fourth check is the one a re-implementation fails:
+a marginal rule produces a half-width exactly equal to the SUM or the
+ROOT-SUM-SQUARE of the two marginal half-widths, and a jackknife of the
+difference equals neither on any row. It also asserts each paired difference
+EQUALS the margin it is the interval for -- an interval on a neighbouring
+quantity is worse than no interval -- and that the unsuffixed `paired_diff` /
+`separable` columns ARE the primary reference's rather than a copy that drifted.
+
+**The reusable point.** An interval is not a property of a number, it is a
+property of a COMPARISON. Two correct marginal intervals can make a real
+difference look like noise, and the failure is invisible because every number on
+the page is right.
+
+**Commit.** `TBD`
+
+---
+
+## 2026-08-12: Tier 1, P3: a shared [NDVI(t), weather] base under every model row
+
+**Assumed.** That `raw_features` holding `NDVI_mean(t)..NDVI_p90(t)` was
+legitimate and needed no correction, because the target is at t+Delta: using
+current NDVI to predict future NDVI is ordinary autoregression, not the K2
+leakage case P2 had to separate out.
+
+**Observed.** Both halves of that are true and they do not add up to a fair
+comparison. The autoregression is legitimate; the problem is that **exactly one
+row in the table was given it**. Every network row saw an embedding and the
+weather, `raw_features` saw an embedding, the weather AND current NDVI, and the
+two were then differenced and the difference attributed to the representation.
+`raw_features` winning outright at 3 of 4 horizons is therefore not
+interpretable: it mixes "hand-crafted band statistics are better" with "only this
+row was handed the strongest single predictor in the problem".
+
+The size of the effect is not small. On this run the base alone moves the
+`weather_only` row from **+0.225 to +0.522** pooled R-squared at Delta = 5 d
+under the tuned ridge -- a row with no image in it at all.
+
+**Changed.** `feature_base` is on every row:
+
+* `none` -- the published design. What each representation carries on its own.
+* `ndvi_weather` -- [NDVI(t), weather] under EVERY model row, so each row answers
+  one question: what does this representation add beyond current NDVI and the
+  weather over the horizon?
+
+NDVI(t) is taken from the target view's `persistence` array -- it IS the
+persistence prediction, at the row's own aggregation and on the same common mask
+-- so it cannot drift from the baseline it is derived from. It adds exactly one
+column, which `assert_shared_base_present`'s companion check in the end-to-end
+test pins (`D_with_base == D_without + 1`).
+
+**Controls take no base, ever.** A control handed current NDVI is not a control;
+it is a model, and `margin_over_control` -- the number P4 established as the one
+to quote -- would become a margin over a forecast. The assertion refuses a table
+where any control carries it.
+
+The no-base rows stay. With both in the table the two questions are separable
+for the first time, and `print_base_effect` prints the difference the base alone
+made, per row, per horizon.
+
+**Commit.** `TBD`
+
+---
+
+## 2026-08-12: Tier 1, P3: nine encoder views, and the plausibility screen APPLIED rather than reported
+
+**Assumed.** That comparing frozen encoders against hand-crafted band statistics
+on the same three bands (B04, B03, B02) was the like-for-like comparison, and
+that the three cloud-contaminated frames were best handled by reporting their
+concentration rather than by filtering them.
+
+**Observed.** Two things, and they are the two ways the 2026-08-12 headline
+could be wrong.
+
+**Band access.** Every network encoder in this project is 3-channel and was fed
+true colour, so all four were DENIED B8A -- the near-infrared band where the
+vegetation signal mostly lives -- while `raw_features` reads all four bands plus
+seven NDVI statistics. "Hand-crafted features beat learned representations" and
+"NIR beats RGB, and the representation was never what decided it" both predict
+exactly the table P3 produced.
+
+**The three frames.** They passed both filters -- 59-63% "clear", per-pixel mask
+valid -- and carried 71% of the persistence sum of squares at Delta = 5 d. The
+2026-08-12 run reported that concentration and dropped nothing, because a private
+filter would have made P3's row set incomparable with P2's and P4's, whose
+targets come from the same `p4_ceiling.cube_frame_targets`.
+
+**Changed.** Phase 1.9 re-encoded the four networks under the colour-infrared
+composite (B8A, B04, B03) -- same weights, same extraction recipe, same frame
+selection, only the band routing differs -- and this run scores all **nine**
+views, 5 RGB and 4 `_cir`. The headline is the PAIRED difference between each
+`_cir` row and its own `_rgb` twin, which isolates band access and nothing else.
+
+`_assert_twins_are_distinct` refuses a run in which the two caches turn out to
+hold the same arrays. That is not a hypothetical: reading the `_cir` views out of
+the RGB directory produces a twin difference of exactly zero on every row, which
+looks like a finding. Routing is done in ONE place (`encoder_embeddings_dir`) and
+the composite is derivable from the encoder's name.
+
+And the screen is now **applied**, not merely reported: `frame_plausible` moved
+into shared code in `27bede5`, and P3 opts in. A forecast row is dropped if ANY
+frame it touches -- context, t, or target -- fails it. The row is what goes, not
+the frame: a shortened manifest would break the embedding join, whose contract is
+`(cube_id, original_axis_index) == (cube, kept_idx)` against a cache built over
+every retained frame; and dropping the frame from the SELECTION would let the
+context reach one frame further back, which silently lengthens the lookback of
+exactly the rows nearest the contamination -- one inhomogeneity traded for
+another. Every row declares `plausibility_screen=True`, and
+`assert_plausibility_screen_declared` refuses a table that mixes screened and
+unscreened rows, because they are computed over different row sets and their
+scores are not comparable.
+
+**Commit.** `TBD`
