@@ -2227,7 +2227,7 @@ exactly the rows the others are scored on, even though it needs only one of the
 three. Letting its single-frame context buy it extra rows would make the table's
 `n` depend on which column a reader filtered to.
 
-**Commit.** `TBD`
+**Commit.** `33fee78`
 
 ---
 
@@ -2268,7 +2268,7 @@ masks, where the naive answer and the common-masked answer differ by more than
 difference of the two frames' own means. A fixture whose masks agreed would pass
 both ways and prove nothing.
 
-**Commit.** `TBD`
+**Commit.** `33fee78`
 
 ---
 
@@ -2316,7 +2316,7 @@ the "or explained if it does not" half of the rule expressed as data. A blanket
 requirement would be a false invariant that a future run with shorter horizons
 would have to work around, and worked-around assertions stop being read.
 
-**Commit.** `TBD`
+**Commit.** `33fee78`
 
 ---
 
@@ -2366,7 +2366,7 @@ OUTLIER artefact, and it looks exactly like a measurement -- finite, in range,
 with a plausible interval and a cube-clustered CI. The diagnostic that catches it
 is not a better model, it is printing which rows the score came from.
 
-**Commit.** `TBD`
+**Commit.** `33fee78`
 
 ---
 
@@ -2402,4 +2402,4 @@ mean is always accompanied by a non-zero NaN-fold count -- so the NaN is a
 reported fact rather than a hole, and `print_headlines` prints `n/a` in that
 column rather than a mean over whichever folds happened to survive.
 
-**Commit.** `TBD`
+**Commit.** `33fee78`
