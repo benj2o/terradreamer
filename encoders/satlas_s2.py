@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import torch
 
-from encoders.base import FrozenEncoder, pool_to_grid, resize_bilinear, rgb_from_s2
+from encoders.base import FrozenEncoder, pool_to_grid, composite_from_s2, resize_bilinear
 
 __all__ = ["SatlasS2SwinB"]
 
@@ -76,7 +76,7 @@ class SatlasS2SwinB(FrozenEncoder):
         return {"pooled": fm.mean(dim=(2, 3)), "grid": pool_to_grid(fm)}
 
     def _final_map(self, frames: torch.Tensor) -> torch.Tensor:
-        x = rgb_from_s2(frames)
+        x = composite_from_s2(frames, self.composite)
         x = self._sanitise(x)  # NaN survives clamp(); substitute before it
         x = torch.clamp(2.5 * x, 0.0, 1.0)
         H, W = x.shape[-2:]

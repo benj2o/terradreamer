@@ -36,6 +36,7 @@ from encoders.pipeline import EncodedCube, encode_cube, load_encoded, save_encod
 
 __all__ = [
     "TIER_A",
+    "TIER_A_CIR",
     "FrozenEncoder",
     "build_encoder",
     "build_tier_a",
@@ -52,9 +53,33 @@ __all__ = [
 TIER_A = ("raw_features", "imagenet_vit_b16", "dinov2_vitb14",
           "satlas_s2_swinb_rgb", "satlas_s2_swinb_mi_rgb")
 
+# The colour-infrared re-encode: the SAME four networks, fed (B8A, B04, B03)
+# instead of (B04, B03, B02). Nothing else differs -- same weights, same
+# extraction recipe, same frame selection -- so a difference between a row and
+# its `_cir` twin is BAND ACCESS and nothing else. That is the one comparison
+# that separates "hand-crafted features beat learned representations" from "NIR
+# beats RGB". `raw_features` has no _cir twin: it already reads all four bands.
+TIER_A_CIR = tuple(f"{n}_cir" for n in TIER_A if n != "raw_features")
+
 
 def build_encoder(name: str, device: str | None = None, verbose: bool = True) -> FrozenEncoder:
-    """Instantiate one Tier A encoder by name (downloads weights on first use)."""
+    """Instantiate one Tier A encoder by name (downloads weights on first use).
+
+    A ``_cir`` suffix selects the colour-infrared composite. The suffix is
+    stripped to find the wrapper and then re-asserted against the instance's own
+    ``name``, so a variant can never be cached under the base name.
+    """
+    composite = "rgb"
+    if name.endswith("_cir"):
+        composite, name_base = "cir", name[: -len("_cir")]
+        assert name_base != "raw_features", (
+            "raw_features has no _cir variant: it already reads all four bands "
+            "(B02/B03/B04/B8A) plus seven NDVI statistics. The composite exists "
+            "to give the 3-channel NETWORKS the band the baseline already had."
+        )
+        name, requested = name_base, name
+    else:
+        requested = name
     if name == "raw_features":
         from encoders.raw_features import RawFeatureBaseline as cls
     elif name == "imagenet_vit_b16":
@@ -67,8 +92,11 @@ def build_encoder(name: str, device: str | None = None, verbose: bool = True) ->
         from encoders.satlas_s2_mi import SatlasS2SwinBMI as cls
     else:
         raise KeyError(f"unknown encoder {name!r}; Tier A is {TIER_A}")
-    enc = cls(device=device, verbose=verbose)
-    assert enc.name == name, f"registry name {name!r} != wrapper name {enc.name!r}"
+    enc = (cls(device=device, verbose=verbose) if composite == "rgb"
+           else cls(device=device, verbose=verbose, composite=composite))
+    assert enc.name == requested, (
+        f"registry name {requested!r} != wrapper name {enc.name!r}"
+    )
     return enc
 
 

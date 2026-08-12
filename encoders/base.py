@@ -44,6 +44,8 @@ __all__ = [
     "NONFINITE_FILL",
     "FrozenEncoder",
     "rgb_from_s2",
+    "composite_from_s2",
+    "BAND_COMPOSITES",
     "resize_bilinear",
 ]
 
@@ -100,19 +102,62 @@ IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
 
 
-def rgb_from_s2(frames: torch.Tensor) -> torch.Tensor:
-    """(T, 4, H, W) in S2_BANDS order -> (T, 3, H, W) RGB = (B04, B03, B02).
+#: Which three of the cube's four bands a 3-channel network is fed.
+#:
+#: THE BAND-ACCESS CONFOUND, AND THE ONE EXPERIMENT THAT RESOLVES IT. Every
+#: network encoder in this project is 3-channel, so until now every one of them
+#: was fed true colour and DENIED B8A -- the near-infrared band where the
+#: vegetation signal mostly lives. The hand-crafted ``raw_features`` baseline was
+#: not: it sees all four bands plus seven NDVI statistics. P3 found that
+#: ``raw_features`` is the ONLY row that separably beats the band-matched
+#: baseline, which leaves two very different readings indistinguishable:
+#:
+#:   (a) hand-crafted features beat learned representations, or
+#:   (b) NIR beats RGB, and the representation is not what decides it.
+#:
+#: ``cir`` is how you tell them apart. Colour-infrared is the standard remote-
+#: sensing false-colour composite -- NIR into the red channel, red into green,
+#: green into blue -- so the network receives the vegetation band through a
+#: pretrained stem it can already use, with no architectural change and no
+#: retraining. It is not a hack: CIR is what aerial photointerpretation used for
+#: vegetation for fifty years before multispectral networks existed.
+#:
+#: A variant is part of the encoder's NAME (``dinov2_vitb14_cir``), so the two
+#: runs write different ``.npz`` files and a cache built under one composite can
+#: never be silently read as the other.
+BAND_COMPOSITES = {
+    "rgb": ("B04", "B03", "B02"),   # true colour. The published setting.
+    "cir": ("B8A", "B04", "B03"),   # colour-infrared. NIR in the red channel.
+}
 
-    Indices come from S2_BANDS by name, never hardcoded, so a band-order
-    change upstream breaks here loudly instead of feeding blue as red.
+
+def composite_from_s2(frames: torch.Tensor, composite: str = "rgb") -> torch.Tensor:
+    """(T, 4, H, W) in S2_BANDS order -> (T, 3, H, W) in the named composite.
+
+    Indices come from S2_BANDS by name, never hardcoded, so a band-order change
+    upstream breaks here loudly instead of feeding blue as red.
     """
-    idx = [S2_BANDS.index(b) for b in ("B04", "B03", "B02")]
+    assert composite in BAND_COMPOSITES, (
+        f"composite {composite!r} not in {sorted(BAND_COMPOSITES)}"
+    )
+    bands = BAND_COMPOSITES[composite]
+    idx = [S2_BANDS.index(b) for b in bands]
     assert frames.shape[1] == len(S2_BANDS), (
         f"expected {len(S2_BANDS)} channels in {S2_BANDS} order, got {frames.shape}"
     )
     out = frames[:, idx]
     assert out.shape == (frames.shape[0], 3, frames.shape[2], frames.shape[3])
     return out
+
+
+def rgb_from_s2(frames: torch.Tensor) -> torch.Tensor:
+    """(T, 4, H, W) in S2_BANDS order -> (T, 3, H, W) RGB = (B04, B03, B02).
+
+    Kept as the name every wrapper already calls, and pinned to
+    ``composite_from_s2(frames, "rgb")`` so the published behaviour cannot drift
+    when the composite machinery changes.
+    """
+    return composite_from_s2(frames, "rgb")
 
 
 def resize_bilinear(x: torch.Tensor, size: int) -> torch.Tensor:
@@ -152,7 +197,19 @@ class FrozenEncoder(abc.ABC):
     # pipeline must cache as window_span_days -- see encoders.pipeline.
     window_len: int = 1
 
-    def __init__(self, device: str | None = None, verbose: bool = True):
+    #: Which three bands this instance is fed. Set by __init__; part of ``name``.
+    composite: str = "rgb"
+
+    def __init__(self, device: str | None = None, verbose: bool = True,
+                 composite: str = "rgb"):
+        assert composite in BAND_COMPOSITES, (
+            f"composite {composite!r} not in {sorted(BAND_COMPOSITES)}"
+        )
+        # The variant travels in the NAME, so the two caches cannot collide and
+        # ``build_encoder`` can still assert wrapper name == registry key.
+        if composite != "rgb":
+            self.name = f"{type(self).name}_{composite}"
+        self.composite = composite
         self._n_sanitised = 0
         self.device = torch.device(
             device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu")

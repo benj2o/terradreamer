@@ -17,7 +17,7 @@ from encoders.base import (
     IMAGENET_STD,
     FrozenEncoder,
     resize_bilinear,
-    rgb_from_s2,
+    composite_from_s2,
     tokens_to_grid,
 )
 
@@ -74,7 +74,7 @@ class DINOv2ViTB14(FrozenEncoder):
         ]
 
     def _features_batch(self, frames: torch.Tensor, mask) -> dict:
-        x = rgb_from_s2(frames)
+        x = composite_from_s2(frames, self.composite)
         x = self._sanitise(x)  # before resize: a NaN would smear over its neighbours
         x = resize_bilinear(x, self.input_size)
         mean = torch.tensor(IMAGENET_MEAN, device=x.device).view(1, 3, 1, 1)

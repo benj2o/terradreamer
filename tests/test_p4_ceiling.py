@@ -902,3 +902,23 @@ def test_real_weather_windows_cover_days_not_frames():
     # not a window over days at all.
     gaps = np.diff(sub["daily_axis_index"].to_numpy())
     assert max(s for s, _ in p4.WINDOW_SPECS) > float(np.median(gaps))
+
+
+def test_frame_targets_report_the_plausibility_screen_without_applying_it():
+    """The screen is REPORTED, never applied: P2's and P4's published tables
+    were computed without it, and silently changing them would make the old and
+    new numbers incomparable. A probe opts in and says so on its rows."""
+    import numpy as np
+    from probes import p4_ceiling as p4
+
+    assert p4.NDVI_PLAUSIBILITY_FLOOR == 0.15
+    lo, hi = p4.GROWING_SEASON_DOY
+    assert 0 < lo < hi <= 366
+
+    doy = np.array([200, 200, 200, 15])          # three in season, one in winter
+    cube_mean = np.array([0.70, -0.04, 0.10, 0.05])
+    in_season = (doy >= lo) & (doy <= hi)
+    plausible = ~(in_season & (cube_mean < p4.NDVI_PLAUSIBILITY_FLOOR))
+    # healthy summer frame kept; the two cloud-contaminated summer frames
+    # flagged; the winter frame NOT flagged (low NDVI is legitimate there)
+    np.testing.assert_array_equal(plausible, [True, False, False, True])

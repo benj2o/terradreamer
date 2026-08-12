@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import torch
 
-from encoders.base import FrozenEncoder, pool_to_grid, resize_bilinear, rgb_from_s2
+from encoders.base import FrozenEncoder, pool_to_grid, composite_from_s2, resize_bilinear
 
 __all__ = ["SatlasS2SwinBMI"]
 
@@ -83,7 +83,7 @@ class SatlasS2SwinBMI(FrozenEncoder):
         ]
 
     def _prep(self, frames: torch.Tensor) -> torch.Tensor:
-        x = rgb_from_s2(frames)
+        x = composite_from_s2(frames, self.composite)
         x = self._sanitise(x)
         x = torch.clamp(2.5 * x, 0.0, 1.0)
         H, W = x.shape[-2:]

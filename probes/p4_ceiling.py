@@ -306,6 +306,21 @@ AGGREGATIONS = {
 
 # Growing-degree-day base, degrees C. 5 C is the conventional base for
 # temperate grassland and cereals, which is what this tile is.
+# A cube-mean NDVI below this in the growing season is CLOUD, not vegetation.
+# Bare soil sits near 0.15 and dense summer canopy near 0.85; three frames of
+# 1580 on tile 32UNU carry a cube-mean NDVI BELOW ZERO at days of year 177-202,
+# at clear fractions of 0.587-0.627. Both filters passed them: the clear-fraction
+# rule kept the frames and the per-pixel mask marked the survivors valid, so the
+# contamination sits inside the pixels every probe treats as good data. Those
+# three frames carry 71% of P3's persistence sum of squares at a 5-day horizon.
+#
+# ``cube_frame_targets`` REPORTS the screen as a ``frame_plausible`` column and
+# never applies it: P2's and P4's published tables were computed without it, and
+# a filter that silently changed them would make the two incomparable. A probe
+# opts in, and says so on every row.
+NDVI_PLAUSIBILITY_FLOOR = 0.15
+GROWING_SEASON_DOY = (120, 270)
+
 GDD_BASE_C = 5.0
 WET_DAY_MM = 1.0
 
@@ -684,6 +699,17 @@ def cube_frame_targets(sample, min_clear: float = MIN_CLEAR_FRACTION,
         "a retained frame has no valid pixel at all, which the clear-fraction "
         "rule should have removed"
     )
+    # The physical-plausibility screen: REPORTED, never applied here. See
+    # NDVI_PLAUSIBILITY_FLOOR for why it exists and why it is not a filter.
+    doy = np.asarray(sel.timestamps, dtype="datetime64[D]").astype(
+        "datetime64[Y]").astype(int) + 1970
+    doy_of = ((np.asarray(sel.timestamps, dtype="datetime64[D]")
+               - np.asarray([f"{y}-01-01" for y in doy], dtype="datetime64[D]"))
+              .astype(int) + 1)
+    in_season = (doy_of >= GROWING_SEASON_DOY[0]) & (doy_of <= GROWING_SEASON_DOY[1])
+    frame_plausible = ~(in_season & (cube_mean < NDVI_PLAUSIBILITY_FLOOR))
+    assert frame_plausible.shape == (T,), frame_plausible.shape
+
     gcf = grid_clear_fraction(sel.mask, grid=grid)
     assert gcf.shape == cell_mean.shape
     # The two disagree only where a cell is clear but every clear pixel is
@@ -701,6 +727,7 @@ def cube_frame_targets(sample, min_clear: float = MIN_CLEAR_FRACTION,
     return {"cube_mean": cube_mean, "cube_p90": cube_p90,
             "cell_mean": cell_mean, "cell_valid": cell_valid,
             "grid_clear_frac": gcf, "clear_frac": sel.clear_frac,
+            "frame_plausible": frame_plausible,
             "timestamps": sel.timestamps, "kept_idx": sel.kept_idx}
 
 

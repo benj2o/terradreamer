@@ -778,3 +778,63 @@ def test_cube_lookup_is_anchored_on_the_file_not_the_working_directory(monkeypat
     before = _cube_dirs()
     monkeypatch.chdir(tmp_path)
     assert _cube_dirs() == before
+
+
+# ---------------------------------------------------------------------------
+# The band-access confound: the colour-infrared composite
+# ---------------------------------------------------------------------------
+
+def test_band_composites_select_the_named_bands_by_name():
+    """CIR must put B8A in the RED channel, and it must come from S2_BANDS by
+    NAME -- a hardcoded index would feed blue as near-infrared and change no
+    shape, which is the whole class of bug this project keeps catching."""
+    import torch
+    from data.loader import S2_BANDS
+    from encoders.base import BAND_COMPOSITES, composite_from_s2, rgb_from_s2
+
+    f = torch.arange(2 * len(S2_BANDS) * 4 * 4, dtype=torch.float32).reshape(
+        2, len(S2_BANDS), 4, 4)
+    for name, bands in BAND_COMPOSITES.items():
+        out = composite_from_s2(f, name)
+        assert out.shape == (2, 3, 4, 4)
+        for c, b in enumerate(bands):
+            torch.testing.assert_close(out[:, c], f[:, S2_BANDS.index(b)])
+    # rgb_from_s2 is pinned to the composite machinery, so published behaviour
+    # cannot drift when a new composite is added.
+    torch.testing.assert_close(rgb_from_s2(f), composite_from_s2(f, "rgb"))
+    # ...and the two composites are genuinely different data
+    assert not torch.equal(composite_from_s2(f, "rgb"), composite_from_s2(f, "cir"))
+    assert BAND_COMPOSITES["cir"][0] == "B8A"
+
+
+def test_unknown_composite_is_refused():
+    import pytest as _pytest
+    import torch
+    from encoders.base import composite_from_s2
+    with _pytest.raises(AssertionError, match="not in"):
+        composite_from_s2(torch.rand(1, 4, 4, 4), "nir_only")
+
+
+def test_cir_variant_carries_the_composite_in_its_name():
+    """The variant is part of the NAME so the two caches cannot collide. A
+    _cir embedding silently read as its rgb twin would be undetectable."""
+    import pytest as _pytest
+    from encoders import TIER_A, TIER_A_CIR, build_encoder
+
+    assert set(TIER_A_CIR) == {f"{n}_cir" for n in TIER_A if n != "raw_features"}
+    assert "raw_features_cir" not in TIER_A_CIR
+    with _pytest.raises(AssertionError, match="already reads all four bands"):
+        build_encoder("raw_features_cir", device="cpu", verbose=False)
+
+
+def test_raw_feature_baseline_already_reads_all_four_bands():
+    """Why raw_features has no _cir twin, asserted rather than asserted-in-prose:
+    it is the only encoder that never lost a band, which is exactly the
+    confound the _cir run exists to resolve."""
+    from data.loader import S2_BANDS
+    from encoders.raw_features import RAW_FEATURE_NAMES
+
+    for b in S2_BANDS:
+        assert any(n.startswith(f"{b}_") for n in RAW_FEATURE_NAMES), b
+    assert "B8A" in S2_BANDS
+    assert any(n.startswith("NDVI") for n in RAW_FEATURE_NAMES)
