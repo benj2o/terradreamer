@@ -2456,7 +2456,7 @@ comparable with the run it supersedes, and the comparison is the point.
 the ridge -- passing it for `hgb` or the MLP raises, because a silently ignored
 hyperparameter fits a different model than the caller asked for.
 
-**Commit.** `TBD`
+**Commit.** `51eb72a`
 
 ---
 
@@ -2512,7 +2512,7 @@ property of a COMPARISON. Two correct marginal intervals can make a real
 difference look like noise, and the failure is invisible because every number on
 the page is right.
 
-**Commit.** `TBD`
+**Commit.** `51eb72a`
 
 ---
 
@@ -2558,7 +2558,7 @@ The no-base rows stay. With both in the table the two questions are separable
 for the first time, and `print_base_effect` prints the difference the base alone
 made, per row, per horizon.
 
-**Commit.** `TBD`
+**Commit.** `51eb72a`
 
 ---
 
@@ -2610,4 +2610,4 @@ another. Every row declares `plausibility_screen=True`, and
 unscreened rows, because they are computed over different row sets and their
 scores are not comparable.
 
-**Commit.** `TBD`
+**Commit.** `51eb72a`
