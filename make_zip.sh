@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Build the Colab upload bundle. Drag the result into
-# My Drive/NeurIPS-CCAI-2026/ and re-run Step 2 of the notebook.
+# My Drive/NeurIPS-CCAI-2026/phase1_9/ and re-run Step 2 of the notebook.
 set -euo pipefail
 cd "$(dirname "$0")"
-ZIP=phase1_7_repo.zip
+ZIP=phase1_9_repo.zip
 rm -f "$ZIP"
 # Everything git tracks, minus the cubes and older bundles. Deriving the list
 # from git means a new top-level package cannot be forgotten here again, which
