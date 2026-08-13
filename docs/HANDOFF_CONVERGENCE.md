@@ -193,22 +193,19 @@ definitions are not in this checkout; if the plan defines them differently, the
 |---|---|
 | `data/scaled_32UNU/{raw,embeddings,embeddings_cir,masks}` | 115 cubes, 575 RGB `.npz`, **460 colour-infrared `.npz`**, 115 mask files. **The set P2, P4 and P3 were all measured on.** Do not add cubes to `data/raw`. |
 | `probes/p3_forecast.py` | The forecast probe, its five baselines, its three controls, the horizon index P4/P2 do not have — and, after the Tier-1 re-run, the paired-separability machinery (`paired_difference`, `add_paired_separability`, `assert_separability_is_paired`) that any later "X beats Y" should be built on. |
-| `probes/p4_ceiling.py` | `make_estimator` takes an `alpha` override, for the ridge and only the ridge. `cube_frame_targets` returns `frame_plausible`; **P3 applies it, P2 and P4 still do not** — see the open item below. |
+| `probes/p4_ceiling.py` | `make_estimator` takes an `alpha` override, for the ridge and only the ridge. `cube_frame_targets` returns `frame_plausible`; opt-in `plausibility_screen` (default off) filters Stage A targets + cell observations. Screened CSV: `p4_screened_results.csv` via `scripts/rerun_p4_screened.py`. |
 | `probes/cv.py` | Unchanged. `cube`, `loco`, `spatial_block` run; `year`, `tile`, `crossed` correctly RAISE on this single-tile, single-year subset. |
 | tests | **0 failed.** The count grows every phase; the invariant is 0 failed. |
 
 **The three open items that outlive this phase**, in the order they would change
 a published number:
 
-1. **P2 and P4 are still computed WITHOUT the plausibility screen that P3 now
-   applies.** The screen exists in the shared code (`frame_plausible`, added
-   2026-08-12) and P3's re-run shows what it is worth: at Δ = 5 d it moved
-   persistence from **+0.169 to +0.690** by removing 8 forecast rows of 518.
-   P2's magnitude table and P4's ceiling rest on the same three frames through
-   the same `cube_frame_targets`, and neither has been re-measured with it.
-   Until they are, **a P2 or P4 number and a P3 number are computed over
-   different row sets** — every row of every table says which, but the comparison
-   across probes is not yet like-for-like.
+1. **P4 screened re-run is done (2026-08-13); P2 screened re-run is in flight.**
+   Same three implausible frames as P3 (`3/1580`). P4 Stage A `cell_mean` /
+   HGB / `weather_full8`: cube folds **+0.116** (was +0.130), LOCO **+0.096**
+   (was +0.085). Published `p4_scaled_results.csv` untouched; cite
+   `p4_screened_results.csv` for like-for-like with P3. Until P2's screened
+   CSV lands, P2 vs P3 remains mixed-screen.
 2. **Stage B's climatology has an unquantified second-order leak path**, and no
    H1-style number may be quoted from it until that is measured
    (`probes/p4_ceiling.run_stage_b`, DECISIONS 2026-08-11).

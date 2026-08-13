@@ -3,6 +3,32 @@
 Running record of measurements and adopted definitions. Reverse chronological.
 Decisions and their rationale live in [docs/DECISIONS.md](docs/DECISIONS.md).
 
+## 2026-08-13: P4 screened re-run on 32UNU -- modest headline move; like-for-like with P3
+
+`scripts/rerun_p4_screened.py`, local CPU, 7 workers, 115 cubes / tile 32UNU /
+2018, `plausibility_screen=True`. Verbatim stdout at
+`notebooks/runs/2026-08-13_p4_screened_32UNU_115cubes.txt`; table at
+`data/scaled_32UNU/p4_screened_results.csv` (published `p4_scaled_results.csv`
+untouched). Same three implausible frames P3 already dropped.
+
+```
+manifest              1580 frames, 115 cubes; 3 implausible
+geometry              cube_mean -3, cube_p90 -3, cell_mean -36 rows
+run_p4                270 rows x 99 cols, 36.2 min on 7 workers
+invariants            all pass in memory and on the CSV
+```
+
+Stage A `cell_mean` / HGB / `weather_full8` (screened | unscreened):
+
+```
+mode/kind          screened R2   obs margin   DOY margin | unscreened R2
+cube/weather            +0.116       +0.120       +0.086 |        +0.130
+loco/weather            +0.096       +0.117       +0.066 |        +0.085
+```
+
+Cube folds drop ~0.014; LOCO ticks up slightly. Screen does not invent a new
+ceiling story — it makes P4's row set match P3's. P2 screened run in progress.
+
 ## 2026-08-12: Tier 1 -- P3 re-run under four corrections. NO encoder separably beats the band-matched baseline, and three cloud frames were carrying the old result
 
 `scripts/rerun_p3_tier1.py`, local CPU, 7 workers, 115 cubes / tile 32UNU /

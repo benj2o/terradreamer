@@ -1,0 +1,264 @@
+[p4-screened] 115 cubes at data/scaled_32UNU/raw
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 120/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 120/150 timesteps with no acquisition
+[loader] dropping 120/150 timesteps with no acquisition
+[loader] dropping 120/150 timesteps with no acquisition
+[loader] dropping 120/150 timesteps with no acquisition
+[loader] dropping 120/150 timesteps with no acquisition
+[loader] dropping 120/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[p4-screened] manifest (1580, 22), 115 cubes, built in 32s
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 122/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 120/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 120/150 timesteps with no acquisition
+[loader] dropping 120/150 timesteps with no acquisition
+[loader] dropping 120/150 timesteps with no acquisition
+[loader] dropping 120/150 timesteps with no acquisition
+[loader] dropping 120/150 timesteps with no acquisition
+[loader] dropping 120/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+[loader] dropping 121/150 timesteps with no acquisition
+
+==============================================================================
+[p4] STAGE B DEFERRED -- pending the seasonal download.
+[p4] The manifest spans [2018] over 115 cubes and 0 cube(s) span more than one year.
+[p4] Stage B needs the REAL leave-target-year-out climatology
+[p4]   (data.climatology.ndvi_climatology, which raises SingleYearError here BY DESIGN)
+[p4] and probes.cv mode 'crossed', which holds cube AND year out jointly and
+[p4] therefore agrees with that climatology's own structure. Both correctly
+[p4] REFUSE a single-year manifest. Neither is weakened, and Stage A's
+[p4] within-season proxy number is NOT substituted for H1: Stage A de-risks
+[p4] the code and establishes the controls, and that is all it does.
+[p4] H1 is produced by Stage B, on the seasonal split, and nowhere else.
+==============================================================================
+[p4-screened] run_p4: 270 rows x 99 cols in 36.2 min on 7 workers
+[p4-screened] wrote data/scaled_32UNU/p4_screened_results.csv; invariants run next
+[p4] results table COMPLETE: 270 rows, 1 stage(s) x 3 targets x 3 fold modes x 3 estimators x 2 feature sets x 5 model kinds
+[p4] Stage B: DEFERRED, explicitly, and NOT substituted
+[p4] results table COMPLETE: 270 rows, 1 stage(s) x 3 targets x 3 fold modes x 3 estimators x 2 feature sets x 5 model kinds
+[p4] Stage B: DEFERRED, explicitly, and NOT substituted
+[p4-screened] all invariants pass in memory and on the CSV
+[p4-screened] screen geometry: 3 implausible frames; cube_mean -3, cube_p90 -3, cell_mean -36
+
+============================================================================================
+P4 SCREENED VS UNSCREENED -- cell_mean / HGB / weather_full8 / Stage A
+============================================================================================
+  mode/kind                     screened R2  obs margin  DOY margin | unscreened R2  obs margin  DOY margin
+  cube/weather                       +0.116      +0.120      +0.086 |        +0.130      +0.137      +0.094
+  cube/observation                   -0.004      +0.000      -0.034 |        -0.007      +0.000      -0.043
+  cube/doy                           +0.030      +0.034      +0.000 |        +0.036      +0.043      +0.000
+  loco/weather                       +0.096      +0.117      +0.066 |        +0.085      +0.109      +0.086
+  loco/observation                   -0.021      +0.000      -0.051 |        -0.025      +0.000      -0.023
+  loco/doy                           +0.030      +0.051      +0.000 |        -0.002      +0.023      +0.000
