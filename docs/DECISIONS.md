@@ -2636,4 +2636,4 @@ screened tables for cross-probe comparison; the original scaled CSVs stay as
 the audit baseline. This closes HANDOFF §4 item 1 (consistency), not a novelty
 claim — Scenario 1 trust, not Scenario 2 climate geography.
 
-**Commit.** `641dea9`
+**Commit.** `5b00ea6`
