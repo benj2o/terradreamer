@@ -215,6 +215,8 @@ __all__ = [
     "print_doy_weather_collinearity",
     "TargetRows", "FeatureSource", "P4Data",
     "cube_frame_targets", "build_p4_data", "target_rows",
+    "manifest_frame_plausible", "apply_plausibility_screen",
+    "PLAUSIBILITY_SCREEN_LABEL",
     "cube_weather_windows", "weather_source", "observation_source", "doy_source",
     "build_X", "permute_within_fold", "assert_weather_constant_across_cells",
     "gaussian_crps", "ensemble_crps", "fold_clustered_ci",
@@ -224,6 +226,7 @@ __all__ = [
     "run_p4", "add_margins",
     "assert_results_complete", "assert_control_views_consistent",
     "assert_stage_b_ran_or_deferred", "assert_effective_n_counts_cubes",
+    "assert_plausibility_screen_declared",
     "results_path",
 ]
 
@@ -320,6 +323,13 @@ AGGREGATIONS = {
 # opts in, and says so on every row.
 NDVI_PLAUSIBILITY_FLOOR = 0.15
 GROWING_SEASON_DOY = (120, 270)
+PLAUSIBILITY_SCREEN_LABEL = (
+    "p4_ceiling.cube_frame_targets frame_plausible: a common-masked cube-mean "
+    f"NDVI below {NDVI_PLAUSIBILITY_FLOOR} inside days of year "
+    f"{GROWING_SEASON_DOY[0]}-{GROWING_SEASON_DOY[1]} is cloud, not "
+    "vegetation. APPLIED here: an implausible target frame is excluded, and "
+    "cell-level targets inherit their frame's verdict."
+)
 
 GDD_BASE_C = 5.0
 WET_DAY_MM = 1.0
@@ -655,6 +665,22 @@ def print_severity_bins(anomaly, label: str = "") -> tuple:
 # Targets: spatially aggregated NDVI, never pixel-wise
 # ---------------------------------------------------------------------------
 
+
+def _frame_plausible(cube_mean, timestamps) -> np.ndarray:
+    """The one physical-plausibility definition shared by every P4 stage."""
+    timestamps = np.asarray(timestamps, dtype="datetime64[D]")
+    years = timestamps.astype("datetime64[Y]").astype(int) + 1970
+    doy = (timestamps
+           - np.asarray([f"{y}-01-01" for y in years],
+                        dtype="datetime64[D]")).astype(int) + 1
+    in_season = ((doy >= GROWING_SEASON_DOY[0])
+                 & (doy <= GROWING_SEASON_DOY[1]))
+    verdict = ~(in_season
+                & (np.asarray(cube_mean) < NDVI_PLAUSIBILITY_FLOOR))
+    assert verdict.shape == np.asarray(cube_mean).shape
+    return verdict
+
+
 def cube_frame_targets(sample, min_clear: float = MIN_CLEAR_FRACTION,
                        grid: int = _GRID, verbose: bool = False) -> dict:
     """NDVI aggregates per RETAINED frame of ONE cube. Never a pixel.
@@ -664,10 +690,12 @@ def cube_frame_targets(sample, min_clear: float = MIN_CLEAR_FRACTION,
     aggregate here is NaN-aware, so a cloudy pixel is invisible to the mean
     rather than counted as zero.
 
-    Returns cube_mean (T_kept,), cube_p90 (T_kept,), cell_mean (T_kept, 16) and
-    cell_valid (T_kept, 16) bool. Cells are ROW-MAJOR, the same order as
-    ``encoders.frames.grid_clear_fraction`` and ``encoders.base.pool_to_grid``,
-    so a cell row lines up with its land-cover label and its clear fraction.
+    Returns cube_mean (T_kept,), cube_p90 (T_kept,), cell_mean (T_kept, 16),
+    cell_valid (T_kept, 16) bool and frame_plausible (T_kept,) bool. The
+    verdict is reported, never applied here. Cells are ROW-MAJOR, the same order
+    as ``encoders.frames.grid_clear_fraction`` and
+    ``encoders.base.pool_to_grid``, so a cell row lines up with its land-cover
+    label and its clear fraction.
     """
     from data.loader import CubeSample, cube_ndvi
 
@@ -701,13 +729,7 @@ def cube_frame_targets(sample, min_clear: float = MIN_CLEAR_FRACTION,
     )
     # The physical-plausibility screen: REPORTED, never applied here. See
     # NDVI_PLAUSIBILITY_FLOOR for why it exists and why it is not a filter.
-    doy = np.asarray(sel.timestamps, dtype="datetime64[D]").astype(
-        "datetime64[Y]").astype(int) + 1970
-    doy_of = ((np.asarray(sel.timestamps, dtype="datetime64[D]")
-               - np.asarray([f"{y}-01-01" for y in doy], dtype="datetime64[D]"))
-              .astype(int) + 1)
-    in_season = (doy_of >= GROWING_SEASON_DOY[0]) & (doy_of <= GROWING_SEASON_DOY[1])
-    frame_plausible = ~(in_season & (cube_mean < NDVI_PLAUSIBILITY_FLOOR))
+    frame_plausible = _frame_plausible(cube_mean, sel.timestamps)
     assert frame_plausible.shape == (T,), frame_plausible.shape
 
     gcf = grid_clear_fraction(sel.mask, grid=grid)
@@ -906,6 +928,9 @@ class P4Data:
     days_available: np.ndarray    # (n_manifest, n_specs)
     reference_anomaly: dict       # target name -> (n_rows,) reporting anomaly
     severity: dict                # target name -> (labels, edges)
+    plausibility_screen: bool = False
+    n_implausible_frames: int = 0
+    n_rows_dropped_implausible: dict | None = None
 
     def observation(self, level: str) -> FeatureSource:
         return self.observation_frame if level == "frame" else self.observation_cell
@@ -917,16 +942,27 @@ def target_rows(name: str, per_cube: dict, manifest, verbose: bool = False) -> T
     n = len(manifest)
     strat_cube = manifest["landcover_stratum"].to_numpy().astype(str)
     grid_lc = manifest["grid_landcover"].to_numpy()
+    order = np.concatenate([
+        np.flatnonzero((manifest["cube_id"] == c).to_numpy())
+        for c in per_cube["__order__"]
+    ])
+    back = np.argsort(order, kind="stable")
+    assert order[back].tolist() == list(range(n)), (
+        "per-cube target rows are not a permutation of the manifest"
+    )
 
     if level == "frame":
-        y = np.concatenate([per_cube[c][name] for c in per_cube["__order__"]])
+        y = np.concatenate([per_cube[c][name]
+                            for c in per_cube["__order__"]])[back]
         assert y.shape == (n,), f"{name}: {y.shape} against {n} manifest rows"
         rows = np.arange(n)
         cells = np.full(n, -1, dtype=int)
         strata = strat_cube
     else:
-        vals = np.concatenate([per_cube[c][name] for c in per_cube["__order__"]])
-        valid = np.concatenate([per_cube[c]["cell_valid"] for c in per_cube["__order__"]])
+        vals = np.concatenate([per_cube[c][name]
+                               for c in per_cube["__order__"]])[back]
+        valid = np.concatenate([per_cube[c]["cell_valid"]
+                                for c in per_cube["__order__"]])[back]
         assert vals.shape == valid.shape == (n, _GRID_CELLS), vals.shape
         rows_all = np.repeat(np.arange(n), _GRID_CELLS)
         cells_all = np.tile(np.arange(_GRID_CELLS), n)
@@ -941,6 +977,94 @@ def target_rows(name: str, per_cube: dict, manifest, verbose: bool = False) -> T
                   "observation -- nothing is filled)")
     return TargetRows(name=name, level=level, y=y, row_idx=rows,
                       cell_idx=cells, stratum=strata)
+
+
+def manifest_frame_plausible(manifest, per_cube: dict,
+                             verbose: bool = True) -> np.ndarray:
+    """Return P4's per-frame verdict in manifest-row order.
+
+    ``cube_frame_targets`` is the only place that defines physical
+    plausibility. This helper only aligns those already-computed booleans. The
+    alignment is asserted because attaching a verdict to the neighbouring
+    frame would preserve every shape and silently screen the wrong target.
+    """
+    order, oai = [], manifest["original_axis_index"].to_numpy().astype(int)
+    for cube in per_cube["__order__"]:
+        pos = np.flatnonzero((manifest["cube_id"] == cube).to_numpy())
+        verdict = np.asarray(per_cube[cube]["frame_plausible"], dtype=bool)
+        assert pos.size == verdict.size, (
+            f"{cube}: manifest has {pos.size} rows but frame_plausible has "
+            f"{verdict.size}"
+        )
+        assert (np.diff(oai[pos]) > 0).all(), (
+            f"{cube}: manifest rows are not ascending in original_axis_index; "
+            "frame plausibility cannot be aligned by position"
+        )
+        order.append(pos)
+    order = np.concatenate(order)
+    back = np.argsort(order, kind="stable")
+    assert order[back].tolist() == list(range(len(manifest))), (
+        "per-cube plausibility rows are not a permutation of the manifest"
+    )
+    verdict = np.concatenate([
+        np.asarray(per_cube[c]["frame_plausible"], dtype=bool)
+        for c in per_cube["__order__"]
+    ])[back]
+    assert verdict.shape == (len(manifest),), verdict.shape
+    if verbose:
+        print(f"[p4] plausibility screen source: {int((~verdict).sum())}/"
+              f"{verdict.size} retained frames fail")
+    return verdict
+
+
+def apply_plausibility_screen(targets: dict,
+                              observation_cell: FeatureSource,
+                              frame_plausible) -> tuple:
+    """Filter target rows, plus the row-aligned cell observation control.
+
+    Frame-level feature sources remain manifest-sized and are indexed by each
+    surviving target's ``row_idx``. The cell observation source is different:
+    it has one row per already-valid target cell, so it must receive the exact
+    same keep mask as ``cell_mean`` or the control and target silently diverge.
+
+    Returns ``(screened_targets, screened_observation_cell, dropped_by_target)``.
+    """
+    ok = np.asarray(frame_plausible, dtype=bool)
+    assert ok.ndim == 1, ok.shape
+    screened, dropped = {}, {}
+    cell_keep = None
+    for name, tr in targets.items():
+        assert tr.row_idx.size == tr.n_rows
+        assert (tr.row_idx >= 0).all() and (tr.row_idx < ok.size).all()
+        keep = ok[tr.row_idx]
+        assert keep.any(), f"{name}: plausibility screen removed every target row"
+        screened[name] = TargetRows(
+            name=tr.name,
+            level=tr.level,
+            y=tr.y[keep],
+            row_idx=tr.row_idx[keep],
+            cell_idx=tr.cell_idx[keep],
+            stratum=tr.stratum[keep],
+        )
+        dropped[name] = int((~keep).sum())
+        if name == "cell_mean":
+            cell_keep = keep
+
+    assert cell_keep is not None, "targets contain no cell_mean row set"
+    assert observation_cell.frame_level is False
+    assert observation_cell.values.shape[0] == cell_keep.size, (
+        f"cell observation source has {observation_cell.values.shape[0]} rows "
+        f"but cell_mean has {cell_keep.size}; they cannot share a screen mask"
+    )
+    screened_observation = FeatureSource(
+        name=observation_cell.name,
+        values=observation_cell.values[cell_keep],
+        names=observation_cell.names,
+        frame_level=False,
+        permutable=observation_cell.permutable,
+    )
+    assert screened_observation.values.shape[0] == screened["cell_mean"].n_rows
+    return screened, screened_observation, dropped
 
 
 def weather_source(manifest, cube_dir: str, feature_set: str,
@@ -1024,8 +1148,8 @@ def observation_source(manifest, per_cube: dict, level: str,
         names = ("clear_frac", "window_span_days")
         frame_level = True
     else:
-        gcf = np.concatenate([per_cube[c]["grid_clear_frac"] for c in order])
-        valid = np.concatenate([per_cube[c]["cell_valid"] for c in order])
+        gcf = np.concatenate([per_cube[c]["grid_clear_frac"] for c in order])[back]
+        valid = np.concatenate([per_cube[c]["cell_valid"] for c in order])[back]
         assert gcf.shape == valid.shape == (n, _GRID_CELLS)
         keep = np.flatnonzero(valid.reshape(-1))
         X = np.column_stack([gcf.reshape(-1)[keep],
@@ -1066,7 +1190,8 @@ def doy_source(manifest, n_harmonics: int = DOY_CONTROL_HARMONICS,
 
 def build_p4_data(manifest, cube_dir: str,
                   feature_sets: Sequence[str] = FEATURE_SETS,
-                  verbose: bool = True) -> P4Data:
+                  verbose: bool = True,
+                  plausibility_screen: bool = False) -> P4Data:
     """Assemble every target, feature block and reporting axis, once.
 
     ``feature_sets`` is a PARAMETER rather than a read of the module constant
@@ -1074,6 +1199,10 @@ def build_p4_data(manifest, cube_dir: str,
     module state. A run that reassigned ``FEATURE_SETS`` at import time would
     change what every other caller in the same process built, which is the kind
     of action-at-a-distance this project's artefacts are otherwise free of.
+
+    ``plausibility_screen`` is opt-in so the published unscreened table remains
+    reproducible. It filters target rows, never manifest rows; the weather join
+    and every frozen cache therefore keep their original indexing contract.
     """
     from data.loader import load_cube
 
@@ -1110,6 +1239,20 @@ def build_p4_data(manifest, cube_dir: str,
     obs_cell = observation_source(manifest, per_cube, "cell", verbose=verbose)
     doy_src = doy_source(manifest, verbose=verbose)
 
+    frame_ok = manifest_frame_plausible(manifest, per_cube, verbose=verbose)
+    n_implausible = int((~frame_ok).sum())
+    dropped = {name: 0 for name in TARGETS}
+    if plausibility_screen:
+        targets, obs_cell, dropped = apply_plausibility_screen(
+            targets, obs_cell, frame_ok)
+        if verbose:
+            print("[p4] plausibility screen APPLIED: "
+                  + ", ".join(f"{name} -{dropped[name]} rows"
+                              for name in TARGETS))
+    elif verbose:
+        print("[p4] plausibility screen OFF: frame verdicts were measured but "
+              "no target row was removed")
+
     doy = manifest["day_of_year"].to_numpy().astype(float)
     ref, sev = {}, {}
     for name, tr in targets.items():
@@ -1120,7 +1263,10 @@ def build_p4_data(manifest, cube_dir: str,
                   observation_frame=obs_frame, observation_cell=obs_cell,
                   doy_frame=doy_src, day_of_year=doy,
                   cube_id=manifest["cube_id"].to_numpy().astype(str),
-                  days_available=days_avail, reference_anomaly=ref, severity=sev)
+                  days_available=days_avail, reference_anomaly=ref, severity=sev,
+                  plausibility_screen=bool(plausibility_screen),
+                  n_implausible_frames=n_implausible,
+                  n_rows_dropped_implausible=dropped)
     for name in TARGETS:
         assert_weather_constant_across_cells(data, name, verbose=verbose)
     return data
@@ -1737,6 +1883,15 @@ def run_stage_a(data: P4Data, targets: Sequence[str] = TARGETS,
                                 n for x in srcs for n in x.names)[:2000],
                             "severity_edges": ";".join(f"{e:.5f}" for e in sev_edges),
                             "note": _KIND_NOTE[kind],
+                            "plausibility_screen": bool(data.plausibility_screen),
+                            "plausibility_screen_def": (
+                                PLAUSIBILITY_SCREEN_LABEL
+                                if data.plausibility_screen else "not_applied"),
+                            "n_implausible_frames": int(
+                                data.n_implausible_frames),
+                            "n_rows_dropped_implausible": int(
+                                (data.n_rows_dropped_implausible or {}).get(
+                                    target, 0)),
                             **s,
                         }
                         rows.append(row)
@@ -1810,7 +1965,8 @@ def run_stage_b(manifest, cube_dir: str, data: P4Data = None,
                 targets: Sequence[str] = TARGETS,
                 estimators: Sequence[str] = ESTIMATORS,
                 feature_sets: Sequence[str] = FEATURE_SETS,
-                k: int = 5, n_jobs: int = 1, verbose: bool = True):
+                k: int = 5, n_jobs: int = 1, verbose: bool = True,
+                plausibility_screen: bool = False):
     """Stage B: the REAL leave-target-year-out climatology. **H1's number.**
 
     Runs if and only if multi-year cubes are present. It imports
@@ -1855,7 +2011,7 @@ def run_stage_b(manifest, cube_dir: str, data: P4Data = None,
     # climatology recomputation per (cube, fold) instead of per (cube, year).
     # Deferred, and quantified before H1 is quoted from this path.
     anom = {name: [] for name in TARGETS}
-    valid_cells, rows = [], []
+    valid_cells, frame_plausible_parts, rows = [], [], []
     for cube in order:
         pos = np.flatnonzero((manifest["cube_id"] == cube).to_numpy())
         sample = load_cube(os.path.join(cube_dir, str(cube)), verbose=False)
@@ -1864,6 +2020,9 @@ def run_stage_b(manifest, cube_dir: str, data: P4Data = None,
         kept = CubeSample(values=sel.values, timestamps=sel.timestamps,
                           mask=sel.mask, path=sample.path, bands=sample.bands)
         nd = cube_ndvi(kept)
+        frame_plausible_parts.append(
+            _frame_plausible(np.nanmean(nd.reshape(nd.shape[0], -1), axis=1),
+                             sel.timestamps))
         full_nd = cube_ndvi(sample)
         years_here = np.unique(row_year[pos])
         dev = np.full(nd.shape, np.nan, dtype=np.float32)
@@ -1899,12 +2058,27 @@ def run_stage_b(manifest, cube_dir: str, data: P4Data = None,
     back = np.argsort(rows, kind="stable")
     stacked = {n: np.concatenate(v)[back] for n, v in anom.items()}
     valid = np.concatenate(valid_cells)[back]
+    frame_ok = np.concatenate(frame_plausible_parts)[back]
+    assert frame_ok.shape == (len(manifest),), frame_ok.shape
+    n_implausible = int((~frame_ok).sum())
 
     weather = {fs: weather_source(manifest, cube_dir, fs, verbose=verbose)[0]
                for fs in feature_sets}
     per_cube_obs = _observation_inputs_for_stage_b(manifest, valid, cube_dir)
     obs_frame = observation_source(manifest, per_cube_obs, "frame", verbose=False)
     obs_cell = observation_source(manifest, per_cube_obs, "cell", verbose=False)
+    if plausibility_screen:
+        cell_rows = np.repeat(np.arange(len(manifest)), _GRID_CELLS)[
+            valid.reshape(-1)]
+        cell_keep = frame_ok[cell_rows]
+        assert obs_cell.values.shape[0] == cell_keep.size
+        obs_cell = FeatureSource(
+            name=obs_cell.name,
+            values=obs_cell.values[cell_keep],
+            names=obs_cell.names,
+            frame_level=False,
+            permutable=obs_cell.permutable,
+        )
     doy_src = doy_source(manifest, verbose=False)
     doy = manifest["day_of_year"].to_numpy().astype(float)
     cube_id = manifest["cube_id"].to_numpy().astype(str)
@@ -1923,7 +2097,11 @@ def run_stage_b(manifest, cube_dir: str, data: P4Data = None,
             cells = np.tile(np.arange(_GRID_CELLS), len(manifest))[keep]
             glc = manifest["grid_landcover"].to_numpy()
             strata = np.array([str(glc[r][c]) for r, c in zip(row_idx, cells)])
-        finite = np.isfinite(y)
+        finite_before_screen = np.isfinite(y)
+        finite = finite_before_screen.copy()
+        if plausibility_screen:
+            finite &= frame_ok[row_idx]
+        n_dropped = int((finite_before_screen & ~finite).sum())
         tr_rows = TargetRows(name=target, level=level, y=y[finite],
                              row_idx=row_idx[finite], cell_idx=cells[finite],
                              stratum=strata[finite])
@@ -1933,7 +2111,10 @@ def run_stage_b(manifest, cube_dir: str, data: P4Data = None,
             observation_frame=obs_frame, observation_cell=obs_cell,
             doy_frame=doy_src, day_of_year=doy, cube_id=cube_id,
             days_available=None, reference_anomaly={target: tr_rows.y},
-            severity={target: (sev_labels, sev_edges)})
+            severity={target: (sev_labels, sev_edges)},
+            plausibility_screen=bool(plausibility_screen),
+            n_implausible_frames=n_implausible,
+            n_rows_dropped_implausible={target: n_dropped})
         for estimator in estimators:
             for fs in feature_sets:
                 for kind in MODEL_KINDS:
@@ -1962,6 +2143,12 @@ def run_stage_b(manifest, cube_dir: str, data: P4Data = None,
                             n for x in srcs for n in x.names)[:2000],
                         "severity_edges": ";".join(f"{e:.5f}" for e in sev_edges),
                         "note": _KIND_NOTE[kind] + " | H1",
+                        "plausibility_screen": bool(plausibility_screen),
+                        "plausibility_screen_def": (
+                            PLAUSIBILITY_SCREEN_LABEL
+                            if plausibility_screen else "not_applied"),
+                        "n_implausible_frames": n_implausible,
+                        "n_rows_dropped_implausible": n_dropped,
                         **s,
                     })
     df = pd.DataFrame(out)
@@ -2135,6 +2322,40 @@ def assert_stage_b_ran_or_deferred(df, info: dict) -> None:
     print(f"[p4] Stage B: {'RAN under crossed with the real climatology' if has_b else 'DEFERRED, explicitly, and NOT substituted'}")
 
 
+def assert_plausibility_screen_declared(df, required: bool = True) -> None:
+    """Every result row states whether the shared frame screen was applied."""
+    for col in ("plausibility_screen", "plausibility_screen_def",
+                "n_implausible_frames", "n_rows_dropped_implausible"):
+        assert col in df.columns, f"the P4 table has no {col!r} column"
+    values = df.plausibility_screen.astype(bool)
+    assert values.nunique() == 1, (
+        "the P4 table mixes screened and unscreened rows; their target row "
+        "sets differ and the scores are not comparable"
+    )
+    actual = bool(values.iloc[0])
+    assert actual == bool(required), (
+        f"P4 declares plausibility_screen={actual}, expected {required}"
+    )
+    expected_label = PLAUSIBILITY_SCREEN_LABEL if required else "not_applied"
+    assert (df.plausibility_screen_def.astype(str) == expected_label).all(), (
+        "P4's plausibility_screen_def does not match the declared mode"
+    )
+    n_bad = df.n_implausible_frames.astype(int)
+    assert n_bad.nunique() == 1 and (n_bad >= 0).all(), (
+        "n_implausible_frames must be one non-negative run-level count"
+    )
+    dropped = df.n_rows_dropped_implausible.astype(int)
+    assert (dropped >= 0).all(), "a P4 row reports a negative screen drop count"
+    if required and int(n_bad.iloc[0]) > 0:
+        assert (dropped > 0).any(), (
+            "frames fail the screen but no P4 target row says it was dropped"
+        )
+    if not required:
+        assert (dropped == 0).all(), (
+            "an unscreened P4 table reports rows dropped by the screen"
+        )
+
+
 def assert_results_complete(df, targets: Sequence[str] = TARGETS,
                             fold_modes: Sequence[str] = FOLD_MODES,
                             estimators: Sequence[str] = ESTIMATORS,
@@ -2192,8 +2413,13 @@ def run_p4(manifest, cube_dir: str, targets: Sequence[str] = TARGETS,
            fold_modes: Sequence[str] = FOLD_MODES,
            estimators: Sequence[str] = ESTIMATORS,
            feature_sets: Sequence[str] = FEATURE_SETS,
-           k: int = 5, n_jobs: int = 1, verbose: bool = True):
-    """Both stages. Returns (DataFrame, P4Data, stage-B info); writes nothing."""
+           k: int = 5, n_jobs: int = 1, verbose: bool = True,
+           plausibility_screen: bool = False):
+    """Both stages. Returns (DataFrame, P4Data, stage-B info); writes nothing.
+
+    The physical screen defaults off for backwards reproducibility. A screened
+    rerun must opt in and every returned row records that choice.
+    """
     import pandas as pd
 
     from encoders.manifest import assert_weather_join
@@ -2204,7 +2430,8 @@ def run_p4(manifest, cube_dir: str, targets: Sequence[str] = TARGETS,
     assert_weather_join(manifest, cube_dir, verbose=verbose)
 
     data = build_p4_data(manifest, cube_dir, feature_sets=feature_sets,
-                         verbose=verbose)
+                         verbose=verbose,
+                         plausibility_screen=plausibility_screen)
     if verbose:
         print()
         print_doy_weather_collinearity(manifest, data.weather[FEATURE_SETS[0]])
@@ -2220,11 +2447,18 @@ def run_p4(manifest, cube_dir: str, targets: Sequence[str] = TARGETS,
                        k=k, n_jobs=n_jobs, verbose=verbose)
     df_b, info = run_stage_b(manifest, cube_dir, data=data, targets=targets,
                              estimators=estimators, feature_sets=feature_sets,
-                             k=k, n_jobs=n_jobs, verbose=verbose)
+                             k=k, n_jobs=n_jobs, verbose=verbose,
+                             plausibility_screen=plausibility_screen)
     df = df_a if df_b is None else pd.concat([df_a, df_b], ignore_index=True)
     df = add_margins(df, verbose=verbose)
+    assert_plausibility_screen_declared(
+        df, required=bool(plausibility_screen))
     return df, data, info
 
 
-def results_path(name: str = "p4_ceiling_results.csv") -> str:
-    return os.path.join(phase_dir(PHASE, "results"), name)
+def results_path(name: str = "p4_ceiling_results.csv",
+                 root: str | None = None) -> str:
+    """Phase-scoped by default; scaled reruns opt into their cache root."""
+    base = phase_dir(PHASE, "results") if root is None else root
+    os.makedirs(base, exist_ok=True)
+    return os.path.join(base, name)

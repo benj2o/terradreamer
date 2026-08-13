@@ -212,6 +212,8 @@ from probes.p1_appearance import (
     load_encoder_arrays,
 )
 from probes.p4_ceiling import (
+    GROWING_SEASON_DOY,
+    NDVI_PLAUSIBILITY_FLOOR,
     assert_effective_n_counts_cubes,
     cube_frame_targets,
     fold_clustered_ci,
@@ -227,10 +229,11 @@ __all__ = [
     # logging
     "open_run_log", "close_run_log", "log", "run_log_path",
     # pairs and the axis guard
-    "DeltaPairs", "pair_index", "assert_gap_axes_disagree",
+    "DeltaPairs", "pair_index", "filter_pairs_by_plausibility",
+    "assert_gap_axes_disagree",
     # common-masked targets
     "common_masked_delta", "cube_common_masked_deltas", "build_pair_targets",
-    "frame_targets", "summarise_pixel_survival",
+    "frame_targets", "screen_part_a_target", "summarise_pixel_survival",
     # features
     "encoder_arrays", "reconstruction_block", "delta_block", "retention_block",
     # the fitted control and the tuner -- both take train_idx positionally
@@ -244,6 +247,7 @@ __all__ = [
     "assert_k2_verdict_recorded", "assert_control_identical_across_views",
     "assert_degenerate_control_present", "assert_mi_flagged_and_excluded",
     "assert_effective_n_counts_cubes", "assert_results_complete",
+    "assert_plausibility_screen_declared", "P2_PLAUSIBILITY_SCREEN_LABEL",
     "results_path",
 ]
 
@@ -308,6 +312,14 @@ K2_PRIMARY = {"aggregation": "cube_mean", "feature_level": "grid_cell",
 STRUCTURAL_PRIMARY = {"aggregation": "cube_mean", "delta_target": "sign",
                       "feature_level": "pooled", "readout": "linear",
                       "fold_mode": "cube"}
+
+P2_PLAUSIBILITY_SCREEN_LABEL = (
+    "p4_ceiling.cube_frame_targets frame_plausible: a common-masked cube-mean "
+    f"NDVI below {NDVI_PLAUSIBILITY_FLOOR} inside days of year "
+    f"{GROWING_SEASON_DOY[0]}-{GROWING_SEASON_DOY[1]} is cloud, not "
+    "vegetation. APPLIED here: Part A excludes that frame; Part B excludes a "
+    "delta pair if either endpoint frame fails."
+)
 
 _INNER_K = 3          # inner folds for the nested tuning loop, as in P1
 _MIN_TEST_ROWS = 8    # below this a fold's Spearman is noise; recorded as NaN
@@ -488,6 +500,30 @@ def pair_index(manifest, verbose: bool = True) -> DeltaPairs:
               f"median {np.median(pairs.gap_days):.0f} max {pairs.gap_days.max():.0f} "
               f"| distinct {sorted(set(pairs.gap_days.tolist()))}")
     return pairs
+
+
+def filter_pairs_by_plausibility(pairs: DeltaPairs,
+                                 frame_plausible,
+                                 verbose: bool = True) -> tuple:
+    """Drop each delta pair that touches an implausible endpoint frame."""
+    ok = np.asarray(frame_plausible, dtype=bool)
+    assert ok.ndim == 1, ok.shape
+    assert (pairs.row_a >= 0).all() and (pairs.row_b < ok.size).all(), (
+        f"pair endpoints reach outside a plausibility mask of length {ok.size}"
+    )
+    keep = ok[pairs.row_a] & ok[pairs.row_b]
+    assert keep.any(), "the plausibility screen removed every P2 pair"
+    filtered = DeltaPairs(**{
+        name: getattr(pairs, name)[keep]
+        for name in ("row_a", "row_b", "cube_id", "gap_days",
+                     "gap_acq_steps", "gap_frame_steps", "within_cube_index")
+    })
+    n_dropped = int((~keep).sum())
+    if verbose:
+        print(f"[p2] plausibility screen: {pairs.n_pairs} -> "
+              f"{filtered.n_pairs} pairs ({n_dropped} touching an "
+              "implausible endpoint dropped)")
+    return filtered, n_dropped
 
 
 def assert_gap_axes_disagree(pairs: DeltaPairs, min_ratio: float = 2.0,
@@ -801,12 +837,14 @@ def frame_targets(manifest, cube_dir: str, min_clear: float = MIN_CLEAR_FRACTION
 
     Delegates to ``p4_ceiling.cube_frame_targets`` -- the same aggregation, from
     the same canonical NDVI, so P2's floor and P4's ceiling are measured against
-    the same target definition rather than two that happen to look alike.
+    the same target definition rather than two that happen to look alike. The
+    returned ``frame_plausible`` verdict is aligned but not applied here.
     """
     from data.loader import load_cube
 
     cubes = sorted(manifest["cube_id"].unique().tolist())
-    parts = {k: [] for k in ("cube_mean", "cube_p90", "cell_mean", "cell_valid")}
+    parts = {k: [] for k in ("cube_mean", "cube_p90", "cell_mean", "cell_valid",
+                             "frame_plausible")}
     rows = []
     for cube in cubes:
         sample = load_cube(os.path.join(cube_dir, cube), verbose=False)
@@ -836,13 +874,37 @@ def frame_targets(manifest, cube_dir: str, min_clear: float = MIN_CLEAR_FRACTION
     n = len(manifest)
     assert out["cube_mean"].shape == out["cube_p90"].shape == (n,)
     assert out["cell_mean"].shape == out["cell_valid"].shape == (n, GRID_CELLS)
+    assert out["frame_plausible"].shape == (n,)
+    out["frame_plausible"] = np.asarray(out["frame_plausible"], dtype=bool)
     assert np.isfinite(out["cube_mean"]).all() and np.isfinite(out["cube_p90"]).all()
     if verbose:
         print(f"[p2] frame targets: cube_mean {out['cube_mean'].shape} | "
               f"cube_p90 {out['cube_p90'].shape} | cell_mean {out['cell_mean'].shape} "
               f"| {int((~out['cell_valid']).sum())}/{out['cell_valid'].size} cells "
-              "fully masked (dropped, never filled)")
+              "fully masked (dropped, never filled) | "
+              f"{int((~out['frame_plausible']).sum())}/{n} frames fail "
+              "P4's shared plausibility verdict (reported, not yet applied)")
     return out
+
+
+def screen_part_a_target(aggregation: str, y_rows, keep_rows,
+                         frame_plausible) -> tuple:
+    """Apply P2 Part A's frame verdict without shortening the manifest."""
+    ok = np.asarray(frame_plausible, dtype=bool)
+    y = np.asarray(y_rows, dtype=float).copy()
+    assert y.shape[0] == ok.size, (
+        f"{aggregation}: {y.shape[0]} target frames against {ok.size} verdicts"
+    )
+    if aggregation == "cell_mean":
+        assert y.ndim == 2 and y.shape[1] == GRID_CELLS
+        valid = np.asarray(keep_rows, dtype=bool).copy()
+        assert valid.shape == y.shape
+        valid &= ok[:, None]
+        y[~ok, :] = np.nan
+        return y, valid
+    assert y.ndim == 1
+    y[~ok] = np.nan
+    return y, None
 
 
 # ---------------------------------------------------------------------------
@@ -1576,7 +1638,8 @@ def run_p2(manifest, cube_dir: str, encoders: Sequence[str] = ENCODER_ORDER,
            fold_modes: Sequence[str] = FOLD_MODES, k: int = 5,
            inner_k: int = _INNER_K, emb_dir: str | None = None,
            mask_dir: str | None = None, log_path: str | None = None,
-           n_jobs: int = 1, verbose: bool = True):
+           n_jobs: int = 1, verbose: bool = True,
+           plausibility_screen: bool = False):
     """The whole table: Part A (gate K2) and Part B (the delta probe).
 
     Returns a pandas DataFrame and writes nothing but the run log. Every fold
@@ -1586,22 +1649,30 @@ def run_p2(manifest, cube_dir: str, encoders: Sequence[str] = ENCODER_ORDER,
     ``n_jobs`` parallelises OVER FOLDS and changes wall-clock only -- see
     ``evaluate``. At 20 cubes serial is fine (nine minutes); at 115 the fold
     count grows with the cube count under LOCO and serial is hours.
+
+    ``plausibility_screen`` defaults off for published-table reproducibility.
+    When enabled, Part A excludes bad target frames and Part B excludes pairs
+    touching either bad endpoint; the manifest and embedding cache stay whole.
     """
     import pandas as pd
 
     open_run_log(log_path, verbose=verbose)
     try:
         rows = _run_p2_rows(manifest, cube_dir, encoders, fold_modes, k,
-                            inner_k, emb_dir, mask_dir, n_jobs, verbose)
+                            inner_k, emb_dir, mask_dir, n_jobs, verbose,
+                            plausibility_screen)
     finally:
         close_run_log()
     df = pd.DataFrame(rows)
     assert len(df), "run_p2 produced no rows"
+    assert_plausibility_screen_declared(
+        df, required=bool(plausibility_screen))
     return df
 
 
 def _run_p2_rows(manifest, cube_dir, encoders, fold_modes, k, inner_k,
-                 emb_dir, mask_dir, n_jobs, verbose) -> list:
+                 emb_dir, mask_dir, n_jobs, verbose,
+                 plausibility_screen) -> list:
     n = len(manifest)
     n_cubes = int(manifest["cube_id"].nunique())
 
@@ -1613,14 +1684,32 @@ def _run_p2_rows(manifest, cube_dir, encoders, fold_modes, k, inner_k,
     # --- inputs ------------------------------------------------------------
     arrays = encoder_arrays(manifest, encoders, emb_dir=emb_dir, verbose=verbose)
     y_frame = frame_targets(manifest, cube_dir, verbose=verbose)
-    pairs = pair_index(manifest, verbose=verbose)
-    assert_gap_axes_disagree(pairs, verbose=verbose)
+    frame_ok = np.asarray(y_frame["frame_plausible"], dtype=bool)
+    n_implausible = int((~frame_ok).sum())
+    pairs_all = pair_index(manifest, verbose=verbose)
+    assert_gap_axes_disagree(pairs_all, verbose=verbose)
+    if plausibility_screen:
+        pairs, n_pairs_dropped = filter_pairs_by_plausibility(
+            pairs_all, frame_ok, verbose=verbose)
+    else:
+        pairs, n_pairs_dropped = pairs_all, 0
+        if verbose:
+            print("[p2] plausibility screen OFF: verdicts measured, no frame "
+                  "or pair removed")
     y_pair = build_pair_targets(pairs, manifest, cube_dir, mask_dir=mask_dir,
                                 verbose=verbose)
     summarise_pixel_survival(pairs, y_pair, verbose=verbose)
 
     views = _encoder_views(encoders)
     rows = []
+    screen_meta = {
+        "plausibility_screen": bool(plausibility_screen),
+        "plausibility_screen_def": (
+            P2_PLAUSIBILITY_SCREEN_LABEL
+            if plausibility_screen else "not_applied"),
+        "n_implausible_frames": n_implausible,
+        "n_pairs_dropped_implausible": n_pairs_dropped,
+    }
 
     # --- PART A: the reconstruction floor ----------------------------------
     if verbose:
@@ -1634,6 +1723,9 @@ def _run_p2_rows(manifest, cube_dir, encoders, fold_modes, k, inner_k,
         # every retained frame by the clear-fraction rule.
         y_rows = y_frame[agg]
         keep_rows = y_frame["cell_valid"] if agg == "cell_mean" else None
+        if plausibility_screen:
+            y_rows, keep_rows = screen_part_a_target(
+                agg, y_rows, keep_rows, frame_ok)
         for mode in fold_modes:
             head = f"{agg} | {level} | {mode}"
             if verbose:
@@ -1647,6 +1739,7 @@ def _run_p2_rows(manifest, cube_dir, encoders, fold_modes, k, inner_k,
                                          mode, enc, fs, "reconstruction",
                                          "ridge", block.D, n, n_cubes,
                                          pairs.n_pairs),
+                             **screen_meta,
                              **summarise(res)})
                 if verbose:
                     s = rows[-1]
@@ -1662,6 +1755,7 @@ def _run_p2_rows(manifest, cube_dir, encoders, fold_modes, k, inner_k,
             rows.append({**_base_row("A_reconstruction", agg, "", level, mode,
                                      "none", "retention", "retention", "ridge",
                                      ctrl.D, n, n_cubes, pairs.n_pairs),
+                         **screen_meta,
                          **summarise(res)})
             if verbose:
                 s = rows[-1]
@@ -1696,6 +1790,7 @@ def _run_p2_rows(manifest, cube_dir, encoders, fold_modes, k, inner_k,
                                                  enc, fs, "delta", readout,
                                                  block.D, n, n_cubes,
                                                  pairs.n_pairs),
+                                     **screen_meta,
                                      **summarise(res)})
                         if verbose:
                             s = rows[-1]
@@ -1715,6 +1810,7 @@ def _run_p2_rows(manifest, cube_dir, encoders, fold_modes, k, inner_k,
                                              "none", "gap_days", "gap_only",
                                              readout, GAP_CONTROL_DEGREE + 1,
                                              n, n_cubes, pairs.n_pairs),
+                                 **screen_meta,
                                  **summarise(res)})
                     if verbose:
                         s = rows[-1]
@@ -2397,6 +2493,41 @@ def assert_results_complete(df, encoders: Sequence[str] = ENCODER_ORDER,
         f"{len(bad)} row(s) have a non-finite score, e.g.\n"
         f"{bad[['part', 'target', 'encoder', 'fold_mode']].head(3)}"
     )
+
+
+def assert_plausibility_screen_declared(df, required: bool = True) -> None:
+    """Every P2 row declares one uniform frame/pair screening contract."""
+    for col in ("plausibility_screen", "plausibility_screen_def",
+                "n_implausible_frames", "n_pairs_dropped_implausible"):
+        assert col in df.columns, f"the P2 table has no {col!r} column"
+    values = df.plausibility_screen.astype(bool)
+    assert values.nunique() == 1, (
+        "the P2 table mixes screened and unscreened rows; their pair sets "
+        "differ and the scores are not comparable"
+    )
+    actual = bool(values.iloc[0])
+    assert actual == bool(required), (
+        f"P2 declares plausibility_screen={actual}, expected {required}"
+    )
+    expected_label = (
+        P2_PLAUSIBILITY_SCREEN_LABEL if required else "not_applied")
+    assert (df.plausibility_screen_def.astype(str) == expected_label).all(), (
+        "P2's plausibility_screen_def does not match the declared mode"
+    )
+    n_bad = df.n_implausible_frames.astype(int)
+    n_pairs = df.n_pairs_dropped_implausible.astype(int)
+    assert n_bad.nunique() == 1 and n_pairs.nunique() == 1, (
+        "P2 screen counts must be run-level constants on every row"
+    )
+    assert (n_bad >= 0).all() and (n_pairs >= 0).all()
+    if not required:
+        assert (n_pairs == 0).all(), (
+            "an unscreened P2 table reports pairs dropped by the screen"
+        )
+    if required and int(n_bad.iloc[0]) > 0:
+        assert int(n_pairs.iloc[0]) > 0, (
+            "frames fail the screen but no P2 pair reports being dropped"
+        )
 
 
 def results_path(name: str = "p2_deltas_results.csv", root: str | None = None) -> str:

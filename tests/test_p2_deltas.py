@@ -963,6 +963,79 @@ def test_summarise_reports_a_cube_clustered_interval_and_never_a_bare_mean():
 
 
 # ---------------------------------------------------------------------------
+# The shared physical-plausibility screen
+# ---------------------------------------------------------------------------
+
+def test_plausibility_screen_drops_a_pair_if_either_endpoint_fails(pairs):
+    ok = np.ones(int(max(pairs.row_b)) + 1, dtype=bool)
+    ok[int(pairs.row_b[0])] = False
+    expected = ok[pairs.row_a] & ok[pairs.row_b]
+
+    screened, n_dropped = p2.filter_pairs_by_plausibility(
+        pairs, ok, verbose=False)
+
+    assert n_dropped == int((~expected).sum())
+    assert screened.n_pairs == int(expected.sum())
+    for name in ("row_a", "row_b", "cube_id", "gap_days",
+                 "gap_acq_steps", "gap_frame_steps", "within_cube_index"):
+        np.testing.assert_array_equal(
+            getattr(screened, name), getattr(pairs, name)[expected])
+    assert pairs.n_pairs == expected.size, "the immutable input was modified"
+
+
+def test_plausibility_pair_screen_is_a_noop_when_every_frame_passes(pairs):
+    ok = np.ones(int(max(pairs.row_b)) + 1, dtype=bool)
+    screened, n_dropped = p2.filter_pairs_by_plausibility(
+        pairs, ok, verbose=False)
+    assert n_dropped == 0
+    for name in ("row_a", "row_b", "cube_id", "gap_days",
+                 "gap_acq_steps", "gap_frame_steps", "within_cube_index"):
+        np.testing.assert_array_equal(
+            getattr(screened, name), getattr(pairs, name))
+
+
+def test_part_a_screen_makes_an_implausible_frame_poison_invisible():
+    ok = np.array([True, False, True, True])
+    y = np.array([0.2, 0.3, 0.4, 0.5])
+    poisoned = y.copy()
+    poisoned[1] = 1e9
+
+    clean, keep = p2.screen_part_a_target("cube_mean", y, None, ok)
+    poison, poison_keep = p2.screen_part_a_target(
+        "cube_mean", poisoned, None, ok)
+    assert keep is poison_keep is None
+    np.testing.assert_array_equal(np.isfinite(clean), ok)
+    np.testing.assert_array_equal(clean[ok], poison[ok])
+
+    cells = np.repeat(y[:, None], GRID_CELLS, axis=1)
+    valid = np.ones_like(cells, dtype=bool)
+    screened_cells, screened_valid = p2.screen_part_a_target(
+        "cell_mean", cells, valid, ok)
+    assert not screened_valid[1].any()
+    assert np.isnan(screened_cells[1]).all()
+    assert screened_valid[[0, 2, 3]].all()
+
+
+def test_p2_screen_declaration_survives_csv_round_trip():
+    import io
+
+    df = pd.DataFrame({
+        "plausibility_screen": [True, True],
+        "plausibility_screen_def": [p2.P2_PLAUSIBILITY_SCREEN_LABEL] * 2,
+        "n_implausible_frames": [3, 3],
+        "n_pairs_dropped_implausible": [6, 6],
+    })
+    p2.assert_plausibility_screen_declared(df, required=True)
+    back = pd.read_csv(io.StringIO(df.to_csv(index=False)))
+    p2.assert_plausibility_screen_declared(back, required=True)
+
+    mixed = df.copy()
+    mixed.loc[0, "plausibility_screen"] = False
+    with pytest.raises(AssertionError, match="mixes"):
+        p2.assert_plausibility_screen_declared(mixed, required=True)
+
+
+# ---------------------------------------------------------------------------
 # Real data: the guards must be exercised against data of the shape they were
 # written for, not only against fixtures.
 # ---------------------------------------------------------------------------

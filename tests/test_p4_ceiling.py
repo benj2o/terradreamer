@@ -922,3 +922,98 @@ def test_frame_targets_report_the_plausibility_screen_without_applying_it():
     # healthy summer frame kept; the two cloud-contaminated summer frames
     # flagged; the winter frame NOT flagged (low NDVI is legitimate there)
     np.testing.assert_array_equal(plausible, [True, False, False, True])
+
+
+def test_plausibility_screen_filters_frames_cells_and_the_cell_control_together():
+    m = _manifest(n_cubes=1, frames=10)
+    src = _sources(m)
+    frame = _target(m, src, level="frame")
+    cell = _target(m, src, level="cell")
+    observation_cell = _data(m, src, cell).observation_cell
+    ok = np.ones(len(m), dtype=bool)
+    ok[1] = False
+
+    targets, screened_obs, dropped = p4.apply_plausibility_screen(
+        {"cube_mean": frame, "cell_mean": cell}, observation_cell, ok)
+
+    assert dropped == {"cube_mean": 1, "cell_mean": 16}
+    np.testing.assert_array_equal(
+        targets["cube_mean"].row_idx, np.array([0] + list(range(2, 10))))
+    assert not (targets["cell_mean"].row_idx == 1).any()
+    assert targets["cell_mean"].n_rows == screened_obs.values.shape[0] == 144
+
+
+def test_p4_screen_makes_poisoned_excluded_targets_invisible():
+    from dataclasses import replace
+
+    m = _manifest(n_cubes=1, frames=10)
+    src = _sources(m)
+    frame = _target(m, src, level="frame")
+    cell = _target(m, src, level="cell")
+    observation_cell = _data(m, src, cell).observation_cell
+    ok = np.ones(len(m), dtype=bool)
+    ok[1] = False
+
+    poisoned_frame_y = frame.y.copy()
+    poisoned_frame_y[1] = 1e9
+    poisoned_cell_y = cell.y.copy()
+    poisoned_cell_y[cell.row_idx == 1] = -1e9
+    poisoned = {
+        "cube_mean": replace(frame, y=poisoned_frame_y),
+        "cell_mean": replace(cell, y=poisoned_cell_y),
+    }
+    clean, clean_obs, _ = p4.apply_plausibility_screen(
+        {"cube_mean": frame, "cell_mean": cell}, observation_cell, ok)
+    after, after_obs, _ = p4.apply_plausibility_screen(
+        poisoned, observation_cell, ok)
+
+    np.testing.assert_array_equal(clean["cube_mean"].y, after["cube_mean"].y)
+    np.testing.assert_array_equal(clean["cell_mean"].y, after["cell_mean"].y)
+    np.testing.assert_array_equal(clean_obs.values, after_obs.values)
+
+
+def test_p4_plausibility_screen_is_a_noop_when_every_frame_passes():
+    m = _manifest(n_cubes=1, frames=10)
+    src = _sources(m)
+    frame = _target(m, src, level="frame")
+    cell = _target(m, src, level="cell")
+    observation_cell = _data(m, src, cell).observation_cell
+    ok = np.ones(len(m), dtype=bool)
+
+    targets, screened_obs, dropped = p4.apply_plausibility_screen(
+        {"cube_mean": frame, "cell_mean": cell}, observation_cell, ok)
+    assert dropped == {"cube_mean": 0, "cell_mean": 0}
+    np.testing.assert_array_equal(targets["cube_mean"].y, frame.y)
+    np.testing.assert_array_equal(targets["cell_mean"].y, cell.y)
+    np.testing.assert_array_equal(screened_obs.values, observation_cell.values)
+
+
+def test_p4_screen_declaration_is_emitted_and_survives_csv_round_trip():
+    import io
+    from dataclasses import replace
+
+    m = _manifest()
+    src = _sources(m)
+    target = _target(m, src)
+    data = _data(m, src, target)
+    unscreened = p4.run_stage_a(
+        data, targets=(target.name,), fold_modes=("cube",),
+        estimators=("linear",), feature_sets=("weather_full8",), k=4,
+        verbose=False)
+    p4.assert_plausibility_screen_declared(unscreened, required=False)
+
+    screened_data = replace(
+        data, plausibility_screen=True, n_implausible_frames=1,
+        n_rows_dropped_implausible={target.name: 1})
+    screened = p4.run_stage_a(
+        screened_data, targets=(target.name,), fold_modes=("cube",),
+        estimators=("linear",), feature_sets=("weather_full8",), k=4,
+        verbose=False)
+    p4.assert_plausibility_screen_declared(screened, required=True)
+    back = pd.read_csv(io.StringIO(screened.to_csv(index=False)))
+    p4.assert_plausibility_screen_declared(back, required=True)
+
+    mixed = screened.copy()
+    mixed.loc[mixed.index[0], "plausibility_screen"] = False
+    with pytest.raises(AssertionError, match="mixes"):
+        p4.assert_plausibility_screen_declared(mixed, required=True)
