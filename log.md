@@ -3,20 +3,17 @@
 Running record of measurements and adopted definitions. Reverse chronological.
 Decisions and their rationale live in [docs/DECISIONS.md](docs/DECISIONS.md).
 
-## 2026-08-13: P4 screened re-run on 32UNU -- modest headline move; like-for-like with P3
+## 2026-08-13: P2 + P4 screened re-runs on 32UNU -- trust fix, not a new story
 
-`scripts/rerun_p4_screened.py`, local CPU, 7 workers, 115 cubes / tile 32UNU /
-2018, `plausibility_screen=True`. Verbatim stdout at
-`notebooks/runs/2026-08-13_p4_screened_32UNU_115cubes.txt`; table at
-`data/scaled_32UNU/p4_screened_results.csv` (published `p4_scaled_results.csv`
-untouched). Same three implausible frames P3 already dropped.
+Same three implausible frames P3 already dropped (`3/1580`). Published
+`p2_scaled_results.csv` / `p4_scaled_results.csv` untouched. Cite
+`*_screened_results.csv` for like-for-like with P3.
 
-```
-manifest              1580 frames, 115 cubes; 3 implausible
-geometry              cube_mean -3, cube_p90 -3, cell_mean -36 rows
-run_p4                270 rows x 99 cols, 36.2 min on 7 workers
-invariants            all pass in memory and on the CSV
-```
+### P4 (`scripts/rerun_p4_screened.py`, 36.2 min / 7 workers)
+
+Stdout: `notebooks/runs/2026-08-13_p4_screened_32UNU_115cubes.txt`.
+Table: `data/scaled_32UNU/p4_screened_results.csv` (270 rows; invariants pass).
+Geometry: cube_mean −3, cube_p90 −3, cell_mean −36.
 
 Stage A `cell_mean` / HGB / `weather_full8` (screened | unscreened):
 
@@ -26,8 +23,29 @@ cube/weather            +0.116       +0.120       +0.086 |        +0.130
 loco/weather            +0.096       +0.117       +0.066 |        +0.085
 ```
 
-Cube folds drop ~0.014; LOCO ticks up slightly. Screen does not invent a new
-ceiling story — it makes P4's row set match P3's. P2 screened run in progress.
+### P2 (`scripts/rerun_p2_screened.py`, 113.0 min / 7 workers)
+
+Stdout: `notebooks/runs/2026-08-13_p2_screened_32UNU_115cubes.txt`.
+Table: `data/scaled_32UNU/p2_screened_results.csv` (600 rows; invariants pass).
+Geometry: **6 pairs dropped** → **1459** pairs scored.
+
+`cube_mean` / pooled / linear / cube folds (screened | was unscreened):
+
+```
+SIGN
+  raw_features              +0.808 (+0.742) | was +0.785 (+0.720)
+  raw_rgb_only              +0.759 (+0.693) | was +0.695 (+0.630)
+  dinov2_vitb14             +0.604 (+0.537) | was +0.606 (+0.541)
+
+MAGNITUDE
+  dinov2_vitb14             +0.128 (-0.017) | was +0.105 (+0.043)
+  raw_rgb_only              +0.119 (-0.026) | was +0.092 (+0.029)
+  gap_days control          +0.145          | was +0.063
+```
+
+Gate K2 still passes for 3/4 networks (satlas_mi still not separable vs raw).
+**Verdict unchanged:** sign recoverable, magnitude not; `raw_*` still above every
+network on sign. Screen is a consistency fix with P3, not a claim mover.
 
 ## 2026-08-12: Tier 1 -- P3 re-run under four corrections. NO encoder separably beats the band-matched baseline, and three cloud frames were carrying the old result
 

@@ -2611,3 +2611,29 @@ unscreened rows, because they are computed over different row sets and their
 scores are not comparable.
 
 **Commit.** `51eb72a`
+
+---
+
+## 2026-08-13: Screened P2/P4 re-runs — like-for-like with P3, published tables untouched
+
+**Assumed.** That dropping the same three `frame_plausible=False` frames P3
+already removed would move P2/P4 headlines the way it moved P3 persistence
+(+0.52 at Δ=5 d).
+
+**Observed.** Geometry matches the dry-run: 3/1580 frames; P4 loses 3 cube /
+36 cell target rows; P2 drops 6 pairs (1465→1459). Headlines barely move, and
+where they move they do not change the verdict:
+
+- P4 Stage A `cell_mean` / HGB / weather: cube **+0.116** (was +0.130), LOCO
+  **+0.096** (was +0.085).
+- P2 sign: dinov2 **+0.604** (was +0.606); `raw_rgb_only` **+0.759** (was
+  +0.695). Magnitude stays weak (networks ≤ +0.13; gap control rises to +0.145
+  so several network *margins* flip more negative).
+
+**Changed.** Opt-in screen in `probes/p2_deltas.py` / `probes/p4_ceiling.py`
+(default off). Thin runners write new CSVs only. Paper and handoffs should cite
+screened tables for cross-probe comparison; the original scaled CSVs stay as
+the audit baseline. This closes HANDOFF §4 item 1 (consistency), not a novelty
+claim — Scenario 1 trust, not Scenario 2 climate geography.
+
+**Commit.** `641dea9`

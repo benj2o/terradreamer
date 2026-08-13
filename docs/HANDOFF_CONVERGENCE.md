@@ -1,15 +1,17 @@
 # Convergence — what the four probes were for, and what they found
 
-State of the repo as of **2026-08-12**, after Phase 1.8 (P3) **and the Tier-1
-re-run of it**. One page, the format research_plan_v3 §5.4 asks for. Every
-number is pulled from the probe that owns it — `docs/HANDOFF_P2.md`,
-`docs/HANDOFF_P3.md` and `log.md` — and nothing is re-derived here.
+State of the repo as of **2026-08-13**, after Phase 1.8 (P3), the Tier-1
+re-run of it, and screened P2/P4 re-runs. One page, the format research_plan_v3
+§5.4 asks for. Every number is pulled from the probe that owns it —
+`docs/HANDOFF_P2.md`, `docs/HANDOFF_P3.md` and `log.md` — and nothing is
+re-derived here.
 
 **P3's row was rewritten on 2026-08-12 after the Tier-1 re-run** (selected ridge
 penalty, paired separability, a shared [NDVI(t), weather] base, 9 encoder views
 including 4 colour-infrared, plausibility screen applied). Three of its earlier
-claims did not survive. P1, P2 and P4's rows are unchanged and are still
-measured on the UNSCREENED row set — see the open item in §4.
+claims did not survive. **P2 and P4 now also have screened CSVs**
+(`p2_screened_results.csv`, `p4_screened_results.csv`, 2026-08-13); published
+unscreened scaled tables remain on disk for audit. P1 is unchanged.
 
 **One sourcing caveat, stated up front.** `research_plan_v3` is not in this
 checkout. The "prior" column below quotes each probe's pre-registered
@@ -193,19 +195,17 @@ definitions are not in this checkout; if the plan defines them differently, the
 |---|---|
 | `data/scaled_32UNU/{raw,embeddings,embeddings_cir,masks}` | 115 cubes, 575 RGB `.npz`, **460 colour-infrared `.npz`**, 115 mask files. **The set P2, P4 and P3 were all measured on.** Do not add cubes to `data/raw`. |
 | `probes/p3_forecast.py` | The forecast probe, its five baselines, its three controls, the horizon index P4/P2 do not have — and, after the Tier-1 re-run, the paired-separability machinery (`paired_difference`, `add_paired_separability`, `assert_separability_is_paired`) that any later "X beats Y" should be built on. |
-| `probes/p4_ceiling.py` | `make_estimator` takes an `alpha` override, for the ridge and only the ridge. `cube_frame_targets` returns `frame_plausible`; opt-in `plausibility_screen` (default off) filters Stage A targets + cell observations. Screened CSV: `p4_screened_results.csv` via `scripts/rerun_p4_screened.py`. |
+| `probes/p2_deltas.py` | Opt-in `plausibility_screen` (default off). Screened CSV: `p2_screened_results.csv` via `scripts/rerun_p2_screened.py` (1459 pairs; dinov2 sign **+0.604**, magnitude still ≤ +0.13). |
+| `probes/p4_ceiling.py` | `make_estimator` takes an `alpha` override, for the ridge and only the ridge. `cube_frame_targets` returns `frame_plausible`; opt-in `plausibility_screen` (default off). Screened CSV: `p4_screened_results.csv` via `scripts/rerun_p4_screened.py` (cube weather **+0.116**). |
 | `probes/cv.py` | Unchanged. `cube`, `loco`, `spatial_block` run; `year`, `tile`, `crossed` correctly RAISE on this single-tile, single-year subset. |
 | tests | **0 failed.** The count grows every phase; the invariant is 0 failed. |
 
-**The three open items that outlive this phase**, in the order they would change
-a published number:
+**Open items that still change a published number:**
 
-1. **P4 screened re-run is done (2026-08-13); P2 screened re-run is in flight.**
-   Same three implausible frames as P3 (`3/1580`). P4 Stage A `cell_mean` /
-   HGB / `weather_full8`: cube folds **+0.116** (was +0.130), LOCO **+0.096**
-   (was +0.085). Published `p4_scaled_results.csv` untouched; cite
-   `p4_screened_results.csv` for like-for-like with P3. Until P2's screened
-   CSV lands, P2 vs P3 remains mixed-screen.
+1. ~~P2/P4 without the P3 plausibility screen~~ **Closed 2026-08-13.** All three
+   probes now have screened tables over the same three-frame drop. Cite
+   `*_screened_results.csv` / `p3_tier1_results.csv` for cross-probe comparison;
+   leave the original scaled CSVs as the audit baseline.
 2. **Stage B's climatology has an unquantified second-order leak path**, and no
    H1-style number may be quoted from it until that is measured
    (`probes/p4_ceiling.run_stage_b`, DECISIONS 2026-08-11).
