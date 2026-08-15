@@ -1,0 +1,127 @@
+\section{Expanded Results}
+
+\subsection{Full headline forecast table}
+Table~\ref{tab:fullheadline} expands the main-text headline to all nine encoder
+views from the Tier-1 re-run. The shared base is $[\mathrm{NDVI}(t),
+\mathrm{weather}]$; all rows use ridge regression, cube folds, and the
+plausibility screen.
+
+\begin{table*}[h]
+\centering
+\small
+\begin{tabular}{lcccc}
+\toprule
+Model row & 5 d & 25 d & 50 d & 100 d \\
+\midrule
+raw\_features + weather & $0.871$ & $0.743$ & $0.625$ & $0.639$ \\
+raw\_rgb\_only + weather & $0.853$ & $0.727$ & $0.589$ & $0.556$ \\
+$[\mathrm{NDVI}(t), \mathrm{weather}]$ only & $0.773$ & $0.693$ & $0.522$ & $0.406$ \\
+imagenet\_vit\_b16\_cir & $0.712$ & $0.670$ & $0.524$ & $0.451$ \\
+satlas\_s2\_swinb\_rgb\_cir & $0.698$ & $0.647$ & $0.514$ & $0.370$ \\
+satlas\_s2\_swinb\_mi\_rgb & $0.640$ & $0.667$ & $0.626$ & $0.570$ \\
+imagenet\_vit\_b16 & $0.656$ & $0.622$ & $0.542$ & $0.421$ \\
+satlas\_s2\_swinb\_rgb & $0.616$ & $0.620$ & $0.559$ & $0.500$ \\
+dinov2\_vitb14 & $0.622$ & $0.577$ & $0.512$ & $0.550$ \\
+dinov2\_vitb14\_cir & $0.586$ & $0.551$ & $0.517$ & $0.586$ \\
+\midrule
+persistence & $0.690$ & $0.542$ & $0.124$ & $0.129$ \\
+proxy climatology & $0.026$ & $0.125$ & $0.136$ & $-0.164$ \\
+observation control & $0.014$ & $0.056$ & $0.072$ & $-0.024$ \\
+permutation null & $-0.014$ & $-0.002$ & $-0.007$ & $-0.024$ \\
+horizon-only control & $-0.006$ & $-0.006$ & $-0.007$ & $-0.023$ \\
+\bottomrule
+\end{tabular}
+\caption{Tier-1 P3 headline table from the 115-cube re-run. Effective $n$ in
+cubes is 115/114/115/94 at 5/25/50/100 days. The multi-image Satlas row is kept
+for completeness but is not single-image comparable.}
+\label{tab:fullheadline}
+\end{table*}
+
+\subsection{Protocol summary}
+\begin{itemize}
+\item \textbf{Data.} 115 GreenEarthNet minicubes from tile 32UNU, all from 2018.
+\item \textbf{Forecast target.} Cube-mean NDVI at 5, 25, 50, and 100 days.
+\item \textbf{Retained frames and rows.} 1580 retained frames in the rebuilt
+manifest; 1540 total forecast rows in the Tier-1 run.
+\item \textbf{Plausibility screen.} The shared target builder flags 3 of 1580
+retained frames as implausible; removing any forecast row touching one of them
+drops 8/5/5/0 rows at 5/25/50/100 days, changing row counts from
+518/489/450/196 to 510/484/445/196.
+\item \textbf{Cross-validation.} Cube-grouped splits only; claims are reported for
+\texttt{cube}, LOCO, and \texttt{spatial\_block}. Effective sample size is
+cubes, not frames.
+\item \textbf{Comparisons.} ``X beats Y'' is always the paired per-fold difference
+with a delete-one-fold jackknife interval, not a comparison of overlapping
+marginal confidence intervals.
+\item \textbf{Controls.} Persistence, proxy climatology, observation-process,
+horizon-only, and permutation controls travel with the main table. P4 also
+includes a day-of-year sanity control.
+\end{itemize}
+
+\subsection{Paired separability and colour-infrared twins}
+\begin{table}[h]
+\centering
+\footnotesize
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.21\columnwidth}>{\raggedright\arraybackslash}p{0.71\columnwidth}@{}}
+\toprule
+Question & Measured answer \\
+\midrule
+Do frozen encoders beat the band-matched baseline? & No. At 5 days all 9 encoder views are separably below \texttt{raw\_rgb\_only} by $-0.141$ to $-0.267$; at 25 days 4 of 9 are separably below; at 50 days none is separable either way; at 100 days 3 of 9 are separably below and none above. \\
+Does NIR access rescue the frozen networks? & No. Across RGB/CIR twins, 16 of 48 comparisons are separable and 22 of 48 have the CIR row ahead at all. Gains of $+0.05$ to $+0.14$ appear mainly at 5 and 25 days for two single-image encoders, but never enough to reach the band-matched baseline. \\
+\bottomrule
+\end{tabular}
+\caption{Appendix summary of the paired tests that underpin the main claim.}
+\label{tab:paired}
+\end{table}
+
+\subsection{Cross-probe handshake}
+\begin{table}[h]
+\centering
+\footnotesize
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.19\columnwidth}>{\raggedright\arraybackslash}p{0.73\columnwidth}@{}}
+\toprule
+Probe & Key number used in the paper \\
+\midrule
+P2 sign & DINOv2 reaches $\rho=0.606\,[0.546,0.665]$; the band-matched \texttt{raw\_rgb\_only} row reaches $0.695$, above every network. \\
+P2 magnitude & All correlations are at most $0.12$; margins are at most $+0.07$; 3 of 4 encoders flip margin sign across fold modes. \\
+P4 proxy ceiling & At \texttt{cell\_mean} under HGB, weather explains $0.130\,[0.063,0.197]$ on \texttt{cube} and $0.085\,[0.007,0.162]$ on LOCO; 17 of 54 weather rows exclude zero at 115 cubes. \\
+\bottomrule
+\end{tabular}
+\caption{Numbers from the complementary probes used to interpret the main forecast result.}
+\label{tab:handshake}
+\end{table}
+
+\subsection{Extreme-subset finding (Tier-1 screened table)}
+The main forecast headline is dominated by near-normal rows. On the extreme
+subset, under the Tier-1 protocol (nested-CV ridge, shared base, screen on):
+\begin{itemize}
+\item At 5 and 25 days, every \emph{frozen network} is negative against
+persistence in \texttt{extreme\_low}.
+\item At 50 and 100 days, networks turn positive on \texttt{extreme\_low} but
+remain negative on \texttt{extreme\_high} (DINOv2 reaches $-0.62$ at 100\,d).
+\item No frozen network is positive on \emph{both} extreme tails at any horizon.
+\item Hand-crafted \texttt{raw\_rgb\_only} clears both tails at 5 and 25\,d
+($+0.12/+0.75$ and $+0.30/+0.38$) and still fails on \texttt{extreme\_high} at
+50--100\,d ($-0.72$, $-0.57$).
+\end{itemize}
+
+This is why the paper treats sign-versus-magnitude---and tail skill versus
+pooled $R^2$---as climate-relevant rather than merely diagnostic: a model can
+look strong overall and still miss the windows an early-warning trigger would
+fire on.
+
+\subsection{Proxy climatology check (30TVN)}
+On seasonal tile 30TVN (87 cubes), Stage~A proxy weather skill is
+$+0.192\,[+0.139,+0.245]$ while Stage~B leave-year-out skill is
+$-0.136\,[-0.852,+0.581]$. The point estimates differ by $0.328$; the intervals
+overlap because \texttt{crossed} folds clamp to four years. That is
+\emph{not} evidence the proxy is sound---it is the absence of evidence either
+way---and no H1-style number is quoted from Stage~B.
+
+\subsection{Plausibility-screen alignment}
+P3 applies \texttt{frame\_plausible} (in-season cube-mean NDVI below $0.15$
+flagged as cloud). Screening 8 of 518 forecast rows at $\Delta=5$\,d moved
+persistence from $+0.169$ to $+0.690$. P2 and P4 inherit the same opt-in flag;
+screened CSVs are written beside the cubes as
+\texttt{p2\_screened\_results.csv} / \texttt{p4\_screened\_results.csv} so the
+published unscreened tables remain reproducible.
