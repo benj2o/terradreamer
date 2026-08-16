@@ -412,6 +412,9 @@ __all__ = [
     "fit_readout",
     # evaluation
     "P3FoldResult", "evaluate_fold", "evaluate", "summarise",
+    # the per-row held-out predictions, and the train-fitted trigger threshold
+    "PREDICTIONS_COLUMNS", "PREDICTIONS_GZIP_BYTES", "predictions_frame",
+    "write_predictions",
     # the run and the table
     "P3Data", "build_p3_data", "run_p3", "add_margins",
     "print_headlines", "print_controls", "print_severity_table",
@@ -580,6 +583,47 @@ GROWING_SEASON_DOY = (120, 270)
 
 _MIN_TEST_ROWS = 8       # below this a fold's R-squared is noise; recorded NaN
 _MIN_BIN_ROWS = 20       # below this a severity bin's pooled score is not shown
+
+# ---------------------------------------------------------------------------
+# The per-row held-out predictions, and why they are OPT-IN
+# ---------------------------------------------------------------------------
+# The table above is an aggregate: one row per (view, learner), scored over its
+# folds. Anything asked of the individual held-out predictions afterwards -- a
+# threshold crossing, a contingency table, a decision rule -- cannot be computed
+# from it, and re-deriving them means re-running the fits, which is the way two
+# artefacts start disagreeing about what a fold held.
+#
+# So a run can be asked to persist them. It is a FLAG and it defaults to False:
+# the published Tier-1 table was produced without it, and a reproduction of that
+# table must not be forced to write an artefact the published run never had.
+# Nothing under the flag touches a fitted quantity -- the extra columns are
+# computed AFTER every score on the fold is final -- so a run with the flag on
+# and a run with it off produce a bit-identical table.
+#
+# The 15 columns the trigger work needs, in the order they are written, then
+# the four that identify the row within its cell and the three that carry the
+# fold's TRAIN-FITTED trigger reference (see ``_trigger_reference``).
+PREDICTIONS_COLUMNS = (
+    "cube_id", "daily_axis_index", "delta_days", "aggregation", "fold_mode",
+    "fold_index", "model_kind", "encoder", "feature_level", "estimator",
+    "alpha_rule", "y_true", "y_pred", "y_persistence", "y_climatology_proxy",
+    # A (delta, agg, mode, kind, encoder, level, estimator, rule) key is NOT
+    # unique in this table: the shared base and the two raw_features views are
+    # separate rows under the same names. Both are carried so a reader can key
+    # on a single learner rather than averaging two of them together.
+    "feature_set", "feature_base",
+    # The paired key. ``paired_difference`` identifies a held-out observation by
+    # (fold, feature row), so the same key is on the CSV -- a paired interval
+    # computed downstream is then the same pairing, not a re-invention of it.
+    "feature_row", "day_of_year_target",
+    "anomaly_threshold_extreme_low", "anomaly_threshold_low",
+    "n_threshold_train_rows",
+)
+
+#: Above this the predictions CSV is gzipped. Read as ``.csv.gz`` by pandas
+#: without a flag, so the compression is an implementation detail of the size
+#: and never of what the file means.
+PREDICTIONS_GZIP_BYTES = 200 * 1024 ** 2
 
 # ---------------------------------------------------------------------------
 # Console hygiene: ONE run-log implementation, and it is P2's.
@@ -1989,6 +2033,15 @@ class P3FoldResult(NamedTuple):
     # unknown tightness, which is P1's lesson and belongs on the row).
     alpha: float = float("nan")
     alpha_at_grid_edge: bool = False
+    # THE TRIGGER REFERENCE, and it is present only under emit_predictions.
+    # ``test_climatology`` is this fold's TRAIN-FITTED day-of-year curve read at
+    # the held-out rows, so an anomaly is y - test_climatology and needs nothing
+    # refitted downstream. ``trigger_edges`` are p4's severity quantiles of that
+    # anomaly over the fold's TRAINING rows -- the threshold, fitted where the
+    # training index is in scope and nowhere else.
+    test_climatology: np.ndarray = None
+    trigger_edges: np.ndarray = None
+    n_trigger_train: int = 0
 
 
 def _side_rows(rows: ForecastRows, manifest_rows, fold: int, side: str) -> np.ndarray:
@@ -2007,11 +2060,72 @@ def _side_rows(rows: ForecastRows, manifest_rows, fold: int, side: str) -> np.nd
     return np.flatnonzero(whole)
 
 
+def _fold_train_pos(target: dict, train_forecast_rows) -> np.ndarray:
+    """The feature rows ``evaluate_fold`` would fit on, for a given fold side.
+
+    ``train_forecast_rows`` is what ``_side_rows`` returns -- FORECAST rows, not
+    manifest rows. The two are different index spaces of similar size and both
+    are in scope inside a fold, so the name says which one this is.
+
+    One expression, in one place, so the TRIGGER REFERENCE below is fitted on
+    exactly the rows the fold's model was fitted on. The horizon control builds
+    its folds in its own loop (it is one pooled fit scored per horizon) and
+    would otherwise have to restate the rule; a threshold that differed between
+    the control row and every other row of the same cell would make the trigger
+    table's baseline column a comparison against a different threshold.
+    """
+    y = np.asarray(target["y"], dtype=float)
+    pers = np.asarray(target["persistence"], dtype=float)
+    row_of = np.asarray(target["row_of"], dtype=int)
+    ok = np.isfinite(y) & np.isfinite(pers)
+    rows = np.asarray(train_forecast_rows, dtype=int)
+    return np.flatnonzero(np.isin(row_of, rows) & ok)
+
+
+def _trigger_reference(day_of_year, y, train_pos,
+                       harmonics: int = p4.CLIMATOLOGY_HARMONICS,
+                       label: str = "") -> tuple:
+    """(curve, edges) for one fold. FITTED ON ``train_pos`` AND NOTHING ELSE.
+
+    THE THRESHOLD IS NOT A NEW RULE. It is p4's severity rule -- the quantiles
+    in ``p4_ceiling.SEVERITY_QUANTILES`` of the anomaly from a day-of-year
+    curve -- with the one change that makes it usable as a DECISION threshold
+    rather than a reporting axis: both the curve and the quantiles come from
+    the fold's training rows.
+
+    ``p4_ceiling.severity_reference_anomaly`` deliberately fits on everything,
+    and says so at length: severity bins have to exist before any model does,
+    and a bin definition that moved fold to fold would be thirty different
+    stratifications rather than one. That argument holds for LABELLING held-out
+    rows after the fact. It does not hold for a threshold a forecast is scored
+    against, because a 10th percentile taken over the full sample has seen the
+    held-out rows -- the crossing rate on the test side is then partly a
+    property of the test side itself, and a hit rate computed against it is not
+    an out-of-sample number. So the rule is imported and the FIT is moved
+    inside the fold, which is the same move ``doy_climatology_within_fold``
+    makes for the climatology itself.
+
+    Returned rather than applied here: the caller reads the curve at the
+    held-out rows and carries the edges on the row, so the CSV records the
+    threshold that was actually used instead of leaving it to be re-derived.
+    """
+    doy = np.asarray(day_of_year, dtype=float)
+    y = np.asarray(y, dtype=float)
+    train_pos = np.asarray(train_pos, dtype=int)
+    curve = p4.doy_climatology_within_fold(doy, y, train_pos,
+                                           n_harmonics=harmonics, label=label)
+    anom_train = y[train_pos] - curve.predict(doy[train_pos])
+    _, edges = p4.severity_bins(anom_train)
+    assert len(edges) == len(p4.SEVERITY_QUANTILES), edges
+    return curve, np.asarray(edges, dtype=float)
+
+
 def evaluate_fold(sources, target: dict, rows: ForecastRows, manifest,
                   train_rows, test_rows, estimator: str, kind: str,
                   base_X=None, permute: bool = False, fold: int = 0,
                   alpha_rule: str = ALPHA_RULE_FIXED,
                   climatology_harmonics: int = p4.CLIMATOLOGY_HARMONICS,
+                  emit_predictions: bool = False,
                   verbose: bool = False) -> P3FoldResult | None:
     """One outer fold, end to end. Returns None when a side holds no rows.
 
@@ -2037,6 +2151,13 @@ def evaluate_fold(sources, target: dict, rows: ForecastRows, manifest,
     this repo is fitted here: the training index set is in scope exactly once,
     and a hyperparameter chosen outside the fold is a hyperparameter chosen on
     the test cubes.
+
+    ``emit_predictions`` attaches the trigger reference -- this fold's
+    train-fitted climatology at the held-out rows, and the train-fitted
+    threshold edges -- to the returned result. It is computed AFTER the last
+    scored quantity on the fold, reads only ``tr``, and is never an input to
+    anything above: with it on and with it off, every field this function
+    already returned is bit-identical.
     """
     assert alpha_rule in ALPHA_RULES + (ALPHA_RULE_NA,), alpha_rule
     train_rows = np.asarray(train_rows, dtype=int)
@@ -2112,6 +2233,20 @@ def evaluate_fold(sources, target: dict, rows: ForecastRows, manifest,
     log(msg, echo=False)
     if verbose:
         print(msg)
+
+    # --- EVERY SCORE ABOVE IS FINAL. Only the trigger reference is below. ----
+    clim_te, edges, n_trig = None, None, 0
+    if emit_predictions:
+        assert np.array_equal(tr, _fold_train_pos(target, tr_rows)), (
+            "the trigger reference and this fold's fit disagree about which "
+            "rows are training rows"
+        )
+        curve, edges = _trigger_reference(
+            doy, y, tr, harmonics=climatology_harmonics,
+            label=f"{target['name']}/{kind} fold {fold + 1} TRIGGER REFERENCE")
+        clim_te = np.asarray(curve.predict(doy[te]), dtype=float)
+        n_trig = int(tr.size)
+
     return P3FoldResult(
         fold=fold, n_train=int(tr.size), n_test=int(te.size),
         n_train_cubes=n_tr_c, n_test_cubes=n_te_c, effective_n=n_te_c,
@@ -2120,13 +2255,15 @@ def evaluate_fold(sources, target: dict, rows: ForecastRows, manifest,
         sse_climatology=float("nan"), sst=sst,
         same_cube_after_permutation=same_cube, converged=bool(converged),
         log=msg, test_pos=te, test_y=y[te], test_pred=np.asarray(pred, float),
-        test_persistence=pers[te], alpha=alpha_used, alpha_at_grid_edge=at_edge)
+        test_persistence=pers[te], alpha=alpha_used, alpha_at_grid_edge=at_edge,
+        test_climatology=clim_te, trigger_edges=edges, n_trigger_train=n_trig)
 
 
 def evaluate(sources, target: dict, rows: ForecastRows, manifest, mode: str,
              estimator: str, kind: str, k: int = 5, permute: bool = False,
              base_X=None, alpha_rule: str = ALPHA_RULE_FIXED,
-             n_jobs: int = 1, verbose: bool = False) -> list:
+             n_jobs: int = 1, emit_predictions: bool = False,
+             verbose: bool = False) -> list:
     """Every outer fold of one mode, from ``probes.cv`` and nowhere else.
 
     Deterministic: ``n_jobs`` changes wall-clock only. The ridge solve is exact,
@@ -2143,7 +2280,8 @@ def evaluate(sources, target: dict, rows: ForecastRows, manifest, mode: str,
             and base_X is None:
         base_X = p4.build_X(sources, np.asarray(target["row_of"], dtype=int))
     call = dict(estimator=estimator, kind=kind, base_X=base_X, permute=permute,
-                alpha_rule=alpha_rule, verbose=False)
+                alpha_rule=alpha_rule, emit_predictions=emit_predictions,
+                verbose=False)
     if n_jobs == 1 or len(folds) < 2:
         out = [evaluate_fold(sources, target, rows, manifest, tr, te, fold=i,
                              **call) for i, (tr, te) in enumerate(folds)]
@@ -2570,7 +2708,8 @@ def _base_row(delta_days, aggregation, level, mode, encoder, feature_set,
 
 
 def _horizon_control_folds(data: P3Data, agg: str, mode: str, k: int,
-                           horizons: Sequence[int]) -> dict:
+                           horizons: Sequence[int],
+                           emit_predictions: bool = False) -> dict:
     """The horizon-alone control: Delta_days -> NDVI(t+Delta). No image.
 
     ``p2_deltas.fit_gap_control`` IMPORTED -- a horizon in days is exactly a gap
@@ -2653,6 +2792,23 @@ def _horizon_control_folds(data: P3Data, agg: str, mode: str, k: int,
                    f"{tr.size} rows (POOLED over {len(horizons)} horizons), "
                    f"test {te.size} rows / {cubes} cubes | R2 {r2:+.4f}")
             log(msg)
+            # The trigger reference is a property of (view, fold), NOT of the
+            # model: it is fitted on the rows THIS HORIZON's fold would train
+            # on, via the same _fold_train_pos every other row of the cell
+            # uses, so the control is scored against the same threshold as the
+            # models it is the baseline for -- even though the control's own
+            # fit is pooled over horizons and its training index is not.
+            clim_te, edges, n_trig = None, None, 0
+            if emit_predictions:
+                trg = _fold_train_pos(views[H], per_h[H][0])
+                curve, edges = _trigger_reference(
+                    views[H]["day_of_year_target"], views[H]["y"], trg,
+                    label=f"{agg}@{H}d/horizon_only fold {i + 1} "
+                          "TRIGGER REFERENCE")
+                clim_te = np.asarray(
+                    curve.predict(views[H]["day_of_year_target"][te - offset[H]]),
+                    dtype=float)
+                n_trig = int(trg.size)
             res.append(P3FoldResult(
                 fold=i, n_train=int(tr.size), n_test=int(te.size),
                 n_train_cubes=int(np.unique(
@@ -2663,7 +2819,9 @@ def _horizon_control_folds(data: P3Data, agg: str, mode: str, k: int,
                 sse_persistence=sse_p, sse_climatology=float("nan"), sst=sst,
                 same_cube_after_permutation=float("nan"), converged=True,
                 log=msg, test_pos=te - offset[H], test_y=y[te],
-                test_pred=pred, test_persistence=pers[te]))
+                test_pred=pred, test_persistence=pers[te],
+                test_climatology=clim_te, trigger_edges=edges,
+                n_trigger_train=n_trig))
             out[H] = (res, empty)
     return out
 
@@ -2675,7 +2833,9 @@ def run_p3(manifest, cube_dir: str, encoders: Sequence[str] = ENCODER_VIEWS_ALL,
            emb_dir_cir: str | None = None, mask_dir: str | None = None,
            plausibility_screen: bool = True,
            log_path: str | None = None, n_jobs: int = 1, data: P3Data = None,
-           payloads: list | None = None, verbose: bool = True):
+           payloads: list | None = None, emit_predictions: bool = False,
+           predictions_path: str | None = None, fold_modes=None,
+           alpha_rules=None, verbose: bool = True):
     """The whole table. Returns a DataFrame and writes nothing but the run log.
 
     THE PAIRED SEPARABILITY IS ATTACHED HERE, not left to the caller. The
@@ -2683,11 +2843,25 @@ def run_p3(manifest, cube_dir: str, encoders: Sequence[str] = ENCODER_VIEWS_ALL,
     columns were a separate step a caller could forget them, and the table would
     then carry marginal intervals and no way to compare two rows honestly. Pass
     ``payloads=[]`` to keep them for inspection.
+
+    ``emit_predictions`` ALSO writes those held-out predictions out, one tidy
+    row per observation, to ``predictions_path``. It defaults to False so the
+    published table is reproducible without the extra artefact, and it changes
+    no number in the returned frame -- see ``PREDICTIONS_COLUMNS`` and
+    ``evaluate_fold``. The path is returned to the caller through the run log
+    and stdout rather than through the signature, which stays (df, data).
+
+    ``fold_modes`` and ``alpha_rules`` NARROW the run. A narrowed run produces
+    a SUBSET table: it is missing rows the completeness assertions require, and
+    those assertions will refuse it. That is the intended behaviour -- the only
+    thing worse than a subset table is a subset table that passed the checks
+    the full one is held to.
     """
     import pandas as pd
 
     open_run_log(log_path, verbose=verbose)
     keep = [] if payloads is None else payloads
+    blocks = []
     try:
         if data is None:
             data = build_p3_data(manifest, cube_dir, encoders=encoders,
@@ -2696,16 +2870,21 @@ def run_p3(manifest, cube_dir: str, encoders: Sequence[str] = ENCODER_VIEWS_ALL,
                                  plausibility_screen=plausibility_screen,
                                  verbose=verbose)
         rows = _run_p3_rows(data, encoders, horizons, aggregations, k, n_jobs,
-                            verbose, payloads=keep)
+                            verbose, payloads=keep, predictions=blocks,
+                            emit_predictions=emit_predictions,
+                            fold_modes=fold_modes, alpha_rules=alpha_rules)
     finally:
         close_run_log()
     df = pd.DataFrame(rows)
     assert len(df), "run_p3 produced no rows"
     df = add_paired_separability(df, keep, verbose=verbose)
+    if emit_predictions:
+        path = predictions_path or results_path("p3_predictions.csv")
+        write_predictions(predictions_frame(blocks), path, verbose=verbose)
     return df, data
 
 
-def _alpha_rules_for(estimator: str) -> tuple:
+def _alpha_rules_for(estimator: str, allowed: Sequence[str] | None = None) -> tuple:
     """Which penalty rules a given estimator is run under.
 
     The ridge gets BOTH -- P4's fixed alpha = D and the nested-CV selection --
@@ -2714,8 +2893,22 @@ def _alpha_rules_for(estimator: str) -> tuple:
     comparison runs along. Every other estimator has no ridge penalty to choose,
     so it gets one row and says ``not_a_ridge`` rather than pretending to a rule
     it does not have.
+
+    ``allowed`` NARROWS that, and only that: it can drop a rule from a run, it
+    can never add one an estimator does not have. A run under a narrowed rule
+    set is a SUBSET run -- ``assert_alpha_rules_present`` will refuse the table
+    it produces, on purpose, because a table missing the fixed-alpha rows is
+    not the published table and must not be mistaken for it.
     """
-    return ALPHA_RULES if estimator == RIDGE_ESTIMATOR else (ALPHA_RULE_NA,)
+    rules = ALPHA_RULES if estimator == RIDGE_ESTIMATOR else (ALPHA_RULE_NA,)
+    if allowed is None:
+        return rules
+    kept = tuple(r for r in rules if r in set(allowed))
+    assert kept, (
+        f"alpha_rules={sorted(set(allowed))} leaves {estimator!r} with no "
+        f"penalty rule at all (it has {rules}), so it would contribute no rows"
+    )
+    return kept
 
 
 def _base_sources(view: dict, feature_base: str) -> tuple:
@@ -2742,7 +2935,9 @@ def _base_sources(view: dict, feature_base: str) -> tuple:
 
 
 def _run_p3_rows(data: P3Data, encoders, horizons, aggregations, k, n_jobs,
-                 verbose, payloads: list = None) -> list:
+                 verbose, payloads: list = None, predictions: list = None,
+                 emit_predictions: bool = False, fold_modes=None,
+                 alpha_rules=None) -> list:
     """Every row of the table.
 
     ``payloads`` collects, per emitted row, the held-out (fold, position, y,
@@ -2751,18 +2946,37 @@ def _run_p3_rows(data: P3Data, encoders, horizons, aggregations, k, n_jobs,
     two rows fold by fold instead of eyeballing two marginal intervals. It is
     optional only so a caller who does not want the memory can say so; the run
     always passes it.
+
+    ``predictions`` collects the same held-out rows in TIDY form, one entry per
+    observation rather than per table row, and only when ``emit_predictions``
+    asked for them. The two are built from one set of ``P3FoldResult``s, so the
+    CSV and the table cannot disagree about what a fold held.
+
+    ``fold_modes`` and ``alpha_rules`` NARROW the run and cannot widen it: they
+    intersect with ``AGGREGATION_MODES`` and ``_alpha_rules_for``, which stay
+    the only sources of what an aggregation and an estimator are entitled to.
+    Both default to None, which is the whole table.
     """
     views = encoder_views(encoders)
     out = []
     payloads = [] if payloads is None else payloads
+    predictions = [] if predictions is None else predictions
     horizons = [int(H) for H in horizons]
+    daily_axis = data.manifest["daily_axis_index"].to_numpy()
 
     for agg in aggregations:
         level = CONTEXT_LEVEL[agg]
-        for mode in AGGREGATION_MODES[agg]:
+        modes = [m for m in AGGREGATION_MODES[agg]
+                 if fold_modes is None or m in set(fold_modes)]
+        assert modes, (
+            f"fold_modes={sorted(set(fold_modes))} leaves {agg!r} with no fold "
+            f"mode; it runs under {AGGREGATION_MODES[agg]}"
+        )
+        for mode in modes:
             # The horizon control is ONE pooled fit per (aggregation, mode),
             # scored on each horizon's held-out rows.
-            hc = _horizon_control_folds(data, agg, mode, k, horizons)
+            hc = _horizon_control_folds(data, agg, mode, k, horizons,
+                                        emit_predictions=emit_predictions)
             for H in horizons:
                 rows = data.rows[H]
                 view = data.target_view(H, agg)
@@ -2791,7 +3005,8 @@ def _run_p3_rows(data: P3Data, encoders, horizons, aggregations, k, n_jobs,
                                           mode, estimator, kind, k=k,
                                           permute=permute, base_X=base_X,
                                           alpha_rule=alpha_rule,
-                                          n_jobs=n_jobs)
+                                          n_jobs=n_jobs,
+                                          emit_predictions=emit_predictions)
                     row = {**_base_row(H, agg, level, mode, encoder,
                                        feature_set, kind, estimator, D, rows,
                                        n_feat, ctx_frames,
@@ -2808,6 +3023,9 @@ def _run_p3_rows(data: P3Data, encoders, horizons, aggregations, k, n_jobs,
                                              float("nan"))
                     out.append(row)
                     payloads.append(_fold_payload(res))
+                    if emit_predictions:
+                        predictions.append(_prediction_block(row, res, view,
+                                                             rows, daily_axis))
                     if verbose:
                         print(f"[p3]   {kind:<21} {encoder:<24} "
                               f"{feature_set:<13} {estimator:<7} "
@@ -2829,7 +3047,7 @@ def _run_p3_rows(data: P3Data, encoders, horizons, aggregations, k, n_jobs,
                     for est in WEATHER_ONLY_ESTIMATORS:
                         src = bases[fb] + (w,)
                         D = sum(len(s.names) for s in src)
-                        for rule in _alpha_rules_for(est):
+                        for rule in _alpha_rules_for(est, alpha_rules):
                             emit("weather_only", "none", "weather", est, src,
                                  D, 0, alpha_rule=rule, feature_base=fb)
 
@@ -2852,7 +3070,7 @@ def _run_p3_rows(data: P3Data, encoders, horizons, aggregations, k, n_jobs,
                         src = (ctx,) + bases[fb] + (w,)
                         X = p4.build_X(src, view["row_of"])
                         for est in FORECAST_ESTIMATORS:
-                            for rule in _alpha_rules_for(est):
+                            for rule in _alpha_rules_for(est, alpha_rules):
                                 emit(kind, enc, fs, est, src, X.shape[1],
                                      ctx_k, base_X=X, alpha_rule=rule,
                                      feature_base=fb)
@@ -2864,7 +3082,7 @@ def _run_p3_rows(data: P3Data, encoders, horizons, aggregations, k, n_jobs,
                 # current NDVI is not a control any more; it is a model, and the
                 # margin every row is read on would be a margin over a model.
                 for est in CONTROL_ESTIMATORS:
-                    for rule in _alpha_rules_for(est):
+                    for rule in _alpha_rules_for(est, alpha_rules):
                         emit("observation", "none", "observation", est, (obs,),
                              len(obs.names), 0, alpha_rule=rule)
                         emit("permutation", "none", "weather", est, (w,),
@@ -2881,6 +3099,9 @@ def _run_p3_rows(data: P3Data, encoders, horizons, aggregations, k, n_jobs,
                                          if row["n_train_median"] else float("nan"))
                 out.append(row)
                 payloads.append(_fold_payload(res))
+                if emit_predictions:
+                    predictions.append(_prediction_block(row, res, view, rows,
+                                                         daily_axis))
                 if verbose:
                     print(f"[p3]   {'horizon_only':<21} {'none':<24} "
                           f"{'horizon':<13} {'none':<7} "
@@ -2893,6 +3114,8 @@ def _run_p3_rows(data: P3Data, encoders, horizons, aggregations, k, n_jobs,
     for r in out:
         r.setdefault("control_fit_scope", "within_horizon")
     assert len(payloads) == len(out), (len(payloads), len(out))
+    assert not emit_predictions or len(predictions) == len(out), (
+        len(predictions), len(out))
     return out
 
 
@@ -2918,6 +3141,117 @@ def _fold_payload(results: Sequence[P3FoldResult]) -> dict:
         "pred": np.concatenate([np.asarray(r.test_pred, dtype=np.float64)
                                 for r in results]),
     }
+
+
+# ---------------------------------------------------------------------------
+# The per-row held-out predictions
+# ---------------------------------------------------------------------------
+
+def _prediction_block(row: dict, results: Sequence[P3FoldResult], view: dict,
+                      rows: ForecastRows, daily_axis: np.ndarray) -> dict:
+    """One table row's held-out observations, tidy, in FOLD ORDER.
+
+    The same arrays ``summarise`` and ``_fold_payload`` read -- not a second
+    pass over anything. A held-out observation appears exactly once, keyed by
+    (fold, feature row), which is the key ``paired_difference`` pairs on, so a
+    fold-clustered paired interval computed from this CSV is the same pairing
+    as the one on the table and not a downstream re-invention of it.
+
+    ``cube_id`` and ``daily_axis_index`` come from the forecast row's t frame:
+    a forecast row is anchored at t, every frame it touches is in t's cube, and
+    the day axis is the axis a horizon lives on (``daily_axis_index``, never
+    ``original_axis_index`` -- the two differ by 5x here and only one of them is
+    a day).
+    """
+    for r in results:
+        assert r.test_climatology is not None and r.trigger_edges is not None, (
+            "a fold carries no trigger reference. Predictions were requested "
+            "but evaluate_fold was called without emit_predictions=True, so "
+            "there is no train-fitted threshold to write."
+        )
+    n_per = [int(r.test_y.size) for r in results]
+    pos = np.concatenate([np.asarray(r.test_pos, dtype=np.int64)
+                          for r in results])
+    forecast_row = np.asarray(view["row_of"], dtype=np.int64)[pos]
+    edges = np.stack([np.asarray(r.trigger_edges, dtype=float)
+                      for r in results])
+    arrays = {
+        "cube_id": np.asarray(rows.cube_id, dtype=object)[forecast_row],
+        "daily_axis_index": np.asarray(daily_axis)[rows.row_t[forecast_row]],
+        "fold_index": np.concatenate([np.full(n, r.fold, dtype=np.int64)
+                                      for n, r in zip(n_per, results)]),
+        "y_true": np.concatenate([np.asarray(r.test_y, dtype=np.float64)
+                                  for r in results]),
+        "y_pred": np.concatenate([np.asarray(r.test_pred, dtype=np.float64)
+                                  for r in results]),
+        "y_persistence": np.concatenate([
+            np.asarray(r.test_persistence, dtype=np.float64) for r in results]),
+        "y_climatology_proxy": np.concatenate([
+            np.asarray(r.test_climatology, dtype=np.float64) for r in results]),
+        "feature_row": pos,
+        "day_of_year_target": np.asarray(view["day_of_year_target"],
+                                         dtype=float)[pos],
+        # The fold's edges, repeated onto its rows: the threshold that WAS
+        # applied, on the row it was applied to, rather than a rule a reader
+        # has to re-run to find out what the number was.
+        "anomaly_threshold_extreme_low": np.repeat(edges[:, 0], n_per),
+        "anomaly_threshold_low": np.repeat(edges[:, 1], n_per),
+        "n_threshold_train_rows": np.repeat(
+            np.array([int(r.n_trigger_train) for r in results], dtype=np.int64),
+            n_per),
+    }
+    const = {c: row[c] for c in ("delta_days", "aggregation", "fold_mode",
+                                 "model_kind", "encoder", "feature_level",
+                                 "estimator", "alpha_rule", "feature_set",
+                                 "feature_base")}
+    n = int(pos.size)
+    assert all(v.shape == (n,) for v in arrays.values()), \
+        {k: v.shape for k, v in arrays.items()}
+    assert (set(arrays) | set(const)) == set(PREDICTIONS_COLUMNS), (
+        "prediction block columns do not match PREDICTIONS_COLUMNS: "
+        f"{sorted((set(arrays) | set(const)) ^ set(PREDICTIONS_COLUMNS))}")
+    return {"n": n, "arrays": arrays, "const": const}
+
+
+def predictions_frame(blocks: Sequence[dict]):
+    """Every block, one DataFrame, columns in ``PREDICTIONS_COLUMNS`` order."""
+    import pandas as pd
+
+    assert blocks, "no prediction blocks to assemble"
+    n = [b["n"] for b in blocks]
+    out = {}
+    for col in PREDICTIONS_COLUMNS:
+        if col in blocks[0]["arrays"]:
+            out[col] = np.concatenate([b["arrays"][col] for b in blocks])
+        else:
+            out[col] = np.repeat([b["const"][col] for b in blocks], n)
+    df = pd.DataFrame(out, columns=list(PREDICTIONS_COLUMNS))
+    assert len(df) == sum(n), (len(df), sum(n))
+    return df
+
+
+def write_predictions(df, path: str,
+                      gzip_above_bytes: int = PREDICTIONS_GZIP_BYTES,
+                      verbose: bool = True) -> str:
+    """Write the predictions CSV, gzipped if it would be large. Returns the path.
+
+    The size is PROJECTED from a real sample of the frame rather than guessed
+    from the row count: the columns are mostly repeated strings and the ratio
+    of bytes to rows is not something to assume. pandas reads ``.csv.gz`` with
+    no flag, so the compression never changes what a reader has to do.
+    """
+    assert len(df), "refusing to write an empty predictions table"
+    head = df.head(min(2000, len(df))).to_csv(index=False)
+    projected = int(len(head.encode()) * len(df) / min(2000, len(df)))
+    if projected > gzip_above_bytes and not path.endswith(".gz"):
+        path = path + ".gz"
+    os.makedirs(os.path.dirname(os.path.abspath(path)) or ".", exist_ok=True)
+    df.to_csv(path, index=False)
+    if verbose:
+        print(f"[p3] wrote {path} ({len(df)} held-out prediction rows x "
+              f"{df.shape[1]} cols, {os.path.getsize(path) / 1e6:.1f} MB on "
+              f"disk, projected {projected / 1e6:.0f} MB uncompressed)")
+    return path
 
 
 # ---------------------------------------------------------------------------

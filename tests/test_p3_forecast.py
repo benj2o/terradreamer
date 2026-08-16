@@ -1297,3 +1297,154 @@ def test_real_run_survives_a_CSV_ROUND_TRIP_with_the_new_columns(real_manifest,
     p3.assert_cir_twins_present(back, encoders=("satlas_s2_swinb_mi_rgb_cir",))
     p3.assert_control_identical_across_views(back)
     p3.assert_climatology_rows_labelled(back)
+
+
+# ---------------------------------------------------------------------------
+# The per-row held-out predictions
+# ---------------------------------------------------------------------------
+# emit_predictions is OPT-IN and its whole contract is that it changes nothing.
+# The two checks below are the contract: the table is bit-identical with the
+# flag on, and the emitted rows re-derive the table's own score.
+
+_PRED_ENCODERS = ("raw_features", "satlas_s2_swinb_mi_rgb")
+_PRED_HORIZONS = (5, 25, 50)     # three: the horizon control needs degree + 1
+
+#: the columns that identify one learner in the predictions CSV
+_PRED_CONFIG = ["delta_days", "aggregation", "fold_mode", "model_kind",
+                "encoder", "feature_level", "estimator", "alpha_rule",
+                "feature_set", "feature_base"]
+
+
+@pytest.fixture(scope="module")
+def predictions_run(real_manifest, tmp_path_factory):
+    """One P3Data, two runs: flag off, flag on. Built once for both tests."""
+    tmp = tmp_path_factory.mktemp("p3_predictions")
+    data = p3.build_p3_data(real_manifest, SCALED_RAW,
+                            encoders=_PRED_ENCODERS, horizons=_PRED_HORIZONS,
+                            emb_dir=SCALED_EMB, mask_dir=SCALED_MASKS,
+                            verbose=False)
+    common = dict(encoders=_PRED_ENCODERS, horizons=_PRED_HORIZONS,
+                  aggregations=("cube_mean",), k=3, n_jobs=1, data=data,
+                  verbose=False, log_path=str(tmp / "p3_predictions.log"))
+    off, _ = p3.run_p3(real_manifest, SCALED_RAW, **common)
+    p3.close_run_log()
+    path = tmp / "p3_predictions.csv"
+    on, _ = p3.run_p3(real_manifest, SCALED_RAW, emit_predictions=True,
+                      predictions_path=str(path), **common)
+    p3.close_run_log()
+    return off, on, pd.read_csv(path)
+
+
+@needs_scaled
+def test_emit_predictions_changes_no_number_in_the_table(predictions_run):
+    """The published table must be reproducible WITHOUT the extra artefact.
+
+    Not "close": every column bit-identical. The flag adds a day-of-year curve
+    per fold, and a curve fitted before the scored fit -- rather than after it,
+    where it is -- could move a seeded estimator by consuming random state.
+    """
+    off, on, _ = predictions_run
+    assert off.shape == on.shape and list(off.columns) == list(on.columns)
+    differing = []
+    for c in off.columns:
+        a, b = off[c].to_numpy(), on[c].to_numpy()
+        same = (np.array_equal(a, b, equal_nan=True) if a.dtype.kind == "f"
+                else bool((a == b).all()))
+        if not same:
+            differing.append(c)
+    assert not differing, (
+        f"emit_predictions moved {differing}. The flag must be free: a run "
+        "that writes the artefact and a run that does not must produce the "
+        "same table, or the published numbers depend on whether someone asked "
+        "for the predictions."
+    )
+
+
+@needs_scaled
+def test_emitted_rows_reconstruct_the_reported_r2_per_config_and_fold(
+        predictions_run):
+    """The CSV IS the table's own held-out predictions, not a second pass.
+
+    Re-derived from the emitted rows alone, applying the same two rules the
+    scoring path applies -- R2 against the fold's OWN mean, and NaN below
+    ``_MIN_TEST_ROWS`` -- and required to land on ``r2_mean`` to 1e-9. A CSV
+    that reconstructed the score to three decimals would be a different
+    quantity that happens to be nearby.
+    """
+    _, on, pred = predictions_run
+    assert len(pred) and not pred.duplicated(
+        _PRED_CONFIG + ["fold_index", "feature_row"]).any(), (
+        "a held-out observation appears twice under one config"
+    )
+
+    def fold_r2(g):
+        y, p = g.y_true.to_numpy(), g.y_pred.to_numpy()
+        if y.size < p3._MIN_TEST_ROWS:
+            return np.nan
+        sst = float(((y - y.mean()) ** 2).sum())
+        return float(1.0 - ((y - p) ** 2).sum() / sst) if sst > 0 else np.nan
+
+    per_fold = (pred.groupby(_PRED_CONFIG + ["fold_index"], sort=False)
+                .apply(fold_r2, include_groups=False).rename("r2").reset_index())
+    got = per_fold.groupby(_PRED_CONFIG, sort=False).r2.mean().reset_index()
+    m = got.merge(on[_PRED_CONFIG + ["r2_mean", "n_folds", "per_fold_r2"]],
+                  on=_PRED_CONFIG, how="outer", indicator=True)
+    assert (m._merge == "both").all(), (
+        f"{int((m._merge != 'both').sum())} config(s) are in one table and not "
+        f"the other:\n{m[m._merge != 'both'][_PRED_CONFIG + ['_merge']]}"
+    )
+    a, b = m.r2.to_numpy(), m.r2_mean.to_numpy()
+    both_nan = np.isnan(a) & np.isnan(b)
+    assert np.all(both_nan | (np.abs(a - b) <= 1e-9)), (
+        f"r2_mean does not reconstruct:\n{m[~(both_nan | (np.abs(a - b) <= 1e-9))]}"
+    )
+    assert not both_nan.all(), "every config reconstructed to NaN"
+
+    # and PER FOLD, against the per-fold column the table already carries. It
+    # is written at four decimals, so that is the tolerance it can support --
+    # the 1e-9 claim above is on the mean, which is written in full.
+    for cfg, g in per_fold.groupby(_PRED_CONFIG, sort=False):
+        want = on[np.logical_and.reduce([on[c] == v for c, v in zip(_PRED_CONFIG, cfg)])]
+        assert len(want) == 1, (cfg, len(want))
+        reported = np.array([float(x) for x in
+                             want.per_fold_r2.iloc[0].split(";")])
+        mine = g.sort_values("fold_index").r2.to_numpy()
+        assert mine.size == reported.size, (cfg, mine.size, reported.size)
+        nan = np.isnan(mine) & np.isnan(reported)
+        assert np.all(nan | (np.abs(mine - reported) <= 1e-4)), (cfg, mine,
+                                                                 reported)
+
+
+@needs_scaled
+def test_the_trigger_threshold_is_fitted_inside_the_fold(predictions_run):
+    """A quantile over the full sample has seen the rows it is scored on.
+
+    Three ways, because the failure is silent: the line is a property of the
+    (view, fold) and not of the model, it MOVES fold to fold, and the fold's
+    climatology at the held-out rows is the same curve the climatology_proxy
+    baseline was scored on -- which is what makes ``y_true - y_climatology_proxy``
+    a train-fitted anomaly rather than a second, unrelated one.
+    """
+    _, _, pred = predictions_run
+    view = ["delta_days", "aggregation", "fold_mode"]
+    for col in ("anomaly_threshold_extreme_low", "anomaly_threshold_low"):
+        n = pred.groupby(view + ["fold_index"])[col].nunique()
+        assert (n == 1).all(), n[n != 1]
+        moved = pred.groupby(view)[col].nunique()
+        assert (moved > 1).all(), (
+            f"{col} is the same number on every fold of {list(moved[moved <= 1].index)}"
+            " -- which is what a full-sample quantile looks like"
+        )
+    assert (pred.anomaly_threshold_extreme_low
+            < pred.anomaly_threshold_low).all(), (
+        "the 10th-percentile line is not below the 30th-percentile one"
+    )
+    cp = pred[pred.model_kind == "climatology_proxy"]
+    assert len(cp)
+    np.testing.assert_allclose(
+        cp.y_pred, cp.y_climatology_proxy, rtol=0, atol=1e-12,
+        err_msg="the anomaly's climatology and the climatology BASELINE's "
+                "prediction disagree, so they are two different curves and the "
+                "trigger anomaly is not the one the table was scored on")
+    ps = pred[pred.model_kind == "persistence"]
+    np.testing.assert_allclose(ps.y_pred, ps.y_persistence, rtol=0, atol=1e-12)

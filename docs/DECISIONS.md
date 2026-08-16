@@ -2637,3 +2637,73 @@ the audit baseline. This closes HANDOFF §4 item 1 (consistency), not a novelty
 claim — Scenario 1 trust, not Scenario 2 climate geography.
 
 **Commit.** `5b00ea6`
+
+---
+
+## 2026-08-16: Tier-1 trigger metrics — the threshold is fitted INSIDE the fold, and persistence wins at short lead
+
+**Assumed.** That the trigger re-slice was a reporting change over artefacts we
+already had — the memo scored it "Low effort, same data, just re-sliced, no new
+compute" — and that it would make the existing negative FM result legible to a
+climate reader without changing what the result says.
+
+**Observed.** Two things were wrong with that.
+
+*The artefact did not exist.* `p3_tier1_results.csv` carries aggregated fold
+statistics only; `probes/p3_forecast.py` discarded per-fold held-out
+predictions after scoring. No threshold-crossing metric was computable from the
+cache, so a re-run was required after all. It is cheap — 15.5 min for the
+headline configs against 173.7 min for the full Tier-1 stack — but it is not
+zero, and the memo's "no new compute" line was wrong.
+
+*The result is not flat across lead time.* Persistence's Peirce skill decays
+`+0.585 → +0.300 → +0.102 → +0.087` over Δ = 5/25/50/100 d while the encoders'
+decays far more slowly, so the two curves **cross between 25 and 50 days**:
+
+- **Δ = 5 d:** no encoder beats persistence; **23 of 32** forecast cells are
+  separably WORSE. This is the paper's thesis in its strongest and most
+  decision-relevant form.
+- **Δ = 50 d:** 18 of 32 are numerically ahead but only **2** separably so, and
+  a *different* pair is separable under `spatial_block`.
+- **Δ = 100 d:** 21 of 32 ahead, **none** separable, and persistence's hit rate
+  there is 0.087 — it barely fires, so the bar is low.
+
+**Changed.**
+
+1. `probes/p3_forecast.py` gains opt-in `emit_predictions=True` writing one
+   tidy row per held-out observation (`PREDICTIONS_COLUMNS`). Opt-in because
+   the published run did not have it; verified free because all **424** shared
+   rows are **bit-identical to `p3_tier1_results.csv` on 36 scoring columns**.
+   Also gains `fold_modes` / `alpha_rules`, which narrow a run and cannot widen
+   it.
+2. New `probes/p3_triggers.py`: hit rate, false-alarm rate (POFD, the quantity
+   Peirce subtracts — `far` is reported separately), CSI and Peirce skill, each
+   against persistence on the same rows with the fold-clustered PAIRED interval
+   `paired_difference` uses. A test reproduces a `paired_difference` result
+   through the generalised jackknife to 1e-12 rather than asserting the
+   equivalence in prose.
+3. **The threshold rule is p4's, but the FIT moved inside the fold.**
+   `severity_reference_anomaly` fits on all rows and is right to — it LABELS
+   held-out rows after the fact, which is a reporting choice. A threshold a
+   forecast is SCORED against cannot: a 10th percentile over the full sample
+   has seen the held-out rows, and the crossing rate it defines is then partly
+   a property of the test side. `_trigger_reference` therefore fits curve and
+   quantiles on the fold's training rows only, and
+   `assert_thresholds_are_train_fitted` refuses a file four ways where they
+   could have come from the full sample.
+4. A narrowed run cannot carry margins: an unfitted baseline takes the ridge
+   control at `fixed_alpha_D`, which this scope does not compute, so
+   `add_margins` — and with it `assert_separability_is_paired` and
+   `assert_control_identical_across_views` — is unavailable on the subset
+   table. Recorded rather than worked around; nothing downstream reads margins.
+
+**What this licenses.** "At 5-day lead, frozen EO embeddings do not beat
+persistence for bottom-decile anomaly crossings on this tile, and mostly lose to
+it." **Not** "foundation models are unnecessary at any lead time" — the 50–100 d
+crossover is real in sign, unstable in significance, and is a scope boundary
+rather than a finding. This closes memo item B1 (kill date Aug 15, one day
+late, clean) and moves the submission into the memo's Scenario 2 band by
+supplying the decision-linked evaluation; it does **not** touch the remaining
+one-tile / one-year objection.
+
+**Commit.** *(pending)*

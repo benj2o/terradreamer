@@ -3,6 +3,110 @@
 Running record of measurements and adopted definitions. Reverse chronological.
 Decisions and their rationale live in [docs/DECISIONS.md](docs/DECISIONS.md).
 
+## 2026-08-16: Tier-1 trigger metrics -- persistence WINS at short lead, and the two curves cross
+
+The R-squared table re-sliced into a threshold-crossing table. No new fits, no
+new geography: the same held-out predictions, scored on "did the forecast fire
+when the anomaly crossed the line".
+
+The predictions did not exist as an artefact -- `p3_tier1_results.csv` holds
+aggregated fold statistics only -- so P3 gained an opt-in
+`emit_predictions=True` that writes one row per held-out observation. It is
+opt-in because the published run did not have it, and it is verified free: all
+**424 rows** this run shares with `p3_tier1_results.csv` are **bit-identical on
+36 scoring columns**.
+
+### Artefacts
+
+```
+data/scaled_32UNU/p3_tier1_predictions.csv      173 310 rows x 22 cols, 50.6 MB
+data/scaled_32UNU/p3_tier1_triggers.csv            848 rows x 63 cols
+data/scaled_32UNU/p3_tier1_subset_results.csv      424 rows x 138 cols  (SUBSET)
+```
+
+Scope of the re-run: `cube_mean`, `fold_mode in {cube, spatial_block}`, pooled,
+`alpha_rule in {nested_cv, not_a_ridge}`, 4 horizons, 9 encoder views, all
+model kinds. `loco` and `cell_mean` are excluded on purpose -- a contingency
+table over a two-row LOCO fold is not a contingency table.
+
+**Wall clock. Estimated 8.7 min, actual 15.5 min** (`run_p3` 14.5 min +
+manifest 29 s, 7 workers). The estimate extrapolated the fit loop and did not
+cost `add_paired_separability` or assembling the 173 k-row CSV. Both are
+minutes, not the 173.7 min of the full Tier-1 stack, which is dominated by
+`loco` (115 folds) and `cell_mean` (8043-row views).
+
+### The threshold, and where it is fitted
+
+p4's severity rule imported unchanged -- `SEVERITY_QUANTILES` 10th / 30th
+percentile of the anomaly from a day-of-year curve -- with the FIT moved inside
+the fold. `severity_reference_anomaly` fits on everything and is right to: it
+LABELS held-out rows after the fact. A threshold a forecast is SCORED against
+cannot, so `_trigger_reference` fits curve and quantiles on the fold's training
+rows only, and `assert_thresholds_are_train_fitted` refuses a file where they
+could have come from the full sample.
+
+Realised event rates confirm the line lands where it should (nominal 0.10 /
+0.30):
+
+```
+Delta   extreme_low   low     threshold (median over folds, extreme_low)
+   5d       0.112     0.306        -0.103
+  25d       0.103     0.306        -0.102
+  50d       0.106     0.301        -0.107
+ 100d       0.117     0.306        -0.171
+```
+
+### THE RESULT: persistence decays with lead time and the embeddings do not
+
+`cube_mean` / `cube` folds / `extreme_low` / linear / `nested_cv` / `+base`.
+Peirce skill score (hit rate minus false-alarm rate), model vs persistence on
+the same rows and the same line:
+
+```
+Delta   persistence   best encoder                       paired diff [95% CI]
+   5d      +0.585      satlas_mi_rgb_cir  +0.511         -0.074 [-0.335, +0.186]
+  25d      +0.300      satlas_mi_rgb_cir  +0.512         +0.212 [-0.082, +0.505]
+  50d      +0.102      satlas_mi_rgb_cir  +0.380         +0.278 [+0.121, +0.435]  SEPARABLE
+ 100d      +0.087      imagenet_vit_cir   +0.342         +0.255 [-0.301, +0.811]
+```
+
+Persistence's own contingency table shows why: its hit rate falls
+`0.632 -> 0.360 -> 0.213 -> 0.087` across the four horizons while its
+false-alarm rate stays near zero. **At 100 d persistence essentially never
+fires**, so beating it there is a low bar.
+
+Separable cells among the 32 forecast rows per horizon (cube folds,
+`extreme_low`):
+
+```
+Delta   separably WORSE than persistence   numerically ahead
+   5d              23 / 32                       0 / 32
+  25d               6 / 32                      11 / 32
+  50d               5 / 32                      18 / 32
+ 100d               0 / 32                      21 / 32
+```
+
+So the two curves **cross somewhere between 25 and 50 days**. At 5 d the result
+is unambiguous and it is the paper's thesis in its strongest form: **no encoder
+beats persistence at the lead time an early-warning trigger would actually run
+on, and 23 of 32 are separably worse.** Past 25 d the sign flips, but the wins
+are fragile -- only 2 of 32 cells are separable at 50 d under `cube` folds
+(`satlas_mi_rgb_cir`, `dinov2_cir`), a DIFFERENT pair is separable under
+`spatial_block`, and nothing at all is separable at 100 d.
+
+Across the whole 848-row trigger table, separable-from-persistence rates are
+hit rate 33%, false-alarm rate 47%, CSI 36%, Peirce 38% -- in both directions.
+
+### What this does and does not license
+
+Licensed: "at 5-day lead, frozen EO embeddings do not beat persistence for
+bottom-decile anomaly crossings on this tile, and mostly lose to it."
+
+NOT licensed: "foundation models are unnecessary at any lead time." The 50-100 d
+crossover is real in sign and unstable in significance; it is a scope boundary,
+not a finding. Two of the three `_cir` twins are among the long-horizon leaders,
+which is suggestive and nothing more at these event counts (47 and 23).
+
 ## 2026-08-13: P2 + P4 screened re-runs on 32UNU -- trust fix, not a new story
 
 Same three implausible frames P3 already dropped (`3/1580`). Published
