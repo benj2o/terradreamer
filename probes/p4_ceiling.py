@@ -184,6 +184,7 @@ replication), with the fold-clustered CI and the effective n on every row.
 from __future__ import annotations
 
 import os
+import time
 import warnings
 from dataclasses import dataclass
 from typing import NamedTuple, Sequence
@@ -392,6 +393,11 @@ STAGE_B_CLIMATOLOGY_LABEL = (
 
 _GRID = 4
 _GRID_CELLS = _GRID * _GRID    # encoders.base.GRID_CELLS; asserted on the arrays
+
+#: How often ``build_p4_data``'s per-cube loop reports progress. That loop is
+#: silent otherwise and, on a 300-cube tile, runs for minutes before the first
+#: fit -- long enough that a stall and normal operation look identical.
+CUBE_HEARTBEAT_EVERY = 25
 
 
 # ---------------------------------------------------------------------------
@@ -1208,7 +1214,13 @@ def build_p4_data(manifest, cube_dir: str,
 
     order = sorted(manifest["cube_id"].unique().tolist())
     per_cube = {"__order__": order}
-    for cube in order:
+    # This loop reads every cube off disk and is the longest stretch before any
+    # fitting starts. At 20 cubes it is a few seconds and silence costs
+    # nothing; at 300+ it is minutes, and a silent minutes-long stretch is
+    # indistinguishable from a hang. The heartbeat is throttled rather than
+    # per-cube so the log stays readable at every scale.
+    t_cubes = time.time()
+    for i, cube in enumerate(order, start=1):
         sample = load_cube(os.path.join(cube_dir, str(cube)), verbose=False)
         t = cube_frame_targets(sample)
         sub = manifest[manifest["cube_id"] == cube]
@@ -1222,6 +1234,12 @@ def build_p4_data(manifest, cube_dir: str,
             f"{cube}: target timestamps do not match the manifest's"
         )
         per_cube[cube] = t
+        if verbose and (i % CUBE_HEARTBEAT_EVERY == 0 or i == len(order)):
+            dt = time.time() - t_cubes
+            rate = i / dt if dt > 0 else float("nan")
+            print(f"[p4]   targets {i}/{len(order)} cubes, {dt:.0f}s elapsed, "
+                  f"{rate:.2f} cubes/s, ETA {(len(order) - i) / rate:.0f}s",
+                  flush=True)
     if verbose:
         print(f"[p4] targets built from {len(order)} cubes via data.ndvi.ndvi "
               "(canonical), spatially aggregated -- never pixel-wise")
@@ -2434,7 +2452,11 @@ def run_p4(manifest, cube_dir: str, targets: Sequence[str] = TARGETS,
                          plausibility_screen=plausibility_screen)
     if verbose:
         print()
-        print_doy_weather_collinearity(manifest, data.weather[FEATURE_SETS[0]])
+        # The set this run ACTUALLY built, not the module default. A cross-tile
+        # run on weather_finite6 never populates weather["weather_full8"], and
+        # indexing the constant here would make verbose=True a KeyError on
+        # exactly the runs that most need the output.
+        print_doy_weather_collinearity(manifest, data.weather[feature_sets[0]])
         print()
         describe_estimators()
         print()

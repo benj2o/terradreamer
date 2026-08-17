@@ -3,6 +3,150 @@
 Running record of measurements and adopted definitions. Reverse chronological.
 Decisions and their rationale live in [docs/DECISIONS.md](docs/DECISIONS.md).
 
+## 2026-08-17: Extreme-tile P4 pilot on 32UQC -- the ceiling does NOT rise on stressed land, and the confounding gets worse
+
+The 2018 heat/drought check the paper's Limits paragraph promises. One extreme
+tile, Stage A only, same screen, fold modes and estimators as the screened
+115-cube 32UNU run, so the two tables sit side by side. **`weather_full8` ran on
+both**, so the comparison needs no footnote.
+
+### Geometry
+
+```
+                        32UQC              32UNU (screened)
+cubes                   346 (of 348)       115
+frames                  6990               1580
+frames/cube             20.2               13.7
+cell_mean rows          110 949            25 013
+year                    2018 only          2018 only
+day-of-year span        32-327 (295 d)     235 d
+window per cube         2018-01-28..11-23  150 d
+weather block           weather_full8      weather_full8
+implausible frames      2/6990 (0.03%)     3/1580 (0.19%)
+  cell_mean dropped     -24 rows           -36 rows
+```
+
+Stage B **deferred**, same reason as 32UNU: single-year, 0 cubes span a year
+boundary. Reported, never gated on -- Stage A is the within-season proxy regime
+either way, which is the regime 32UNU's number was computed in.
+
+### THE HEADLINE: `cell_mean` / HGB / `weather_full8` / Stage A
+
+```
+mode/kind          32UQC R2   obs margin  DOY margin | 32UNU R2  obs     doy
+cube/weather         +0.111      +0.086      +0.096  |  +0.116  +0.120  +0.086
+loco/weather         +0.078      +0.056      +0.063  |  +0.096  +0.117  +0.066
+cube/doy             +0.015                          |  +0.030
+loco/doy             +0.015                          |  +0.030
+cube weather 95% CI [+0.031, +0.191], 5 folds, effective n 346 CUBES
+loco weather 95% CI [+0.037, +0.118], 346 folds
+```
+
+**The ceiling is LOWER on the stressed tile, not higher** -- `cube` -0.005,
+`loco` -0.018 -- and the margin over the observation-process control falls by
+more (-0.034 and -0.061). The pilot's hypothesis, that a heat/drought geography
+would make the weather-attributability ceiling larger, is **not supported**.
+
+What did improve is the control-beating RATE, and it is worth stating because it
+cuts the other way:
+
+```
+                                          32UQC     32UNU
+weather rows at or below the obs control   14/54     23/54
+weather rows at or below the DOY control   14/54     29/54
+weather rows whose CI includes zero        25/54     24/54
+permutation control, max r2_vs_clim        -0.002    -0.012
+```
+
+Three times the cubes tightened `loco` (CI width 0.081 against 0.134) and did
+**not** move the fraction of weather rows whose interval still spans zero.
+
+### THE FINDING THAT MATTERS MORE THAN THE HEADLINE
+
+`print_doy_weather_collinearity`, measured before anything is fitted:
+
+```
+                                             32UQC      32UNU
+distinct days of year                        47         41
+day-of-year span                             295 d      235 d
+max cubes sharing one date                   346        114
+across-cube spread / total spread (median)   0.07       0.39
+=> weather recoverable from the DATE alone   ~93%       ~61%
+```
+
+Every row satisfies `doy % 5 == 2` on both tiles: one Sentinel-2 orbit lattice,
+so day-of-year is close to a 47-level categorical. On 32UQC only **7%** of a
+typical windowed weather feature's spread is ACROSS CUBES at a given date. 346
+cubes packed into one MGRS tile read an E-OBS grid too coarse to tell them
+apart, so on any given date they get nearly the same weather.
+
+**This is why the improved DOY margin must not be read as improved separation.**
+The DOY control is 6 harmonics -- 13 smooth features. It cannot fit a 47-level
+categorical, so it understates what the date alone can do, and it understates it
+*harder here* (93% recoverable) than on 32UNU (61%). The +0.096 DOY margin is
+weather beating a smooth function of timing, not weather beating timing.
+
+### The two cubes that were dropped, and why
+
+`cube_frame_targets` refused 2 of 348 cubes: a grid cell had clear pixels and no
+finite NDVI. Diagnosed, not worked around -- **all 57 720 "clear" pixels in the
+61 offending cells (0.055% of 111 968) carry exactly-zero reflectance in B04 and
+B8A**, a no-data fill block the published `s2_dlmask`/SCL conjunction does not
+flag. `finite_valid_mask` cannot demote them: the bands are finite, just zero.
+`data.ndvi.ndvi`'s `|B8A+B04| < 1e-12` guard correctly returns NaN. The
+assertion was right and caught a fill region before it was averaged into a
+target.
+
+The cubes are excluded WHOLE, nothing filled, `n_cubes_excluded_fill` and the
+reason on every CSV row. The proper fix -- a zero-reflectance rule beside
+`finite_valid_mask` -- is a SHARED path that P1/P2/P3 and the published 32UNU
+tables read through, so it was not touched. Both offenders were heavily clouded
+(1 and 7 retained frames): 8 frames of 6998 lost.
+
+### Wall clock, and the cost model that was wrong
+
+**Projected 4.7 CPU-hours, actual 7.1** (`run_stage_a` 427.4 min against 281.2
+projected, +52%; 445.4 min end to end on 7 workers). The projection was measured
+on this tile at 20 and 40 cubes with a per-fold-mode power law:
+
+```
+fold mode        20c     40c   exponent   projected   
+cube             33s     50s     0.59       0.05 h
+loco            116s    384s     1.72       4.39 h     <- dominates
+spatial_block    32s     71s     1.17       0.25 h
+naive linear-in-cubes projection, for contrast:  1.26 h
+```
+
+The memo's **1.3-1.9 CPU-hours by linear scaling was low by about 4x**, and the
+measured extrapolation was still low by another 1.5x -- `loco`'s exponent grows
+with the extrapolation range because leave-one-cube-out grows its fold COUNT and
+its per-fold training set together. Anything sized off linear-in-cubes on this
+tile should be multiplied by 4 to 6.
+
+### Artefacts
+
+```
+data/scaled_32UQC/p4_extreme_results.csv   270 rows x 105 cols  (invariants pass)
+data/scaled_32UQC/p4_extreme_run.log
+notebooks/runs/2026-08-17_p4_extreme_32UQC_346cubes.txt
+data/scaled_32UQC/raw/                     348 cubes, 2.2 GB
+```
+
+No 32UNU artefact touched.
+
+### The go/no-go this was run to answer
+
+The bar, stated against the pilot's own hypothesis: the extreme tile justifies
+the gated slim P3 (Aug 18-21) if the ceiling is **clearly higher** than 32UNU's
++0.116/+0.096 **and** the margin over the observation and DOY controls grows
+rather than shrinks -- concretely, `cube` at or above roughly +0.15 with an
+observation margin at or above 32UNU's own +0.120.
+
+Measured: **+0.111 / +0.078, observation margin +0.086 / +0.056.** Lower on
+both axes, on a tile where 93% of the weather is recoverable from the date.
+**NO-GO** on the rationale that a heat/drought geography changes the ceiling
+story. See DECISIONS.md, 2026-08-17.
+
 ## 2026-08-16: Tier-1 trigger metrics -- persistence WINS at short lead, and the two curves cross
 
 The R-squared table re-sliced into a threshold-crossing table. No new fits, no

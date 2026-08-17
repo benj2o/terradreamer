@@ -2707,3 +2707,100 @@ supplying the decision-linked evaluation; it does **not** touch the remaining
 one-tile / one-year objection.
 
 **Commit.** `9721223`
+
+---
+
+## 2026-08-17: Extreme-tile P4 pilot, 32UQC — the stressed tile lowers the ceiling and raises the confounding
+
+**Assumed.** Memo item B3: that a 2018 heat/drought tile would make the
+weather-attributability ceiling *more climate-relevant, and possibly larger*
+than 32UNU's, and that this was the cheapest climate-facing extension because it
+needs no re-encoding. Costed at **1.3–1.9 CPU-hours** for one tile by linear
+scaling from the 115-cube run. Also assumed, in the run's own brief, that every
+branch the run could hit already had a precedented answer.
+
+**Observed.** Three pre-authorised rules were encoded and two of them did not
+fire. `32UQC` returned 348 non-overlapping cubes, exactly its documented
+capacity, so no fallback to `32UNC`. All eight E-OBS variables are present and
+100% finite over every cube and `assert_weather_join` verifies exactly, so
+`weather_full8` ran and the ceiling is directly comparable with 32UNU's rather
+than needing the `weather_finite6` footnote 30TVN forced.
+
+Four things were measured that the plan did not anticipate.
+
+1. **The ceiling is lower, not higher.** `cell_mean` / HGB / `weather_full8`:
+   `cube` **+0.111** `[+0.031, +0.191]` against 32UNU's +0.116, `loco`
+   **+0.078** `[+0.037, +0.118]` against +0.096. The margin over the
+   observation-process control falls further, +0.086 / +0.056 against +0.120 /
+   +0.117. Three times the cubes tightened `loco` (CI width 0.081 vs 0.134) and
+   left the fraction of weather rows whose interval spans zero unchanged (25/54
+   vs 24/54). The control-beating rate did improve — rows at or below the
+   observation control 14/54 vs 23/54, at or below DOY 14/54 vs 29/54.
+
+2. **Day-of-year and weather are far more collinear here, and this outweighs
+   the improved DOY margin.** Measured before any fit: 6990 rows land on **47
+   distinct dates** over 295 days, every row satisfies `doy % 5 == 2` (one
+   Sentinel-2 orbit lattice), up to **346 cubes share a single date**, and the
+   across-cube spread of a typical windowed weather feature is **0.07 of its
+   total spread — so ~93% of it is recoverable from the date alone, against
+   ~61% on 32UNU**. 346 cubes packed into one MGRS tile read an E-OBS grid too
+   coarse to separate them. The DOY control is 6 harmonics, 13 smooth features;
+   it cannot fit a 47-level categorical, so it understates what the date alone
+   can do, and understates it harder here than on 32UNU. The `+0.096` DOY
+   margin is therefore weather beating a *smooth function of* timing, and is
+   **not** evidence that this ceiling is less confounded than 32UNU's. It is
+   more confounded, and the control as designed is not the instrument that
+   would show it.
+
+3. **Two cubes carry fill values the published cloud mask calls clear.**
+   `cube_frame_targets` refused them: a grid cell had clear pixels and no finite
+   NDVI. All **57 720** "clear" pixels in the 61 offending cells (0.055% of
+   111 968, across 2 of 348 cubes) carry **exactly-zero reflectance in B04 and
+   B8A**. `encoders.frames.finite_valid_mask` cannot demote them because the
+   bands are finite, merely zero; `data.ndvi.ndvi`'s `|B8A+B04| < 1e-12` guard
+   correctly returns NaN. The assertion was right, and caught a no-data block
+   before it was averaged into a target.
+
+4. **The cost model was wrong by 4–6x.** Measured on this tile at 20 and 40
+   cubes, per fold mode: `cube` exponent 0.59, `spatial_block` 1.17, **`loco`
+   1.72** — leave-one-cube-out grows its fold count and its per-fold training
+   set together. Projected 4.7 CPU-hours where linear-in-cubes said 1.26;
+   **actual 7.1** (`run_stage_a` 427.4 min vs 281.2 projected), because the
+   `loco` exponent itself steepens over an 8.7x extrapolation.
+
+**Changed.**
+
+- New `scripts/run_p4_extreme.py`: one invocation, download → pre-flight →
+  weather-set resolution → two-point runtime calibration → gated full run →
+  report, with the three rules encoded and each announcing itself in the log
+  and in the CSV (`tile_reason`, `weather_feature_set_reason`,
+  `cubes_excluded_reason`).
+- `probes/p4_ceiling.py` gains the visibility the runner needed and nothing
+  else: a throttled per-cube heartbeat in `build_p4_data`'s previously silent
+  loop (`CUBE_HEARTBEAT_EVERY`), and `print_doy_weather_collinearity` now reads
+  `feature_sets[0]` rather than the module constant `FEATURE_SETS[0]` — with
+  `verbose=True` on a `weather_finite6` run the old line was a `KeyError` on
+  exactly the runs that most need the output. No scientific path changed; the
+  63 `tests/test_p4_ceiling.py` tests pass.
+- **The two defective cubes are excluded whole**, nothing filled, count and
+  reason on every result row; the run is 346 cubes. **This was not one of the
+  three pre-authorised rules** — the brief's premise that every branch had a
+  precedent was false here. The properly correct fix is a zero-reflectance rule
+  beside `finite_valid_mask`, but that is a shared path P1/P2/P3 and the
+  published 32UNU tables all read through, and moving it would move numbers
+  this run had no mandate to move. Recorded so it can be overruled.
+- **Go/no-go on the gated slim extreme-tile P3 (Aug 18–21): NO-GO.** The bar,
+  set against the pilot's own hypothesis, was a ceiling clearly above
+  +0.116/+0.096 with a *growing* margin over the observation and DOY controls —
+  roughly `cube` ≥ +0.15 at an observation margin ≥ +0.120. Measured +0.111 /
+  +0.078 at +0.086 / +0.056: lower on both axes, on a tile where 93% of the
+  weather is recoverable from the date. The memo's own escalation gate ("the
+  one-tile result materially changes the climate story" or "is clearly cleaner
+  than 32UNU") is not met. The compute case is worse still: a slim P3 here
+  would carry the same `loco` exponent plus a GPU RGB cache build, and the
+  memo's estimate for it comes from the same linear scaling that was just
+  measured 4–6x low.
+- 32UQC stays as the paper's extreme-tile *check*, reported as a null: the
+  Limits paragraph's promised follow-on has been run.
+
+**Commit.** `PENDING`

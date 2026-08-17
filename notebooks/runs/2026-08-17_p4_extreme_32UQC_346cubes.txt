@@ -1,0 +1,1016 @@
+
+============================================================================================
+EXTREME-TILE P4 PILOT -- Stage A weather-attributability ceiling
+============================================================================================
+started 2026-08-16 21:14:33, 7 workers, budget 6.0 CPU-hours
+[tile] 32UQC/extreme: 1212 listed, 348 non-overlapping (documented 348)
+[tile] 32UNC/extreme: 1014 listed, 315 non-overlapping (documented 315)
+[tile] 32UQC returned 348 non-overlapping cubes, at or above 32UNC's documented 315; it is still the largest set and the preferred tile stands
+
+[log] tee -> data/scaled_32UQC/p4_extreme_run.log (everything above was replayed into it)
+[tile] SELECTED 32UQC: 32UQC returned 348 non-overlapping cubes, at or above 32UNC's documented 315; it is still the largest set and the preferred tile stands
+
+--------------------------------------------------------------------------------------------
+DOWNLOAD -- 348 non-overlapping cubes of 32UQC/extreme
+--------------------------------------------------------------------------------------------
+[dl]   25/348 cubes (0 new), 159 MB, 0s, 177724.75 cubes/s, ETA 0s
+[dl]   50/348 cubes (0 new), 315 MB, 0s, 135913.93 cubes/s, ETA 0s
+[dl]   75/348 cubes (0 new), 475 MB, 0s, 116121.37 cubes/s, ETA 0s
+[dl]   100/348 cubes (0 new), 633 MB, 0s, 102051.19 cubes/s, ETA 0s
+[dl]   125/348 cubes (0 new), 792 MB, 0s, 90660.21 cubes/s, ETA 0s
+[dl]   150/348 cubes (0 new), 954 MB, 0s, 81348.02 cubes/s, ETA 0s
+[dl]   175/348 cubes (0 new), 1114 MB, 0s, 74096.83 cubes/s, ETA 0s
+[dl]   200/348 cubes (0 new), 1274 MB, 0s, 68006.55 cubes/s, ETA 0s
+[dl]   225/348 cubes (0 new), 1434 MB, 0s, 62935.54 cubes/s, ETA 0s
+[dl]   250/348 cubes (0 new), 1594 MB, 0s, 58524.08 cubes/s, ETA 0s
+[dl]   275/348 cubes (0 new), 1752 MB, 0s, 54685.83 cubes/s, ETA 0s
+[dl]   300/348 cubes (0 new), 1909 MB, 0s, 51302.29 cubes/s, ETA 0s
+[dl]   325/348 cubes (0 new), 2070 MB, 0s, 48335.18 cubes/s, ETA 0s
+[dl]   348/348 cubes (0 new), 2214 MB, 0s, 45468.13 cubes/s, ETA 0s
+
+--------------------------------------------------------------------------------------------
+MANIFEST -- 348 cubes on disk
+--------------------------------------------------------------------------------------------
+[manifest] (6998, 22), 348 cubes, built in 148s
+[manifest] 20.1 frames/cube (32UNU screened: 13.7)
+[manifest] years [2018], day-of-year span 32-327, median 152
+[p4] seasonal-split detection: years [2018] over 348 cubes; 0 cube(s) span more than one year -> multi_year=False
+[manifest] Stage B is REPORTED, not gated on: Stage A runs under the single-year
+[manifest] proxy regime either way, which is the regime 32UNU's number was computed in.
+
+--------------------------------------------------------------------------------------------
+PRE-FLIGHT -- can every cube build targets?
+--------------------------------------------------------------------------------------------
+[preflight] checking 348 cubes can build targets at all (7 workers)
+[preflight] 55s; 2/348 cubes hold grid cells the mask calls clear but that have NO finite NDVI
+[preflight]   32UQC_2018-01-28_2018-11-23_1337_1465_441_569_20_100_6_86.nc  4/16 cells, 3803 clear pixels at |B8A+B04| < 1e-12
+[preflight]   32UQC_2018-01-28_2018-11-23_441_569_441_569_6_86_6_86.nc  57/112 cells, 53917 clear pixels at |B8A+B04| < 1e-12
+[preflight] 2 of 348 cubes EXCLUDED: 61 of 111968 grid cells (0.0545%) are marked clear by the published s2_dlmask/SCL conjunction yet have no finite NDVI, because all 57720 of their clear pixels carry exactly-zero reflectance in B04 and B8A -- a no-data fill block the cloud mask does not flag. finite_valid_mask cannot demote them (the bands are finite, just zero). Nothing is filled and the shared mask path is unchanged; the cubes are dropped whole
+[preflight] cubes 348 -> 346, manifest now (6990, 22)
+[preflight] frames/cube after exclusion: 20.2
+
+--------------------------------------------------------------------------------------------
+WEATHER COMPLETENESS
+--------------------------------------------------------------------------------------------
+[weather] E-OBS completeness over 6990 rows / 346 cubes (32UNU reference: all 8 present, 100% finite):
+[weather]   eobs_tg    present=True  finite 100.00%  in 346/346 cubes
+[weather]   eobs_tn    present=True  finite 100.00%  in 346/346 cubes
+[weather]   eobs_tx    present=True  finite 100.00%  in 346/346 cubes
+[weather]   eobs_rr    present=True  finite 100.00%  in 346/346 cubes
+[weather]   eobs_pp    present=True  finite 100.00%  in 346/346 cubes
+[weather]   eobs_fg    present=True  finite 100.00%  in 346/346 cubes
+[weather]   eobs_hu    present=True  finite 100.00%  in 346/346 cubes
+[weather]   eobs_qq    present=True  finite 100.00%  in 346/346 cubes
+[weather] RULE 2: weather_full8. all 8 E-OBS variables are present and 100% finite on this tile and the join verifies exactly, so weather_full8 runs and the ceiling is directly comparable with 32UNU's
+
+--------------------------------------------------------------------------------------------
+RUNTIME CALIBRATION -- Stage A at [20, 40] cubes, to project 346
+--------------------------------------------------------------------------------------------
+Measured on THIS tile's row counts. The memo's linear extrapolation from 32UNU
+is exactly what this replaces: loco's fold count grows with the cube count.
+
+[cal][20c] 20 cubes, 403 frames
+[cal][20c] build_p4_data 9s
+[p4-eta][20c] row 1/270  cube/linear  this    1.1s  elapsed    0.0 min     1.1 s/row  ETA    4.8 min
+[p4-eta][20c] row 2/270  cube/linear  this    0.5s  elapsed    0.0 min     1.1 s/row  ETA    4.9 min
+[p4-eta][20c] row 3/270  cube/linear  this    0.0s  elapsed    0.0 min     0.7 s/row  ETA    3.3 min
+[p4-eta][20c] row 4/270  cube/linear  this    0.0s  elapsed    0.0 min     0.6 s/row  ETA    2.5 min
+[p4-eta][20c] row 5/270  cube/linear  this    0.0s  elapsed    0.0 min     0.5 s/row  ETA    2.0 min
+[p4-eta][20c] row 6/270  cube/linear  this    0.0s  elapsed    0.0 min     0.4 s/row  ETA    1.7 min
+[p4-eta][20c] row 7/270  cube/linear  this    0.0s  elapsed    0.0 min     0.3 s/row  ETA    1.5 min
+[p4-eta][20c] row 8/270  cube/linear  this    0.0s  elapsed    0.0 min     0.3 s/row  ETA    1.3 min
+[p4-eta][20c] row 9/270  cube/linear  this    0.0s  elapsed    0.0 min     0.3 s/row  ETA    1.2 min
+[p4-eta][20c] row 10/270  cube/linear  this    0.0s  elapsed    0.0 min     0.2 s/row  ETA    1.1 min
+[p4-eta][20c] row 11/270  cube/hgb  this    0.5s  elapsed    0.0 min     0.3 s/row  ETA    1.2 min
+[p4-eta][20c] row 12/270  cube/hgb  this    0.4s  elapsed    0.1 min     0.3 s/row  ETA    1.2 min
+[p4-eta][20c] row 13/270  cube/hgb  this    0.2s  elapsed    0.1 min     0.3 s/row  ETA    1.2 min
+[p4-eta][20c] row 14/270  cube/hgb  this    0.5s  elapsed    0.1 min     0.3 s/row  ETA    1.3 min
+[p4-eta][20c] row 15/270  cube/hgb  this    0.5s  elapsed    0.1 min     0.3 s/row  ETA    1.3 min
+[p4-eta][20c] row 16/270  cube/hgb  this    0.4s  elapsed    0.1 min     0.3 s/row  ETA    1.3 min
+[p4-eta][20c] row 17/270  cube/hgb  this    0.2s  elapsed    0.1 min     0.3 s/row  ETA    1.3 min
+[p4-eta][20c] row 18/270  cube/hgb  this    0.2s  elapsed    0.1 min     0.3 s/row  ETA    1.3 min
+[p4-eta][20c] row 19/270  cube/hgb  this    0.5s  elapsed    0.1 min     0.3 s/row  ETA    1.3 min
+[p4-eta][20c] row 20/270  cube/hgb  this    0.4s  elapsed    0.1 min     0.3 s/row  ETA    1.3 min
+[p4-eta][20c] row 21/270  cube/mlp  this    0.1s  elapsed    0.1 min     0.3 s/row  ETA    1.3 min
+[p4-eta][20c] row 22/270  cube/mlp  this    0.1s  elapsed    0.1 min     0.3 s/row  ETA    1.2 min
+[p4-eta][20c] row 23/270  cube/mlp  this    0.1s  elapsed    0.1 min     0.3 s/row  ETA    1.2 min
+[p4-eta][20c] row 24/270  cube/mlp  this    0.1s  elapsed    0.1 min     0.3 s/row  ETA    1.1 min
+[p4-eta][20c] row 25/270  cube/mlp  this    0.1s  elapsed    0.1 min     0.3 s/row  ETA    1.1 min
+[p4-eta][20c] row 26/270  cube/mlp  this    0.1s  elapsed    0.1 min     0.3 s/row  ETA    1.1 min
+[p4-eta][20c] row 27/270  cube/mlp  this    0.1s  elapsed    0.1 min     0.3 s/row  ETA    1.0 min
+[p4-eta][20c] row 28/270  cube/mlp  this    0.1s  elapsed    0.1 min     0.3 s/row  ETA    1.0 min
+[p4-eta][20c] row 29/270  cube/mlp  this    0.1s  elapsed    0.1 min     0.2 s/row  ETA    1.0 min
+[p4-eta][20c] row 30/270  cube/mlp  this    0.1s  elapsed    0.1 min     0.2 s/row  ETA    1.0 min
+[p4-eta][20c] row 31/270  loco/linear  this    0.1s  elapsed    0.1 min     0.2 s/row  ETA    0.9 min
+[p4-eta][20c] row 32/270  loco/linear  this    0.1s  elapsed    0.1 min     0.2 s/row  ETA    0.9 min
+[p4-eta][20c] row 33/270  loco/linear  this    0.1s  elapsed    0.1 min     0.2 s/row  ETA    0.9 min
+[p4-eta][20c] row 34/270  loco/linear  this    0.1s  elapsed    0.1 min     0.2 s/row  ETA    0.9 min
+[p4-eta][20c] row 35/270  loco/linear  this    0.1s  elapsed    0.1 min     0.2 s/row  ETA    0.8 min
+[p4-eta][20c] row 36/270  loco/linear  this    0.1s  elapsed    0.1 min     0.2 s/row  ETA    0.8 min
+[p4-eta][20c] row 37/270  loco/linear  this    0.1s  elapsed    0.1 min     0.2 s/row  ETA    0.8 min
+[p4-eta][20c] row 38/270  loco/linear  this    0.1s  elapsed    0.1 min     0.2 s/row  ETA    0.8 min
+[p4-eta][20c] row 39/270  loco/linear  this    0.1s  elapsed    0.1 min     0.2 s/row  ETA    0.8 min
+[p4-eta][20c] row 40/270  loco/linear  this    0.1s  elapsed    0.1 min     0.2 s/row  ETA    0.8 min
+[p4-eta][20c] row 41/270  loco/hgb  this    2.0s  elapsed    0.2 min     0.2 s/row  ETA    0.9 min
+[p4-eta][20c] row 42/270  loco/hgb  this    0.7s  elapsed    0.2 min     0.3 s/row  ETA    1.0 min
+[p4-eta][20c] row 43/270  loco/hgb  this    1.0s  elapsed    0.2 min     0.3 s/row  ETA    1.0 min
+[p4-eta][20c] row 44/270  loco/hgb  this    2.0s  elapsed    0.2 min     0.3 s/row  ETA    1.2 min
+[p4-eta][20c] row 45/270  loco/hgb  this    2.0s  elapsed    0.3 min     0.3 s/row  ETA    1.3 min
+[p4-eta][20c] row 46/270  loco/hgb  this    1.8s  elapsed    0.3 min     0.4 s/row  ETA    1.4 min
+[p4-eta][20c] row 47/270  loco/hgb  this    0.7s  elapsed    0.3 min     0.4 s/row  ETA    1.4 min
+[p4-eta][20c] row 48/270  loco/hgb  this    0.9s  elapsed    0.3 min     0.4 s/row  ETA    1.5 min
+[p4-eta][20c] row 49/270  loco/hgb  this    1.6s  elapsed    0.3 min     0.4 s/row  ETA    1.6 min
+[p4-eta][20c] row 50/270  loco/hgb  this    1.7s  elapsed    0.4 min     0.4 s/row  ETA    1.6 min
+[p4-eta][20c] row 51/270  loco/mlp  this    0.3s  elapsed    0.4 min     0.4 s/row  ETA    1.6 min
+[p4-eta][20c] row 52/270  loco/mlp  this    0.2s  elapsed    0.4 min     0.4 s/row  ETA    1.6 min
+[p4-eta][20c] row 53/270  loco/mlp  this    0.2s  elapsed    0.4 min     0.4 s/row  ETA    1.6 min
+[p4-eta][20c] row 54/270  loco/mlp  this    0.4s  elapsed    0.4 min     0.4 s/row  ETA    1.6 min
+[p4-eta][20c] row 55/270  loco/mlp  this    0.3s  elapsed    0.4 min     0.4 s/row  ETA    1.5 min
+[p4-eta][20c] row 56/270  loco/mlp  this    0.3s  elapsed    0.4 min     0.4 s/row  ETA    1.5 min
+[p4-eta][20c] row 57/270  loco/mlp  this    0.2s  elapsed    0.4 min     0.4 s/row  ETA    1.5 min
+[p4-eta][20c] row 58/270  loco/mlp  this    0.2s  elapsed    0.4 min     0.4 s/row  ETA    1.5 min
+[p4-eta][20c] row 59/270  loco/mlp  this    0.3s  elapsed    0.4 min     0.4 s/row  ETA    1.5 min
+[p4-eta][20c] row 60/270  loco/mlp  this    0.3s  elapsed    0.4 min     0.4 s/row  ETA    1.5 min
+[p4-eta][20c] row 61/270  spatial_block/linear  this    0.1s  elapsed    0.4 min     0.4 s/row  ETA    1.4 min
+[p4-eta][20c] row 62/270  spatial_block/linear  this    0.0s  elapsed    0.4 min     0.4 s/row  ETA    1.4 min
+[p4-eta][20c] row 63/270  spatial_block/linear  this    0.0s  elapsed    0.4 min     0.4 s/row  ETA    1.4 min
+[p4-eta][20c] row 64/270  spatial_block/linear  this    0.0s  elapsed    0.4 min     0.4 s/row  ETA    1.3 min
+[p4-eta][20c] row 65/270  spatial_block/linear  this    0.0s  elapsed    0.4 min     0.4 s/row  ETA    1.3 min
+[p4-eta][20c] row 66/270  spatial_block/linear  this    0.0s  elapsed    0.4 min     0.4 s/row  ETA    1.3 min
+[p4-eta][20c] row 67/270  spatial_block/linear  this    0.0s  elapsed    0.4 min     0.4 s/row  ETA    1.3 min
+[p4-eta][20c] row 68/270  spatial_block/linear  this    0.0s  elapsed    0.4 min     0.4 s/row  ETA    1.3 min
+[p4-eta][20c] row 69/270  spatial_block/linear  this    0.0s  elapsed    0.4 min     0.4 s/row  ETA    1.2 min
+[p4-eta][20c] row 70/270  spatial_block/linear  this    0.0s  elapsed    0.4 min     0.4 s/row  ETA    1.2 min
+[p4-eta][20c] row 71/270  spatial_block/hgb  this    0.4s  elapsed    0.4 min     0.4 s/row  ETA    1.2 min
+[p4-eta][20c] row 72/270  spatial_block/hgb  this    0.2s  elapsed    0.4 min     0.4 s/row  ETA    1.2 min
+[p4-eta][20c] row 73/270  spatial_block/hgb  this    0.3s  elapsed    0.4 min     0.4 s/row  ETA    1.2 min
+[p4-eta][20c] row 74/270  spatial_block/hgb  this    0.6s  elapsed    0.4 min     0.4 s/row  ETA    1.2 min
+[p4-eta][20c] row 75/270  spatial_block/hgb  this    0.5s  elapsed    0.5 min     0.4 s/row  ETA    1.2 min
+[p4-eta][20c] row 76/270  spatial_block/hgb  this    0.6s  elapsed    0.5 min     0.4 s/row  ETA    1.2 min
+[p4-eta][20c] row 77/270  spatial_block/hgb  this    0.2s  elapsed    0.5 min     0.4 s/row  ETA    1.2 min
+[p4-eta][20c] row 78/270  spatial_block/hgb  this    0.2s  elapsed    0.5 min     0.4 s/row  ETA    1.2 min
+[p4-eta][20c] row 79/270  spatial_block/hgb  this    0.4s  elapsed    0.5 min     0.4 s/row  ETA    1.2 min
+[p4-eta][20c] row 80/270  spatial_block/hgb  this    0.4s  elapsed    0.5 min     0.4 s/row  ETA    1.2 min
+[p4-eta][20c] row 81/270  spatial_block/mlp  this    0.1s  elapsed    0.5 min     0.4 s/row  ETA    1.1 min
+[p4-eta][20c] row 82/270  spatial_block/mlp  this    0.1s  elapsed    0.5 min     0.4 s/row  ETA    1.1 min
+[p4-eta][20c] row 83/270  spatial_block/mlp  this    0.1s  elapsed    0.5 min     0.4 s/row  ETA    1.1 min
+[p4-eta][20c] row 84/270  spatial_block/mlp  this    0.1s  elapsed    0.5 min     0.4 s/row  ETA    1.1 min
+[p4-eta][20c] row 85/270  spatial_block/mlp  this    0.1s  elapsed    0.5 min     0.3 s/row  ETA    1.1 min
+[p4-eta][20c] row 86/270  spatial_block/mlp  this    0.1s  elapsed    0.5 min     0.3 s/row  ETA    1.1 min
+[p4-eta][20c] row 87/270  spatial_block/mlp  this    0.1s  elapsed    0.5 min     0.3 s/row  ETA    1.0 min
+[p4-eta][20c] row 88/270  spatial_block/mlp  this    0.1s  elapsed    0.5 min     0.3 s/row  ETA    1.0 min
+[p4-eta][20c] row 89/270  spatial_block/mlp  this    0.1s  elapsed    0.5 min     0.3 s/row  ETA    1.0 min
+[p4-eta][20c] row 90/270  spatial_block/mlp  this    0.1s  elapsed    0.5 min     0.3 s/row  ETA    1.0 min
+[p4-eta][20c] row 91/270  cube/linear  this    0.0s  elapsed    0.5 min     0.3 s/row  ETA    1.0 min
+[p4-eta][20c] row 92/270  cube/linear  this    0.0s  elapsed    0.5 min     0.3 s/row  ETA    1.0 min
+[p4-eta][20c] row 93/270  cube/linear  this    0.0s  elapsed    0.5 min     0.3 s/row  ETA    1.0 min
+[p4-eta][20c] row 94/270  cube/linear  this    0.0s  elapsed    0.5 min     0.3 s/row  ETA    0.9 min
+[p4-eta][20c] row 95/270  cube/linear  this    0.0s  elapsed    0.5 min     0.3 s/row  ETA    0.9 min
+[p4-eta][20c] row 96/270  cube/linear  this    0.0s  elapsed    0.5 min     0.3 s/row  ETA    0.9 min
+[p4-eta][20c] row 97/270  cube/linear  this    0.0s  elapsed    0.5 min     0.3 s/row  ETA    0.9 min
+[p4-eta][20c] row 98/270  cube/linear  this    0.0s  elapsed    0.5 min     0.3 s/row  ETA    0.9 min
+[p4-eta][20c] row 99/270  cube/linear  this    0.0s  elapsed    0.5 min     0.3 s/row  ETA    0.9 min
+[p4-eta][20c] row 100/270  cube/linear  this    0.0s  elapsed    0.5 min     0.3 s/row  ETA    0.9 min
+[p4-eta][20c] row 101/270  cube/hgb  this    0.4s  elapsed    0.5 min     0.3 s/row  ETA    0.9 min
+[p4-eta][20c] row 102/270  cube/hgb  this    0.2s  elapsed    0.5 min     0.3 s/row  ETA    0.9 min
+[p4-eta][20c] row 103/270  cube/hgb  this    0.2s  elapsed    0.5 min     0.3 s/row  ETA    0.8 min
+[p4-eta][20c] row 104/270  cube/hgb  this    0.5s  elapsed    0.5 min     0.3 s/row  ETA    0.8 min
+[p4-eta][20c] row 105/270  cube/hgb  this    0.5s  elapsed    0.5 min     0.3 s/row  ETA    0.8 min
+[p4-eta][20c] row 106/270  cube/hgb  this    0.4s  elapsed    0.5 min     0.3 s/row  ETA    0.8 min
+[p4-eta][20c] row 107/270  cube/hgb  this    0.2s  elapsed    0.5 min     0.3 s/row  ETA    0.8 min
+[p4-eta][20c] row 108/270  cube/hgb  this    0.2s  elapsed    0.6 min     0.3 s/row  ETA    0.8 min
+[p4-eta][20c] row 109/270  cube/hgb  this    0.4s  elapsed    0.6 min     0.3 s/row  ETA    0.8 min
+[p4-eta][20c] row 110/270  cube/hgb  this    0.4s  elapsed    0.6 min     0.3 s/row  ETA    0.8 min
+[p4-eta][20c] row 111/270  cube/mlp  this    0.1s  elapsed    0.6 min     0.3 s/row  ETA    0.8 min
+[p4-eta][20c] row 112/270  cube/mlp  this    0.0s  elapsed    0.6 min     0.3 s/row  ETA    0.8 min
+[p4-eta][20c] row 113/270  cube/mlp  this    0.1s  elapsed    0.6 min     0.3 s/row  ETA    0.8 min
+[p4-eta][20c] row 114/270  cube/mlp  this    0.1s  elapsed    0.6 min     0.3 s/row  ETA    0.8 min
+[p4-eta][20c] row 115/270  cube/mlp  this    0.1s  elapsed    0.6 min     0.3 s/row  ETA    0.8 min
+[p4-eta][20c] row 116/270  cube/mlp  this    0.1s  elapsed    0.6 min     0.3 s/row  ETA    0.8 min
+[p4-eta][20c] row 117/270  cube/mlp  this    0.1s  elapsed    0.6 min     0.3 s/row  ETA    0.7 min
+[p4-eta][20c] row 118/270  cube/mlp  this    0.1s  elapsed    0.6 min     0.3 s/row  ETA    0.7 min
+[p4-eta][20c] row 119/270  cube/mlp  this    0.1s  elapsed    0.6 min     0.3 s/row  ETA    0.7 min
+[p4-eta][20c] row 120/270  cube/mlp  this    0.1s  elapsed    0.6 min     0.3 s/row  ETA    0.7 min
+[p4-eta][20c] row 121/270  loco/linear  this    0.1s  elapsed    0.6 min     0.3 s/row  ETA    0.7 min
+[p4-eta][20c] row 122/270  loco/linear  this    0.1s  elapsed    0.6 min     0.3 s/row  ETA    0.7 min
+[p4-eta][20c] row 123/270  loco/linear  this    0.1s  elapsed    0.6 min     0.3 s/row  ETA    0.7 min
+[p4-eta][20c] row 124/270  loco/linear  this    0.1s  elapsed    0.6 min     0.3 s/row  ETA    0.7 min
+[p4-eta][20c] row 125/270  loco/linear  this    0.1s  elapsed    0.6 min     0.3 s/row  ETA    0.7 min
+[p4-eta][20c] row 126/270  loco/linear  this    0.1s  elapsed    0.6 min     0.3 s/row  ETA    0.7 min
+[p4-eta][20c] row 127/270  loco/linear  this    0.1s  elapsed    0.6 min     0.3 s/row  ETA    0.7 min
+[p4-eta][20c] row 128/270  loco/linear  this    0.1s  elapsed    0.6 min     0.3 s/row  ETA    0.7 min
+[p4-eta][20c] row 129/270  loco/linear  this    0.1s  elapsed    0.6 min     0.3 s/row  ETA    0.6 min
+[p4-eta][20c] row 130/270  loco/linear  this    0.1s  elapsed    0.6 min     0.3 s/row  ETA    0.6 min
+[p4-eta][20c] row 131/270  loco/hgb  this    2.0s  elapsed    0.6 min     0.3 s/row  ETA    0.7 min
+[p4-eta][20c] row 132/270  loco/hgb  this    0.7s  elapsed    0.6 min     0.3 s/row  ETA    0.7 min
+[p4-eta][20c] row 133/270  loco/hgb  this    0.9s  elapsed    0.6 min     0.3 s/row  ETA    0.7 min
+[p4-eta][20c] row 134/270  loco/hgb  this    1.9s  elapsed    0.7 min     0.3 s/row  ETA    0.7 min
+[p4-eta][20c] row 135/270  loco/hgb  this    1.9s  elapsed    0.7 min     0.3 s/row  ETA    0.7 min
+[p4-eta][20c] row 136/270  loco/hgb  this    1.5s  elapsed    0.7 min     0.3 s/row  ETA    0.7 min
+[p4-eta][20c] row 137/270  loco/hgb  this    0.7s  elapsed    0.8 min     0.3 s/row  ETA    0.7 min
+[p4-eta][20c] row 138/270  loco/hgb  this    0.9s  elapsed    0.8 min     0.3 s/row  ETA    0.7 min
+[p4-eta][20c] row 139/270  loco/hgb  this    1.5s  elapsed    0.8 min     0.3 s/row  ETA    0.7 min
+[p4-eta][20c] row 140/270  loco/hgb  this    1.6s  elapsed    0.8 min     0.4 s/row  ETA    0.8 min
+[p4-eta][20c] row 141/270  loco/mlp  this    0.2s  elapsed    0.8 min     0.3 s/row  ETA    0.8 min
+[p4-eta][20c] row 142/270  loco/mlp  this    0.2s  elapsed    0.8 min     0.3 s/row  ETA    0.7 min
+[p4-eta][20c] row 143/270  loco/mlp  this    0.2s  elapsed    0.8 min     0.3 s/row  ETA    0.7 min
+[p4-eta][20c] row 144/270  loco/mlp  this    0.3s  elapsed    0.8 min     0.3 s/row  ETA    0.7 min
+[p4-eta][20c] row 145/270  loco/mlp  this    0.3s  elapsed    0.8 min     0.3 s/row  ETA    0.7 min
+[p4-eta][20c] row 146/270  loco/mlp  this    0.3s  elapsed    0.8 min     0.3 s/row  ETA    0.7 min
+[p4-eta][20c] row 147/270  loco/mlp  this    0.2s  elapsed    0.8 min     0.3 s/row  ETA    0.7 min
+[p4-eta][20c] row 148/270  loco/mlp  this    0.2s  elapsed    0.8 min     0.3 s/row  ETA    0.7 min
+[p4-eta][20c] row 149/270  loco/mlp  this    0.3s  elapsed    0.9 min     0.3 s/row  ETA    0.7 min
+[p4-eta][20c] row 150/270  loco/mlp  this    0.3s  elapsed    0.9 min     0.3 s/row  ETA    0.7 min
+[p4-eta][20c] row 151/270  spatial_block/linear  this    0.0s  elapsed    0.9 min     0.3 s/row  ETA    0.7 min
+[p4-eta][20c] row 152/270  spatial_block/linear  this    0.0s  elapsed    0.9 min     0.3 s/row  ETA    0.7 min
+[p4-eta][20c] row 153/270  spatial_block/linear  this    0.0s  elapsed    0.9 min     0.3 s/row  ETA    0.7 min
+[p4-eta][20c] row 154/270  spatial_block/linear  this    0.0s  elapsed    0.9 min     0.3 s/row  ETA    0.6 min
+[p4-eta][20c] row 155/270  spatial_block/linear  this    0.0s  elapsed    0.9 min     0.3 s/row  ETA    0.6 min
+[p4-eta][20c] row 156/270  spatial_block/linear  this    0.0s  elapsed    0.9 min     0.3 s/row  ETA    0.6 min
+[p4-eta][20c] row 157/270  spatial_block/linear  this    0.0s  elapsed    0.9 min     0.3 s/row  ETA    0.6 min
+[p4-eta][20c] row 158/270  spatial_block/linear  this    0.0s  elapsed    0.9 min     0.3 s/row  ETA    0.6 min
+[p4-eta][20c] row 159/270  spatial_block/linear  this    0.0s  elapsed    0.9 min     0.3 s/row  ETA    0.6 min
+[p4-eta][20c] row 160/270  spatial_block/linear  this    0.0s  elapsed    0.9 min     0.3 s/row  ETA    0.6 min
+[p4-eta][20c] row 161/270  spatial_block/hgb  this    0.4s  elapsed    0.9 min     0.3 s/row  ETA    0.6 min
+[p4-eta][20c] row 162/270  spatial_block/hgb  this    0.2s  elapsed    0.9 min     0.3 s/row  ETA    0.6 min
+[p4-eta][20c] row 163/270  spatial_block/hgb  this    0.3s  elapsed    0.9 min     0.3 s/row  ETA    0.6 min
+[p4-eta][20c] row 164/270  spatial_block/hgb  this    0.5s  elapsed    0.9 min     0.3 s/row  ETA    0.6 min
+[p4-eta][20c] row 165/270  spatial_block/hgb  this    0.5s  elapsed    0.9 min     0.3 s/row  ETA    0.6 min
+[p4-eta][20c] row 166/270  spatial_block/hgb  this    0.4s  elapsed    0.9 min     0.3 s/row  ETA    0.6 min
+[p4-eta][20c] row 167/270  spatial_block/hgb  this    0.2s  elapsed    0.9 min     0.3 s/row  ETA    0.6 min
+[p4-eta][20c] row 168/270  spatial_block/hgb  this    0.2s  elapsed    0.9 min     0.3 s/row  ETA    0.6 min
+[p4-eta][20c] row 169/270  spatial_block/hgb  this    0.4s  elapsed    0.9 min     0.3 s/row  ETA    0.5 min
+[p4-eta][20c] row 170/270  spatial_block/hgb  this    0.4s  elapsed    0.9 min     0.3 s/row  ETA    0.5 min
+[p4-eta][20c] row 171/270  spatial_block/mlp  this    0.1s  elapsed    0.9 min     0.3 s/row  ETA    0.5 min
+[p4-eta][20c] row 172/270  spatial_block/mlp  this    0.1s  elapsed    0.9 min     0.3 s/row  ETA    0.5 min
+[p4-eta][20c] row 173/270  spatial_block/mlp  this    0.1s  elapsed    0.9 min     0.3 s/row  ETA    0.5 min
+[p4-eta][20c] row 174/270  spatial_block/mlp  this    0.1s  elapsed    0.9 min     0.3 s/row  ETA    0.5 min
+[p4-eta][20c] row 175/270  spatial_block/mlp  this    0.1s  elapsed    0.9 min     0.3 s/row  ETA    0.5 min
+[p4-eta][20c] row 176/270  spatial_block/mlp  this    0.1s  elapsed    0.9 min     0.3 s/row  ETA    0.5 min
+[p4-eta][20c] row 177/270  spatial_block/mlp  this    0.1s  elapsed    0.9 min     0.3 s/row  ETA    0.5 min
+[p4-eta][20c] row 178/270  spatial_block/mlp  this    0.1s  elapsed    0.9 min     0.3 s/row  ETA    0.5 min
+[p4-eta][20c] row 179/270  spatial_block/mlp  this    0.1s  elapsed    0.9 min     0.3 s/row  ETA    0.5 min
+[p4-eta][20c] row 180/270  spatial_block/mlp  this    0.1s  elapsed    0.9 min     0.3 s/row  ETA    0.5 min
+[p4-eta][20c] row 181/270  cube/linear  this    0.2s  elapsed    0.9 min     0.3 s/row  ETA    0.5 min
+[p4-eta][20c] row 182/270  cube/linear  this    0.0s  elapsed    0.9 min     0.3 s/row  ETA    0.5 min
+[p4-eta][20c] row 183/270  cube/linear  this    0.0s  elapsed    0.9 min     0.3 s/row  ETA    0.4 min
+[p4-eta][20c] row 184/270  cube/linear  this    0.2s  elapsed    0.9 min     0.3 s/row  ETA    0.4 min
+[p4-eta][20c] row 185/270  cube/linear  this    0.0s  elapsed    0.9 min     0.3 s/row  ETA    0.4 min
+[p4-eta][20c] row 186/270  cube/linear  this    0.2s  elapsed    0.9 min     0.3 s/row  ETA    0.4 min
+[p4-eta][20c] row 187/270  cube/linear  this    0.0s  elapsed    0.9 min     0.3 s/row  ETA    0.4 min
+[p4-eta][20c] row 188/270  cube/linear  this    0.0s  elapsed    0.9 min     0.3 s/row  ETA    0.4 min
+[p4-eta][20c] row 189/270  cube/linear  this    0.2s  elapsed    1.0 min     0.3 s/row  ETA    0.4 min
+[p4-eta][20c] row 190/270  cube/linear  this    0.0s  elapsed    1.0 min     0.3 s/row  ETA    0.4 min
+[p4-eta][20c] row 191/270  cube/hgb  this    2.2s  elapsed    1.0 min     0.3 s/row  ETA    0.4 min
+[p4-eta][20c] row 192/270  cube/hgb  this    0.6s  elapsed    1.0 min     0.3 s/row  ETA    0.4 min
+[p4-eta][20c] row 193/270  cube/hgb  this    1.0s  elapsed    1.0 min     0.3 s/row  ETA    0.4 min
+[p4-eta][20c] row 194/270  cube/hgb  this    2.2s  elapsed    1.1 min     0.3 s/row  ETA    0.4 min
+[p4-eta][20c] row 195/270  cube/hgb  this    2.2s  elapsed    1.1 min     0.3 s/row  ETA    0.4 min
+[p4-eta][20c] row 196/270  cube/hgb  this    1.9s  elapsed    1.1 min     0.3 s/row  ETA    0.4 min
+[p4-eta][20c] row 197/270  cube/hgb  this    0.5s  elapsed    1.1 min     0.3 s/row  ETA    0.4 min
+[p4-eta][20c] row 198/270  cube/hgb  this    1.0s  elapsed    1.1 min     0.3 s/row  ETA    0.4 min
+[p4-eta][20c] row 199/270  cube/hgb  this    1.6s  elapsed    1.2 min     0.4 s/row  ETA    0.4 min
+[p4-eta][20c] row 200/270  cube/hgb  this    1.6s  elapsed    1.2 min     0.4 s/row  ETA    0.4 min
+[p4-eta][20c] row 201/270  cube/mlp  this    1.0s  elapsed    1.2 min     0.4 s/row  ETA    0.4 min
+[p4-eta][20c] row 202/270  cube/mlp  this    0.2s  elapsed    1.2 min     0.4 s/row  ETA    0.4 min
+[p4-eta][20c] row 203/270  cube/mlp  this    0.2s  elapsed    1.2 min     0.4 s/row  ETA    0.4 min
+[p4-eta][20c] row 204/270  cube/mlp  this    0.9s  elapsed    1.2 min     0.4 s/row  ETA    0.4 min
+[p4-eta][20c] row 205/270  cube/mlp  this    0.9s  elapsed    1.3 min     0.4 s/row  ETA    0.4 min
+[p4-eta][20c] row 206/270  cube/mlp  this    1.0s  elapsed    1.3 min     0.4 s/row  ETA    0.4 min
+[p4-eta][20c] row 207/270  cube/mlp  this    0.2s  elapsed    1.3 min     0.4 s/row  ETA    0.4 min
+[p4-eta][20c] row 208/270  cube/mlp  this    0.2s  elapsed    1.3 min     0.4 s/row  ETA    0.4 min
+[p4-eta][20c] row 209/270  cube/mlp  this    1.0s  elapsed    1.3 min     0.4 s/row  ETA    0.4 min
+[p4-eta][20c] row 210/270  cube/mlp  this    0.7s  elapsed    1.3 min     0.4 s/row  ETA    0.4 min
+[p4-eta][20c] row 211/270  loco/linear  this    0.2s  elapsed    1.3 min     0.4 s/row  ETA    0.4 min
+[p4-eta][20c] row 212/270  loco/linear  this    0.1s  elapsed    1.3 min     0.4 s/row  ETA    0.4 min
+[p4-eta][20c] row 213/270  loco/linear  this    0.1s  elapsed    1.3 min     0.4 s/row  ETA    0.4 min
+[p4-eta][20c] row 214/270  loco/linear  this    0.2s  elapsed    1.3 min     0.4 s/row  ETA    0.3 min
+[p4-eta][20c] row 215/270  loco/linear  this    0.1s  elapsed    1.3 min     0.4 s/row  ETA    0.3 min
+[p4-eta][20c] row 216/270  loco/linear  this    0.2s  elapsed    1.3 min     0.4 s/row  ETA    0.3 min
+[p4-eta][20c] row 217/270  loco/linear  this    0.1s  elapsed    1.3 min     0.4 s/row  ETA    0.3 min
+[p4-eta][20c] row 218/270  loco/linear  this    0.1s  elapsed    1.3 min     0.4 s/row  ETA    0.3 min
+[p4-eta][20c] row 219/270  loco/linear  this    0.2s  elapsed    1.3 min     0.4 s/row  ETA    0.3 min
+[p4-eta][20c] row 220/270  loco/linear  this    0.1s  elapsed    1.3 min     0.4 s/row  ETA    0.3 min
+[p4-eta][20c] row 221/270  loco/hgb  this    8.7s  elapsed    1.5 min     0.4 s/row  ETA    0.3 min
+[p4-eta][20c] row 222/270  loco/hgb  this    2.0s  elapsed    1.5 min     0.4 s/row  ETA    0.3 min
+[p4-eta][20c] row 223/270  loco/hgb  this    3.3s  elapsed    1.6 min     0.4 s/row  ETA    0.3 min
+[p4-eta][20c] row 224/270  loco/hgb  this    7.6s  elapsed    1.7 min     0.5 s/row  ETA    0.3 min
+[p4-eta][20c] row 225/270  loco/hgb  this    8.1s  elapsed    1.8 min     0.5 s/row  ETA    0.4 min
+[p4-eta][20c] row 226/270  loco/hgb  this    6.3s  elapsed    1.9 min     0.5 s/row  ETA    0.4 min
+[p4-eta][20c] row 227/270  loco/hgb  this    2.0s  elapsed    2.0 min     0.5 s/row  ETA    0.4 min
+[p4-eta][20c] row 228/270  loco/hgb  this    3.3s  elapsed    2.0 min     0.5 s/row  ETA    0.4 min
+[p4-eta][20c] row 229/270  loco/hgb  this    6.1s  elapsed    2.1 min     0.6 s/row  ETA    0.4 min
+[p4-eta][20c] row 230/270  loco/hgb  this    6.0s  elapsed    2.2 min     0.6 s/row  ETA    0.4 min
+[p4-eta][20c] row 231/270  loco/mlp  this    4.1s  elapsed    2.3 min     0.6 s/row  ETA    0.4 min
+[p4-eta][20c] row 232/270  loco/mlp  this    0.9s  elapsed    2.3 min     0.6 s/row  ETA    0.4 min
+[p4-eta][20c] row 233/270  loco/mlp  this    1.2s  elapsed    2.3 min     0.6 s/row  ETA    0.4 min
+[p4-eta][20c] row 234/270  loco/mlp  this    4.0s  elapsed    2.4 min     0.6 s/row  ETA    0.4 min
+[p4-eta][20c] row 235/270  loco/mlp  this    3.6s  elapsed    2.5 min     0.6 s/row  ETA    0.4 min
+[p4-eta][20c] row 236/270  loco/mlp  this    3.9s  elapsed    2.5 min     0.6 s/row  ETA    0.4 min
+[p4-eta][20c] row 237/270  loco/mlp  this    1.0s  elapsed    2.5 min     0.6 s/row  ETA    0.4 min
+[p4-eta][20c] row 238/270  loco/mlp  this    1.2s  elapsed    2.6 min     0.6 s/row  ETA    0.3 min
+[p4-eta][20c] row 239/270  loco/mlp  this    3.7s  elapsed    2.6 min     0.7 s/row  ETA    0.3 min
+[p4-eta][20c] row 240/270  loco/mlp  this    3.3s  elapsed    2.7 min     0.7 s/row  ETA    0.3 min
+[p4-eta][20c] row 241/270  spatial_block/linear  this    0.2s  elapsed    2.7 min     0.7 s/row  ETA    0.3 min
+[p4-eta][20c] row 242/270  spatial_block/linear  this    0.0s  elapsed    2.7 min     0.7 s/row  ETA    0.3 min
+[p4-eta][20c] row 243/270  spatial_block/linear  this    0.0s  elapsed    2.7 min     0.7 s/row  ETA    0.3 min
+[p4-eta][20c] row 244/270  spatial_block/linear  this    0.2s  elapsed    2.7 min     0.7 s/row  ETA    0.3 min
+[p4-eta][20c] row 245/270  spatial_block/linear  this    0.1s  elapsed    2.7 min     0.7 s/row  ETA    0.3 min
+[p4-eta][20c] row 246/270  spatial_block/linear  this    0.2s  elapsed    2.7 min     0.7 s/row  ETA    0.3 min
+[p4-eta][20c] row 247/270  spatial_block/linear  this    0.0s  elapsed    2.7 min     0.7 s/row  ETA    0.3 min
+[p4-eta][20c] row 248/270  spatial_block/linear  this    0.0s  elapsed    2.7 min     0.7 s/row  ETA    0.2 min
+[p4-eta][20c] row 249/270  spatial_block/linear  this    0.2s  elapsed    2.7 min     0.6 s/row  ETA    0.2 min
+[p4-eta][20c] row 250/270  spatial_block/linear  this    0.1s  elapsed    2.7 min     0.6 s/row  ETA    0.2 min
+[p4-eta][20c] row 251/270  spatial_block/hgb  this    2.1s  elapsed    2.7 min     0.7 s/row  ETA    0.2 min
+[p4-eta][20c] row 252/270  spatial_block/hgb  this    0.5s  elapsed    2.7 min     0.7 s/row  ETA    0.2 min
+[p4-eta][20c] row 253/270  spatial_block/hgb  this    0.9s  elapsed    2.7 min     0.7 s/row  ETA    0.2 min
+[p4-eta][20c] row 254/270  spatial_block/hgb  this    2.3s  elapsed    2.8 min     0.7 s/row  ETA    0.2 min
+[p4-eta][20c] row 255/270  spatial_block/hgb  this    2.2s  elapsed    2.8 min     0.7 s/row  ETA    0.2 min
+[p4-eta][20c] row 256/270  spatial_block/hgb  this    1.8s  elapsed    2.9 min     0.7 s/row  ETA    0.2 min
+[p4-eta][20c] row 257/270  spatial_block/hgb  this    0.5s  elapsed    2.9 min     0.7 s/row  ETA    0.1 min
+[p4-eta][20c] row 258/270  spatial_block/hgb  this    0.9s  elapsed    2.9 min     0.7 s/row  ETA    0.1 min
+[p4-eta][20c] row 259/270  spatial_block/hgb  this    1.8s  elapsed    2.9 min     0.7 s/row  ETA    0.1 min
+[p4-eta][20c] row 260/270  spatial_block/hgb  this    1.8s  elapsed    2.9 min     0.7 s/row  ETA    0.1 min
+[p4-eta][20c] row 261/270  spatial_block/mlp  this    1.1s  elapsed    3.0 min     0.7 s/row  ETA    0.1 min
+[p4-eta][20c] row 262/270  spatial_block/mlp  this    0.2s  elapsed    3.0 min     0.7 s/row  ETA    0.1 min
+[p4-eta][20c] row 263/270  spatial_block/mlp  this    0.2s  elapsed    3.0 min     0.7 s/row  ETA    0.1 min
+[p4-eta][20c] row 264/270  spatial_block/mlp  this    1.0s  elapsed    3.0 min     0.7 s/row  ETA    0.1 min
+[p4-eta][20c] row 265/270  spatial_block/mlp  this    0.8s  elapsed    3.0 min     0.7 s/row  ETA    0.1 min
+[p4-eta][20c] row 266/270  spatial_block/mlp  this    0.8s  elapsed    3.0 min     0.7 s/row  ETA    0.0 min
+[p4-eta][20c] row 267/270  spatial_block/mlp  this    0.2s  elapsed    3.0 min     0.7 s/row  ETA    0.0 min
+[p4-eta][20c] row 268/270  spatial_block/mlp  this    0.2s  elapsed    3.0 min     0.7 s/row  ETA    0.0 min
+[p4-eta][20c] row 269/270  spatial_block/mlp  this    1.2s  elapsed    3.0 min     0.7 s/row  ETA    0.0 min
+[p4-eta][20c] row 270/270  spatial_block/mlp  this    0.5s  elapsed    3.0 min     0.7 s/row  ETA    0.0 min
+
+[cal][40c] 40 cubes, 812 frames
+[cal][40c] build_p4_data 17s
+[p4-eta][40c] row 1/270  cube/linear  this    0.0s  elapsed    0.0 min     0.0 s/row  ETA    0.2 min
+[p4-eta][40c] row 2/270  cube/linear  this    0.0s  elapsed    0.0 min     0.0 s/row  ETA    0.2 min
+[p4-eta][40c] row 3/270  cube/linear  this    0.0s  elapsed    0.0 min     0.0 s/row  ETA    0.2 min
+[p4-eta][40c] row 4/270  cube/linear  this    0.0s  elapsed    0.0 min     0.0 s/row  ETA    0.2 min
+[p4-eta][40c] row 5/270  cube/linear  this    0.0s  elapsed    0.0 min     0.0 s/row  ETA    0.2 min
+[p4-eta][40c] row 6/270  cube/linear  this    0.0s  elapsed    0.0 min     0.0 s/row  ETA    0.2 min
+[p4-eta][40c] row 7/270  cube/linear  this    0.0s  elapsed    0.0 min     0.0 s/row  ETA    0.2 min
+[p4-eta][40c] row 8/270  cube/linear  this    0.0s  elapsed    0.0 min     0.0 s/row  ETA    0.2 min
+[p4-eta][40c] row 9/270  cube/linear  this    0.0s  elapsed    0.0 min     0.0 s/row  ETA    0.2 min
+[p4-eta][40c] row 10/270  cube/linear  this    0.0s  elapsed    0.0 min     0.0 s/row  ETA    0.2 min
+[p4-eta][40c] row 11/270  cube/hgb  this    1.0s  elapsed    0.0 min     0.1 s/row  ETA    0.5 min
+[p4-eta][40c] row 12/270  cube/hgb  this    0.3s  elapsed    0.0 min     0.1 s/row  ETA    0.6 min
+[p4-eta][40c] row 13/270  cube/hgb  this    0.4s  elapsed    0.0 min     0.2 s/row  ETA    0.7 min
+[p4-eta][40c] row 14/270  cube/hgb  this    1.0s  elapsed    0.1 min     0.2 s/row  ETA    1.0 min
+[p4-eta][40c] row 15/270  cube/hgb  this    1.0s  elapsed    0.1 min     0.3 s/row  ETA    1.2 min
+[p4-eta][40c] row 16/270  cube/hgb  this    0.7s  elapsed    0.1 min     0.3 s/row  ETA    1.3 min
+[p4-eta][40c] row 17/270  cube/hgb  this    0.3s  elapsed    0.1 min     0.3 s/row  ETA    1.3 min
+[p4-eta][40c] row 18/270  cube/hgb  this    0.4s  elapsed    0.1 min     0.3 s/row  ETA    1.3 min
+[p4-eta][40c] row 19/270  cube/hgb  this    0.8s  elapsed    0.1 min     0.3 s/row  ETA    1.4 min
+[p4-eta][40c] row 20/270  cube/hgb  this    0.7s  elapsed    0.1 min     0.4 s/row  ETA    1.5 min
+[p4-eta][40c] row 21/270  cube/mlp  this    0.1s  elapsed    0.1 min     0.3 s/row  ETA    1.4 min
+[p4-eta][40c] row 22/270  cube/mlp  this    0.1s  elapsed    0.1 min     0.3 s/row  ETA    1.4 min
+[p4-eta][40c] row 23/270  cube/mlp  this    0.1s  elapsed    0.1 min     0.3 s/row  ETA    1.3 min
+[p4-eta][40c] row 24/270  cube/mlp  this    0.2s  elapsed    0.1 min     0.3 s/row  ETA    1.3 min
+[p4-eta][40c] row 25/270  cube/mlp  this    0.2s  elapsed    0.1 min     0.3 s/row  ETA    1.3 min
+[p4-eta][40c] row 26/270  cube/mlp  this    0.1s  elapsed    0.1 min     0.3 s/row  ETA    1.2 min
+[p4-eta][40c] row 27/270  cube/mlp  this    0.1s  elapsed    0.1 min     0.3 s/row  ETA    1.2 min
+[p4-eta][40c] row 28/270  cube/mlp  this    0.1s  elapsed    0.1 min     0.3 s/row  ETA    1.1 min
+[p4-eta][40c] row 29/270  cube/mlp  this    0.1s  elapsed    0.1 min     0.3 s/row  ETA    1.1 min
+[p4-eta][40c] row 30/270  cube/mlp  this    0.1s  elapsed    0.1 min     0.3 s/row  ETA    1.1 min
+[p4-eta][40c] row 31/270  loco/linear  this    0.2s  elapsed    0.1 min     0.3 s/row  ETA    1.1 min
+[p4-eta][40c] row 32/270  loco/linear  this    0.2s  elapsed    0.1 min     0.3 s/row  ETA    1.1 min
+[p4-eta][40c] row 33/270  loco/linear  this    0.2s  elapsed    0.1 min     0.3 s/row  ETA    1.0 min
+[p4-eta][40c] row 34/270  loco/linear  this    0.2s  elapsed    0.1 min     0.3 s/row  ETA    1.0 min
+[p4-eta][40c] row 35/270  loco/linear  this    0.2s  elapsed    0.2 min     0.3 s/row  ETA    1.0 min
+[p4-eta][40c] row 36/270  loco/linear  this    0.2s  elapsed    0.2 min     0.3 s/row  ETA    1.0 min
+[p4-eta][40c] row 37/270  loco/linear  this    0.1s  elapsed    0.2 min     0.3 s/row  ETA    1.0 min
+[p4-eta][40c] row 38/270  loco/linear  this    0.2s  elapsed    0.2 min     0.3 s/row  ETA    1.0 min
+[p4-eta][40c] row 39/270  loco/linear  this    0.2s  elapsed    0.2 min     0.3 s/row  ETA    1.0 min
+[p4-eta][40c] row 40/270  loco/linear  this    0.2s  elapsed    0.2 min     0.3 s/row  ETA    1.0 min
+[p4-eta][40c] row 41/270  loco/hgb  this    8.3s  elapsed    0.3 min     0.4 s/row  ETA    1.7 min
+[p4-eta][40c] row 42/270  loco/hgb  this    2.6s  elapsed    0.3 min     0.5 s/row  ETA    1.9 min
+[p4-eta][40c] row 43/270  loco/hgb  this    2.7s  elapsed    0.4 min     0.6 s/row  ETA    2.1 min
+[p4-eta][40c] row 44/270  loco/hgb  this    8.2s  elapsed    0.5 min     0.7 s/row  ETA    2.7 min
+[p4-eta][40c] row 45/270  loco/hgb  this    7.8s  elapsed    0.7 min     0.9 s/row  ETA    3.3 min
+[p4-eta][40c] row 46/270  loco/hgb  this    5.7s  elapsed    0.8 min     1.0 s/row  ETA    3.7 min
+[p4-eta][40c] row 47/270  loco/hgb  this    2.5s  elapsed    0.8 min     1.0 s/row  ETA    3.8 min
+[p4-eta][40c] row 48/270  loco/hgb  this    2.5s  elapsed    0.8 min     1.1 s/row  ETA    3.9 min
+[p4-eta][40c] row 49/270  loco/hgb  this    6.2s  elapsed    0.9 min     1.2 s/row  ETA    4.3 min
+[p4-eta][40c] row 50/270  loco/hgb  this    5.8s  elapsed    1.0 min     1.2 s/row  ETA    4.6 min
+[p4-eta][40c] row 51/270  loco/mlp  this    0.8s  elapsed    1.1 min     1.2 s/row  ETA    4.5 min
+[p4-eta][40c] row 52/270  loco/mlp  this    0.4s  elapsed    1.1 min     1.2 s/row  ETA    4.4 min
+[p4-eta][40c] row 53/270  loco/mlp  this    0.6s  elapsed    1.1 min     1.2 s/row  ETA    4.4 min
+[p4-eta][40c] row 54/270  loco/mlp  this    1.1s  elapsed    1.1 min     1.2 s/row  ETA    4.4 min
+[p4-eta][40c] row 55/270  loco/mlp  this    0.9s  elapsed    1.1 min     1.2 s/row  ETA    4.3 min
+[p4-eta][40c] row 56/270  loco/mlp  this    0.8s  elapsed    1.1 min     1.2 s/row  ETA    4.3 min
+[p4-eta][40c] row 57/270  loco/mlp  this    0.5s  elapsed    1.1 min     1.2 s/row  ETA    4.2 min
+[p4-eta][40c] row 58/270  loco/mlp  this    0.6s  elapsed    1.1 min     1.2 s/row  ETA    4.1 min
+[p4-eta][40c] row 59/270  loco/mlp  this    0.8s  elapsed    1.1 min     1.2 s/row  ETA    4.1 min
+[p4-eta][40c] row 60/270  loco/mlp  this    0.8s  elapsed    1.2 min     1.2 s/row  ETA    4.1 min
+[p4-eta][40c] row 61/270  spatial_block/linear  this    0.1s  elapsed    1.2 min     1.1 s/row  ETA    4.0 min
+[p4-eta][40c] row 62/270  spatial_block/linear  this    0.1s  elapsed    1.2 min     1.1 s/row  ETA    3.9 min
+[p4-eta][40c] row 63/270  spatial_block/linear  this    0.1s  elapsed    1.2 min     1.1 s/row  ETA    3.8 min
+[p4-eta][40c] row 64/270  spatial_block/linear  this    0.1s  elapsed    1.2 min     1.1 s/row  ETA    3.8 min
+[p4-eta][40c] row 65/270  spatial_block/linear  this    0.1s  elapsed    1.2 min     1.1 s/row  ETA    3.7 min
+[p4-eta][40c] row 66/270  spatial_block/linear  this    0.1s  elapsed    1.2 min     1.1 s/row  ETA    3.6 min
+[p4-eta][40c] row 67/270  spatial_block/linear  this    0.1s  elapsed    1.2 min     1.1 s/row  ETA    3.6 min
+[p4-eta][40c] row 68/270  spatial_block/linear  this    0.1s  elapsed    1.2 min     1.0 s/row  ETA    3.5 min
+[p4-eta][40c] row 69/270  spatial_block/linear  this    0.1s  elapsed    1.2 min     1.0 s/row  ETA    3.4 min
+[p4-eta][40c] row 70/270  spatial_block/linear  this    0.1s  elapsed    1.2 min     1.0 s/row  ETA    3.4 min
+[p4-eta][40c] row 71/270  spatial_block/hgb  this    0.8s  elapsed    1.2 min     1.0 s/row  ETA    3.3 min
+[p4-eta][40c] row 72/270  spatial_block/hgb  this    0.3s  elapsed    1.2 min     1.0 s/row  ETA    3.3 min
+[p4-eta][40c] row 73/270  spatial_block/hgb  this    0.3s  elapsed    1.2 min     1.0 s/row  ETA    3.3 min
+[p4-eta][40c] row 74/270  spatial_block/hgb  this    1.0s  elapsed    1.2 min     1.0 s/row  ETA    3.2 min
+[p4-eta][40c] row 75/270  spatial_block/hgb  this    1.0s  elapsed    1.2 min     1.0 s/row  ETA    3.2 min
+[p4-eta][40c] row 76/270  spatial_block/hgb  this    0.8s  elapsed    1.3 min     1.0 s/row  ETA    3.2 min
+[p4-eta][40c] row 77/270  spatial_block/hgb  this    0.3s  elapsed    1.3 min     1.0 s/row  ETA    3.2 min
+[p4-eta][40c] row 78/270  spatial_block/hgb  this    0.4s  elapsed    1.3 min     1.0 s/row  ETA    3.1 min
+[p4-eta][40c] row 79/270  spatial_block/hgb  this    0.9s  elapsed    1.3 min     1.0 s/row  ETA    3.1 min
+[p4-eta][40c] row 80/270  spatial_block/hgb  this    0.8s  elapsed    1.3 min     1.0 s/row  ETA    3.1 min
+[p4-eta][40c] row 81/270  spatial_block/mlp  this    0.2s  elapsed    1.3 min     1.0 s/row  ETA    3.0 min
+[p4-eta][40c] row 82/270  spatial_block/mlp  this    0.1s  elapsed    1.3 min     1.0 s/row  ETA    3.0 min
+[p4-eta][40c] row 83/270  spatial_block/mlp  this    0.2s  elapsed    1.3 min     0.9 s/row  ETA    2.9 min
+[p4-eta][40c] row 84/270  spatial_block/mlp  this    0.2s  elapsed    1.3 min     0.9 s/row  ETA    2.9 min
+[p4-eta][40c] row 85/270  spatial_block/mlp  this    0.2s  elapsed    1.3 min     0.9 s/row  ETA    2.8 min
+[p4-eta][40c] row 86/270  spatial_block/mlp  this    0.2s  elapsed    1.3 min     0.9 s/row  ETA    2.8 min
+[p4-eta][40c] row 87/270  spatial_block/mlp  this    0.1s  elapsed    1.3 min     0.9 s/row  ETA    2.8 min
+[p4-eta][40c] row 88/270  spatial_block/mlp  this    0.2s  elapsed    1.3 min     0.9 s/row  ETA    2.7 min
+[p4-eta][40c] row 89/270  spatial_block/mlp  this    0.2s  elapsed    1.3 min     0.9 s/row  ETA    2.7 min
+[p4-eta][40c] row 90/270  spatial_block/mlp  this    0.2s  elapsed    1.3 min     0.9 s/row  ETA    2.6 min
+[p4-eta][40c] row 91/270  cube/linear  this    0.0s  elapsed    1.3 min     0.9 s/row  ETA    2.6 min
+[p4-eta][40c] row 92/270  cube/linear  this    0.0s  elapsed    1.3 min     0.9 s/row  ETA    2.6 min
+[p4-eta][40c] row 93/270  cube/linear  this    0.0s  elapsed    1.3 min     0.9 s/row  ETA    2.5 min
+[p4-eta][40c] row 94/270  cube/linear  this    0.0s  elapsed    1.3 min     0.8 s/row  ETA    2.5 min
+[p4-eta][40c] row 95/270  cube/linear  this    0.0s  elapsed    1.3 min     0.8 s/row  ETA    2.4 min
+[p4-eta][40c] row 96/270  cube/linear  this    0.0s  elapsed    1.3 min     0.8 s/row  ETA    2.4 min
+[p4-eta][40c] row 97/270  cube/linear  this    0.0s  elapsed    1.3 min     0.8 s/row  ETA    2.4 min
+[p4-eta][40c] row 98/270  cube/linear  this    0.0s  elapsed    1.3 min     0.8 s/row  ETA    2.3 min
+[p4-eta][40c] row 99/270  cube/linear  this    0.0s  elapsed    1.3 min     0.8 s/row  ETA    2.3 min
+[p4-eta][40c] row 100/270  cube/linear  this    0.0s  elapsed    1.3 min     0.8 s/row  ETA    2.3 min
+[p4-eta][40c] row 101/270  cube/hgb  this    0.8s  elapsed    1.3 min     0.8 s/row  ETA    2.2 min
+[p4-eta][40c] row 102/270  cube/hgb  this    0.3s  elapsed    1.3 min     0.8 s/row  ETA    2.2 min
+[p4-eta][40c] row 103/270  cube/hgb  this    0.4s  elapsed    1.4 min     0.8 s/row  ETA    2.2 min
+[p4-eta][40c] row 104/270  cube/hgb  this    0.9s  elapsed    1.4 min     0.8 s/row  ETA    2.2 min
+[p4-eta][40c] row 105/270  cube/hgb  this    0.9s  elapsed    1.4 min     0.8 s/row  ETA    2.2 min
+[p4-eta][40c] row 106/270  cube/hgb  this    0.7s  elapsed    1.4 min     0.8 s/row  ETA    2.2 min
+[p4-eta][40c] row 107/270  cube/hgb  this    0.3s  elapsed    1.4 min     0.8 s/row  ETA    2.1 min
+[p4-eta][40c] row 108/270  cube/hgb  this    0.4s  elapsed    1.4 min     0.8 s/row  ETA    2.1 min
+[p4-eta][40c] row 109/270  cube/hgb  this    0.8s  elapsed    1.4 min     0.8 s/row  ETA    2.1 min
+[p4-eta][40c] row 110/270  cube/hgb  this    0.7s  elapsed    1.4 min     0.8 s/row  ETA    2.1 min
+[p4-eta][40c] row 111/270  cube/mlp  this    0.1s  elapsed    1.4 min     0.8 s/row  ETA    2.1 min
+[p4-eta][40c] row 112/270  cube/mlp  this    0.1s  elapsed    1.4 min     0.8 s/row  ETA    2.0 min
+[p4-eta][40c] row 113/270  cube/mlp  this    0.1s  elapsed    1.4 min     0.8 s/row  ETA    2.0 min
+[p4-eta][40c] row 114/270  cube/mlp  this    0.1s  elapsed    1.4 min     0.8 s/row  ETA    2.0 min
+[p4-eta][40c] row 115/270  cube/mlp  this    0.1s  elapsed    1.4 min     0.8 s/row  ETA    1.9 min
+[p4-eta][40c] row 116/270  cube/mlp  this    0.1s  elapsed    1.4 min     0.7 s/row  ETA    1.9 min
+[p4-eta][40c] row 117/270  cube/mlp  this    0.1s  elapsed    1.4 min     0.7 s/row  ETA    1.9 min
+[p4-eta][40c] row 118/270  cube/mlp  this    0.1s  elapsed    1.4 min     0.7 s/row  ETA    1.9 min
+[p4-eta][40c] row 119/270  cube/mlp  this    0.1s  elapsed    1.4 min     0.7 s/row  ETA    1.8 min
+[p4-eta][40c] row 120/270  cube/mlp  this    0.1s  elapsed    1.4 min     0.7 s/row  ETA    1.8 min
+[p4-eta][40c] row 121/270  loco/linear  this    0.2s  elapsed    1.5 min     0.7 s/row  ETA    1.8 min
+[p4-eta][40c] row 122/270  loco/linear  this    0.1s  elapsed    1.5 min     0.7 s/row  ETA    1.8 min
+[p4-eta][40c] row 123/270  loco/linear  this    0.2s  elapsed    1.5 min     0.7 s/row  ETA    1.7 min
+[p4-eta][40c] row 124/270  loco/linear  this    0.2s  elapsed    1.5 min     0.7 s/row  ETA    1.7 min
+[p4-eta][40c] row 125/270  loco/linear  this    0.2s  elapsed    1.5 min     0.7 s/row  ETA    1.7 min
+[p4-eta][40c] row 126/270  loco/linear  this    0.2s  elapsed    1.5 min     0.7 s/row  ETA    1.7 min
+[p4-eta][40c] row 127/270  loco/linear  this    0.2s  elapsed    1.5 min     0.7 s/row  ETA    1.7 min
+[p4-eta][40c] row 128/270  loco/linear  this    0.2s  elapsed    1.5 min     0.7 s/row  ETA    1.6 min
+[p4-eta][40c] row 129/270  loco/linear  this    0.2s  elapsed    1.5 min     0.7 s/row  ETA    1.6 min
+[p4-eta][40c] row 130/270  loco/linear  this    0.2s  elapsed    1.5 min     0.7 s/row  ETA    1.6 min
+[p4-eta][40c] row 131/270  loco/hgb  this    7.5s  elapsed    1.6 min     0.7 s/row  ETA    1.7 min
+[p4-eta][40c] row 132/270  loco/hgb  this    2.4s  elapsed    1.6 min     0.7 s/row  ETA    1.7 min
+[p4-eta][40c] row 133/270  loco/hgb  this    2.5s  elapsed    1.7 min     0.8 s/row  ETA    1.7 min
+[p4-eta][40c] row 134/270  loco/hgb  this    7.8s  elapsed    1.8 min     0.8 s/row  ETA    1.8 min
+[p4-eta][40c] row 135/270  loco/hgb  this    7.4s  elapsed    1.9 min     0.9 s/row  ETA    1.9 min
+[p4-eta][40c] row 136/270  loco/hgb  this    6.1s  elapsed    2.0 min     0.9 s/row  ETA    2.0 min
+[p4-eta][40c] row 137/270  loco/hgb  this    2.4s  elapsed    2.1 min     0.9 s/row  ETA    2.0 min
+[p4-eta][40c] row 138/270  loco/hgb  this    2.5s  elapsed    2.1 min     0.9 s/row  ETA    2.0 min
+[p4-eta][40c] row 139/270  loco/hgb  this    6.0s  elapsed    2.2 min     1.0 s/row  ETA    2.1 min
+[p4-eta][40c] row 140/270  loco/hgb  this    6.0s  elapsed    2.3 min     1.0 s/row  ETA    2.2 min
+[p4-eta][40c] row 141/270  loco/mlp  this    0.7s  elapsed    2.3 min     1.0 s/row  ETA    2.1 min
+[p4-eta][40c] row 142/270  loco/mlp  this    0.4s  elapsed    2.3 min     1.0 s/row  ETA    2.1 min
+[p4-eta][40c] row 143/270  loco/mlp  this    0.6s  elapsed    2.4 min     1.0 s/row  ETA    2.1 min
+[p4-eta][40c] row 144/270  loco/mlp  this    0.9s  elapsed    2.4 min     1.0 s/row  ETA    2.1 min
+[p4-eta][40c] row 145/270  loco/mlp  this    0.7s  elapsed    2.4 min     1.0 s/row  ETA    2.1 min
+[p4-eta][40c] row 146/270  loco/mlp  this    0.8s  elapsed    2.4 min     1.0 s/row  ETA    2.0 min
+[p4-eta][40c] row 147/270  loco/mlp  this    0.4s  elapsed    2.4 min     1.0 s/row  ETA    2.0 min
+[p4-eta][40c] row 148/270  loco/mlp  this    0.5s  elapsed    2.4 min     1.0 s/row  ETA    2.0 min
+[p4-eta][40c] row 149/270  loco/mlp  this    0.7s  elapsed    2.4 min     1.0 s/row  ETA    2.0 min
+[p4-eta][40c] row 150/270  loco/mlp  this    0.8s  elapsed    2.4 min     1.0 s/row  ETA    1.9 min
+[p4-eta][40c] row 151/270  spatial_block/linear  this    0.1s  elapsed    2.4 min     1.0 s/row  ETA    1.9 min
+[p4-eta][40c] row 152/270  spatial_block/linear  this    0.1s  elapsed    2.4 min     1.0 s/row  ETA    1.9 min
+[p4-eta][40c] row 153/270  spatial_block/linear  this    0.1s  elapsed    2.4 min     1.0 s/row  ETA    1.9 min
+[p4-eta][40c] row 154/270  spatial_block/linear  this    0.1s  elapsed    2.4 min     1.0 s/row  ETA    1.8 min
+[p4-eta][40c] row 155/270  spatial_block/linear  this    0.1s  elapsed    2.4 min     0.9 s/row  ETA    1.8 min
+[p4-eta][40c] row 156/270  spatial_block/linear  this    0.1s  elapsed    2.4 min     0.9 s/row  ETA    1.8 min
+[p4-eta][40c] row 157/270  spatial_block/linear  this    0.1s  elapsed    2.4 min     0.9 s/row  ETA    1.8 min
+[p4-eta][40c] row 158/270  spatial_block/linear  this    0.1s  elapsed    2.5 min     0.9 s/row  ETA    1.7 min
+[p4-eta][40c] row 159/270  spatial_block/linear  this    0.1s  elapsed    2.5 min     0.9 s/row  ETA    1.7 min
+[p4-eta][40c] row 160/270  spatial_block/linear  this    0.1s  elapsed    2.5 min     0.9 s/row  ETA    1.7 min
+[p4-eta][40c] row 161/270  spatial_block/hgb  this    0.8s  elapsed    2.5 min     0.9 s/row  ETA    1.7 min
+[p4-eta][40c] row 162/270  spatial_block/hgb  this    0.3s  elapsed    2.5 min     0.9 s/row  ETA    1.6 min
+[p4-eta][40c] row 163/270  spatial_block/hgb  this    0.3s  elapsed    2.5 min     0.9 s/row  ETA    1.6 min
+[p4-eta][40c] row 164/270  spatial_block/hgb  this    1.0s  elapsed    2.5 min     0.9 s/row  ETA    1.6 min
+[p4-eta][40c] row 165/270  spatial_block/hgb  this    1.0s  elapsed    2.5 min     0.9 s/row  ETA    1.6 min
+[p4-eta][40c] row 166/270  spatial_block/hgb  this    0.8s  elapsed    2.5 min     0.9 s/row  ETA    1.6 min
+[p4-eta][40c] row 167/270  spatial_block/hgb  this    0.3s  elapsed    2.5 min     0.9 s/row  ETA    1.6 min
+[p4-eta][40c] row 168/270  spatial_block/hgb  this    0.4s  elapsed    2.5 min     0.9 s/row  ETA    1.5 min
+[p4-eta][40c] row 169/270  spatial_block/hgb  this    0.8s  elapsed    2.5 min     0.9 s/row  ETA    1.5 min
+[p4-eta][40c] row 170/270  spatial_block/hgb  this    0.8s  elapsed    2.6 min     0.9 s/row  ETA    1.5 min
+[p4-eta][40c] row 171/270  spatial_block/mlp  this    0.2s  elapsed    2.6 min     0.9 s/row  ETA    1.5 min
+[p4-eta][40c] row 172/270  spatial_block/mlp  this    0.1s  elapsed    2.6 min     0.9 s/row  ETA    1.5 min
+[p4-eta][40c] row 173/270  spatial_block/mlp  this    0.2s  elapsed    2.6 min     0.9 s/row  ETA    1.4 min
+[p4-eta][40c] row 174/270  spatial_block/mlp  this    0.2s  elapsed    2.6 min     0.9 s/row  ETA    1.4 min
+[p4-eta][40c] row 175/270  spatial_block/mlp  this    0.2s  elapsed    2.6 min     0.9 s/row  ETA    1.4 min
+[p4-eta][40c] row 176/270  spatial_block/mlp  this    0.3s  elapsed    2.6 min     0.9 s/row  ETA    1.4 min
+[p4-eta][40c] row 177/270  spatial_block/mlp  this    0.1s  elapsed    2.6 min     0.9 s/row  ETA    1.4 min
+[p4-eta][40c] row 178/270  spatial_block/mlp  this    0.1s  elapsed    2.6 min     0.9 s/row  ETA    1.3 min
+[p4-eta][40c] row 179/270  spatial_block/mlp  this    0.2s  elapsed    2.6 min     0.9 s/row  ETA    1.3 min
+[p4-eta][40c] row 180/270  spatial_block/mlp  this    0.2s  elapsed    2.6 min     0.9 s/row  ETA    1.3 min
+[p4-eta][40c] row 181/270  cube/linear  this    0.2s  elapsed    2.6 min     0.9 s/row  ETA    1.3 min
+[p4-eta][40c] row 182/270  cube/linear  this    0.0s  elapsed    2.6 min     0.9 s/row  ETA    1.3 min
+[p4-eta][40c] row 183/270  cube/linear  this    0.2s  elapsed    2.6 min     0.9 s/row  ETA    1.2 min
+[p4-eta][40c] row 184/270  cube/linear  this    0.2s  elapsed    2.6 min     0.8 s/row  ETA    1.2 min
+[p4-eta][40c] row 185/270  cube/linear  this    0.1s  elapsed    2.6 min     0.8 s/row  ETA    1.2 min
+[p4-eta][40c] row 186/270  cube/linear  this    0.2s  elapsed    2.6 min     0.8 s/row  ETA    1.2 min
+[p4-eta][40c] row 187/270  cube/linear  this    0.0s  elapsed    2.6 min     0.8 s/row  ETA    1.2 min
+[p4-eta][40c] row 188/270  cube/linear  this    0.2s  elapsed    2.6 min     0.8 s/row  ETA    1.1 min
+[p4-eta][40c] row 189/270  cube/linear  this    0.2s  elapsed    2.6 min     0.8 s/row  ETA    1.1 min
+[p4-eta][40c] row 190/270  cube/linear  this    0.1s  elapsed    2.6 min     0.8 s/row  ETA    1.1 min
+[p4-eta][40c] row 191/270  cube/hgb  this    3.6s  elapsed    2.7 min     0.8 s/row  ETA    1.1 min
+[p4-eta][40c] row 192/270  cube/hgb  this    0.7s  elapsed    2.7 min     0.8 s/row  ETA    1.1 min
+[p4-eta][40c] row 193/270  cube/hgb  this    1.5s  elapsed    2.7 min     0.8 s/row  ETA    1.1 min
+[p4-eta][40c] row 194/270  cube/hgb  this    2.9s  elapsed    2.8 min     0.9 s/row  ETA    1.1 min
+[p4-eta][40c] row 195/270  cube/hgb  this    3.2s  elapsed    2.8 min     0.9 s/row  ETA    1.1 min
+[p4-eta][40c] row 196/270  cube/hgb  this    2.7s  elapsed    2.9 min     0.9 s/row  ETA    1.1 min
+[p4-eta][40c] row 197/270  cube/hgb  this    0.6s  elapsed    2.9 min     0.9 s/row  ETA    1.1 min
+[p4-eta][40c] row 198/270  cube/hgb  this    1.5s  elapsed    2.9 min     0.9 s/row  ETA    1.1 min
+[p4-eta][40c] row 199/270  cube/hgb  this    2.2s  elapsed    2.9 min     0.9 s/row  ETA    1.0 min
+[p4-eta][40c] row 200/270  cube/hgb  this    2.4s  elapsed    3.0 min     0.9 s/row  ETA    1.0 min
+[p4-eta][40c] row 201/270  cube/mlp  this    1.7s  elapsed    3.0 min     0.9 s/row  ETA    1.0 min
+[p4-eta][40c] row 202/270  cube/mlp  this    0.4s  elapsed    3.0 min     0.9 s/row  ETA    1.0 min
+[p4-eta][40c] row 203/270  cube/mlp  this    0.7s  elapsed    3.0 min     0.9 s/row  ETA    1.0 min
+[p4-eta][40c] row 204/270  cube/mlp  this    1.8s  elapsed    3.0 min     0.9 s/row  ETA    1.0 min
+[p4-eta][40c] row 205/270  cube/mlp  this    1.5s  elapsed    3.1 min     0.9 s/row  ETA    1.0 min
+[p4-eta][40c] row 206/270  cube/mlp  this    1.7s  elapsed    3.1 min     0.9 s/row  ETA    1.0 min
+[p4-eta][40c] row 207/270  cube/mlp  this    0.5s  elapsed    3.1 min     0.9 s/row  ETA    0.9 min
+[p4-eta][40c] row 208/270  cube/mlp  this    0.6s  elapsed    3.1 min     0.9 s/row  ETA    0.9 min
+[p4-eta][40c] row 209/270  cube/mlp  this    1.9s  elapsed    3.1 min     0.9 s/row  ETA    0.9 min
+[p4-eta][40c] row 210/270  cube/mlp  this    1.2s  elapsed    3.2 min     0.9 s/row  ETA    0.9 min
+[p4-eta][40c] row 211/270  loco/linear  this    0.5s  elapsed    3.2 min     0.9 s/row  ETA    0.9 min
+[p4-eta][40c] row 212/270  loco/linear  this    0.3s  elapsed    3.2 min     0.9 s/row  ETA    0.9 min
+[p4-eta][40c] row 213/270  loco/linear  this    0.4s  elapsed    3.2 min     0.9 s/row  ETA    0.9 min
+[p4-eta][40c] row 214/270  loco/linear  this    0.5s  elapsed    3.2 min     0.9 s/row  ETA    0.8 min
+[p4-eta][40c] row 215/270  loco/linear  this    0.5s  elapsed    3.2 min     0.9 s/row  ETA    0.8 min
+[p4-eta][40c] row 216/270  loco/linear  this    0.5s  elapsed    3.2 min     0.9 s/row  ETA    0.8 min
+[p4-eta][40c] row 217/270  loco/linear  this    0.2s  elapsed    3.2 min     0.9 s/row  ETA    0.8 min
+[p4-eta][40c] row 218/270  loco/linear  this    0.4s  elapsed    3.2 min     0.9 s/row  ETA    0.8 min
+[p4-eta][40c] row 219/270  loco/linear  this    0.5s  elapsed    3.2 min     0.9 s/row  ETA    0.8 min
+[p4-eta][40c] row 220/270  loco/linear  this    0.3s  elapsed    3.2 min     0.9 s/row  ETA    0.7 min
+[p4-eta][40c] row 221/270  loco/hgb  this   25.2s  elapsed    3.7 min     1.0 s/row  ETA    0.8 min
+[p4-eta][40c] row 222/270  loco/hgb  this    4.5s  elapsed    3.7 min     1.0 s/row  ETA    0.8 min
+[p4-eta][40c] row 223/270  loco/hgb  this    9.5s  elapsed    3.9 min     1.0 s/row  ETA    0.8 min
+[p4-eta][40c] row 224/270  loco/hgb  this   20.7s  elapsed    4.2 min     1.1 s/row  ETA    0.9 min
+[p4-eta][40c] row 225/270  loco/hgb  this   23.1s  elapsed    4.6 min     1.2 s/row  ETA    0.9 min
+[p4-eta][40c] row 226/270  loco/hgb  this   17.6s  elapsed    4.9 min     1.3 s/row  ETA    1.0 min
+[p4-eta][40c] row 227/270  loco/hgb  this    4.5s  elapsed    5.0 min     1.3 s/row  ETA    0.9 min
+[p4-eta][40c] row 228/270  loco/hgb  this    9.8s  elapsed    5.2 min     1.4 s/row  ETA    0.9 min
+[p4-eta][40c] row 229/270  loco/hgb  this   20.0s  elapsed    5.5 min     1.4 s/row  ETA    1.0 min
+[p4-eta][40c] row 230/270  loco/hgb  this   19.1s  elapsed    5.8 min     1.5 s/row  ETA    1.0 min
+[p4-eta][40c] row 231/270  loco/mlp  this   14.7s  elapsed    6.1 min     1.6 s/row  ETA    1.0 min
+[p4-eta][40c] row 232/270  loco/mlp  this    5.0s  elapsed    6.1 min     1.6 s/row  ETA    1.0 min
+[p4-eta][40c] row 233/270  loco/mlp  this    5.4s  elapsed    6.2 min     1.6 s/row  ETA    1.0 min
+[p4-eta][40c] row 234/270  loco/mlp  this   16.5s  elapsed    6.5 min     1.7 s/row  ETA    1.0 min
+[p4-eta][40c] row 235/270  loco/mlp  this   12.6s  elapsed    6.7 min     1.7 s/row  ETA    1.0 min
+[p4-eta][40c] row 236/270  loco/mlp  this   14.9s  elapsed    7.0 min     1.8 s/row  ETA    1.0 min
+[p4-eta][40c] row 237/270  loco/mlp  this    4.7s  elapsed    7.0 min     1.8 s/row  ETA    1.0 min
+[p4-eta][40c] row 238/270  loco/mlp  this    5.4s  elapsed    7.1 min     1.8 s/row  ETA    1.0 min
+[p4-eta][40c] row 239/270  loco/mlp  this   14.9s  elapsed    7.4 min     1.9 s/row  ETA    1.0 min
+[p4-eta][40c] row 240/270  loco/mlp  this   11.3s  elapsed    7.6 min     1.9 s/row  ETA    0.9 min
+[p4-eta][40c] row 241/270  spatial_block/linear  this    0.3s  elapsed    7.6 min     1.9 s/row  ETA    0.9 min
+[p4-eta][40c] row 242/270  spatial_block/linear  this    0.1s  elapsed    7.6 min     1.9 s/row  ETA    0.9 min
+[p4-eta][40c] row 243/270  spatial_block/linear  this    0.2s  elapsed    7.6 min     1.9 s/row  ETA    0.8 min
+[p4-eta][40c] row 244/270  spatial_block/linear  this    0.3s  elapsed    7.6 min     1.9 s/row  ETA    0.8 min
+[p4-eta][40c] row 245/270  spatial_block/linear  this    0.1s  elapsed    7.6 min     1.9 s/row  ETA    0.8 min
+[p4-eta][40c] row 246/270  spatial_block/linear  this    0.2s  elapsed    7.6 min     1.9 s/row  ETA    0.7 min
+[p4-eta][40c] row 247/270  spatial_block/linear  this    0.1s  elapsed    7.6 min     1.8 s/row  ETA    0.7 min
+[p4-eta][40c] row 248/270  spatial_block/linear  this    0.2s  elapsed    7.6 min     1.8 s/row  ETA    0.7 min
+[p4-eta][40c] row 249/270  spatial_block/linear  this    0.3s  elapsed    7.6 min     1.8 s/row  ETA    0.6 min
+[p4-eta][40c] row 250/270  spatial_block/linear  this    0.1s  elapsed    7.6 min     1.8 s/row  ETA    0.6 min
+[p4-eta][40c] row 251/270  spatial_block/hgb  this    4.0s  elapsed    7.7 min     1.8 s/row  ETA    0.6 min
+[p4-eta][40c] row 252/270  spatial_block/hgb  this    0.8s  elapsed    7.7 min     1.8 s/row  ETA    0.5 min
+[p4-eta][40c] row 253/270  spatial_block/hgb  this    1.7s  elapsed    7.7 min     1.8 s/row  ETA    0.5 min
+[p4-eta][40c] row 254/270  spatial_block/hgb  this    5.8s  elapsed    7.8 min     1.8 s/row  ETA    0.5 min
+[p4-eta][40c] row 255/270  spatial_block/hgb  this    5.6s  elapsed    7.9 min     1.9 s/row  ETA    0.5 min
+[p4-eta][40c] row 256/270  spatial_block/hgb  this    5.1s  elapsed    8.0 min     1.9 s/row  ETA    0.4 min
+[p4-eta][40c] row 257/270  spatial_block/hgb  this    1.2s  elapsed    8.0 min     1.9 s/row  ETA    0.4 min
+[p4-eta][40c] row 258/270  spatial_block/hgb  this    3.1s  elapsed    8.1 min     1.9 s/row  ETA    0.4 min
+[p4-eta][40c] row 259/270  spatial_block/hgb  this    4.7s  elapsed    8.1 min     1.9 s/row  ETA    0.3 min
+[p4-eta][40c] row 260/270  spatial_block/hgb  this    3.7s  elapsed    8.2 min     1.9 s/row  ETA    0.3 min
+[p4-eta][40c] row 261/270  spatial_block/mlp  this    2.3s  elapsed    8.2 min     1.9 s/row  ETA    0.3 min
+[p4-eta][40c] row 262/270  spatial_block/mlp  this    0.8s  elapsed    8.2 min     1.9 s/row  ETA    0.3 min
+[p4-eta][40c] row 263/270  spatial_block/mlp  this    1.0s  elapsed    8.3 min     1.9 s/row  ETA    0.2 min
+[p4-eta][40c] row 264/270  spatial_block/mlp  this    2.1s  elapsed    8.3 min     1.9 s/row  ETA    0.2 min
+[p4-eta][40c] row 265/270  spatial_block/mlp  this    1.5s  elapsed    8.3 min     1.9 s/row  ETA    0.2 min
+[p4-eta][40c] row 266/270  spatial_block/mlp  this    1.8s  elapsed    8.4 min     1.9 s/row  ETA    0.1 min
+[p4-eta][40c] row 267/270  spatial_block/mlp  this    1.1s  elapsed    8.4 min     1.9 s/row  ETA    0.1 min
+[p4-eta][40c] row 268/270  spatial_block/mlp  this    1.1s  elapsed    8.4 min     1.9 s/row  ETA    0.1 min
+[p4-eta][40c] row 269/270  spatial_block/mlp  this    1.7s  elapsed    8.4 min     1.9 s/row  ETA    0.0 min
+[p4-eta][40c] row 270/270  spatial_block/mlp  this    1.2s  elapsed    8.4 min     1.9 s/row  ETA    0.0 min
+[cal]  20 cubes:   403 frames,   6404 cell_mean rows, build 9s, fit 3.0 min, 0.68 s/row
+[cal]  40 cubes:   812 frames,  12889 cell_mean rows, build 17s, fit 8.4 min, 1.88 s/row
+
+--------------------------------------------------------------------------------------------
+PROJECTION to 346 cubes
+--------------------------------------------------------------------------------------------
+  fold mode              20c       40c  exponent    projected
+  cube                   33s       50s      0.59       0.05 h
+  loco                  116s      384s      1.72       4.39 h
+  spatial_block          32s       71s      1.17       0.25 h
+  build (linear)                   17s      1.00       0.04 h
+
+  PROJECTED FULL-TILE STAGE A: 4.73 CPU-hours on 7 workers
+  (naive linear-in-cubes projection, for contrast: 1.26 h)
+  budget: 6.00 CPU-hours
+
+Under budget. Continuing straight through to the full run.
+
+============================================================================================
+FULL RUN -- 346 cubes, Stage A, plausibility screen ON
+============================================================================================
+[p4]   targets 25/346 cubes, 9s elapsed, 2.70 cubes/s, ETA 119s
+[p4]   targets 50/346 cubes, 18s elapsed, 2.71 cubes/s, ETA 109s
+[p4]   targets 75/346 cubes, 28s elapsed, 2.71 cubes/s, ETA 100s
+[p4]   targets 100/346 cubes, 37s elapsed, 2.72 cubes/s, ETA 90s
+[p4]   targets 125/346 cubes, 46s elapsed, 2.72 cubes/s, ETA 81s
+[p4]   targets 150/346 cubes, 55s elapsed, 2.72 cubes/s, ETA 72s
+[p4]   targets 175/346 cubes, 64s elapsed, 2.73 cubes/s, ETA 63s
+[p4]   targets 200/346 cubes, 73s elapsed, 2.73 cubes/s, ETA 54s
+[p4]   targets 225/346 cubes, 82s elapsed, 2.73 cubes/s, ETA 44s
+[p4]   targets 250/346 cubes, 92s elapsed, 2.73 cubes/s, ETA 35s
+[p4]   targets 275/346 cubes, 101s elapsed, 2.73 cubes/s, ETA 26s
+[p4]   targets 300/346 cubes, 110s elapsed, 2.73 cubes/s, ETA 17s
+[p4]   targets 325/346 cubes, 119s elapsed, 2.73 cubes/s, ETA 8s
+[p4]   targets 346/346 cubes, 127s elapsed, 2.73 cubes/s, ETA 0s
+[p4] targets built from 346 cubes via data.ndvi.ndvi (canonical), spatially aggregated -- never pixel-wise
+[p4] cell_mean: 111840 cells -> 110973 rows (867 dropped: no valid pixel in the cell, so not an observation -- nothing is filled)
+[p4] weather_full8  (6990, 64) = 8 E-OBS variables x 16 aggregations x 4 windows, over the DAILY axis
+[p4]   window span= 7d lag= 0d: days available min   5 median   7 max   7 | TRUNCATED on  25/6990 rows ( 0.4%)
+[p4]   window span=14d lag= 0d: days available min   5 median  14 max  14 | TRUNCATED on 275/6990 rows ( 3.9%)
+[p4]   window span=30d lag= 0d: days available min   5 median  30 max  30 | TRUNCATED on 690/6990 rows ( 9.9%)
+[p4]   window span=30d lag=30d: days available min   1 median  30 max  30 | TRUNCATED on 1169/6990 rows (16.7%)
+[p4]   truncation is clipping at the start of the cube, never filling. Aggregates are per-day RATES so it costs precision and not scale, and days-available is deliberately NOT a feature: it correlates with position-in-cube, i.e. with time of year.
+[p4] weather_eowm5  (6990, 44) = 5 E-OBS variables x 11 aggregations x 4 windows, over the DAILY axis
+[p4]   window span= 7d lag= 0d: days available min   5 median   7 max   7 | TRUNCATED on  25/6990 rows ( 0.4%)
+[p4]   window span=14d lag= 0d: days available min   5 median  14 max  14 | TRUNCATED on 275/6990 rows ( 3.9%)
+[p4]   window span=30d lag= 0d: days available min   5 median  30 max  30 | TRUNCATED on 690/6990 rows ( 9.9%)
+[p4]   window span=30d lag=30d: days available min   1 median  30 max  30 | TRUNCATED on 1169/6990 rows (16.7%)
+[p4]   truncation is clipping at the start of the cube, never filling. Aggregates are per-day RATES so it costs precision and not scale, and days-available is deliberately NOT a feature: it correlates with position-in-cube, i.e. with time of year.
+[p4] observation control (frame): (6990, 2) ['clear_frac', 'window_span_days'] -- NO weather. window_span_days recomputed from the manifest (min 0 median 80 max 185 d), not read from the Phase 1.2 cache
+[p4] observation control (cell): (110973, 2) ['grid_clear_frac', 'window_span_days'] -- NO weather. window_span_days recomputed from the manifest (min 0 median 80 max 185 d), not read from the Phase 1.2 cache
+[p4] day-of-year control: (6990, 13) = day_of_year + 6 harmonics, deliberately RICHER than the 4-harmonic detrend so a near-zero score is informative rather than automatic
+[p4] plausibility screen source: 2/6990 retained frames fail
+[p4] plausibility screen APPLIED: cube_mean -2 rows, cube_p90 -2 rows, cell_mean -24 rows
+[p4] weather is CONSTANT across the cells of every frame (110949 cell_mean rows over 6988 frames, 16 cells max): cell rows are PSEUDO-REPLICATES on the feature side -- they add target variance and no feature variance, so uncertainty is clustered at the cube level whatever the row count
+[run] build_p4_data 149s
+[p4] day-of-year vs weather, BEFORE anything is fitted:
+[p4]   6990 rows land on 47 DISTINCT days of year over a 295-day span; 6989/6990 share their date with another cube (max 346 cubes on one date)
+[p4]   every row satisfies doy % 5 == 2: the cubes share ONE Sentinel-2 orbit lattice, so day-of-year is close to a 47-level categorical variable
+[p4]   across-cube spread of the windowed features, as a fraction of their total spread: min 0.02 median 0.07 max 0.64
+[p4]   => roughly 93% of a typical weather feature is recoverable from the DATE alone. Read the LINEAR day-of-year control as the detrend sanity check; a flexible one fits a per-date mean, which here is most of a weather model in another basis.
+[p4-eta] row 1/270  cube/linear  this    0.3s  elapsed    0.0 min     0.3 s/row  ETA    1.5 min
+[p4-eta] row 2/270  cube/linear  this    0.3s  elapsed    0.0 min     0.3 s/row  ETA    1.4 min
+[p4-eta] row 3/270  cube/linear  this    0.3s  elapsed    0.0 min     0.3 s/row  ETA    1.4 min
+[p4-eta] row 4/270  cube/linear  this    0.3s  elapsed    0.0 min     0.3 s/row  ETA    1.4 min
+[p4-eta] row 5/270  cube/linear  this    0.3s  elapsed    0.0 min     0.3 s/row  ETA    1.4 min
+[p4-eta] row 6/270  cube/linear  this    0.3s  elapsed    0.0 min     0.3 s/row  ETA    1.4 min
+[p4-eta] row 7/270  cube/linear  this    0.3s  elapsed    0.0 min     0.3 s/row  ETA    1.4 min
+[p4-eta] row 8/270  cube/linear  this    0.3s  elapsed    0.0 min     0.3 s/row  ETA    1.4 min
+[p4-eta] row 9/270  cube/linear  this    0.3s  elapsed    0.0 min     0.3 s/row  ETA    1.4 min
+[p4-eta] row 10/270  cube/linear  this    0.3s  elapsed    0.1 min     0.3 s/row  ETA    1.4 min
+[p4-eta] row 11/270  cube/hgb  this    1.8s  elapsed    0.1 min     0.5 s/row  ETA    2.0 min
+[p4-eta] row 12/270  cube/hgb  this    0.8s  elapsed    0.1 min     0.5 s/row  ETA    2.1 min
+[p4-eta] row 13/270  cube/hgb  this    1.2s  elapsed    0.1 min     0.5 s/row  ETA    2.3 min
+[p4-eta] row 14/270  cube/hgb  this    2.0s  elapsed    0.1 min     0.6 s/row  ETA    2.7 min
+[p4-eta] row 15/270  cube/hgb  this    1.9s  elapsed    0.2 min     0.7 s/row  ETA    3.1 min
+[p4-eta] row 16/270  cube/hgb  this    1.6s  elapsed    0.2 min     0.8 s/row  ETA    3.3 min
+[p4-eta] row 17/270  cube/hgb  this    0.7s  elapsed    0.2 min     0.8 s/row  ETA    3.3 min
+[p4-eta] row 18/270  cube/hgb  this    1.2s  elapsed    0.2 min     0.8 s/row  ETA    3.3 min
+[p4-eta] row 19/270  cube/hgb  this    1.6s  elapsed    0.3 min     0.8 s/row  ETA    3.5 min
+[p4-eta] row 20/270  cube/hgb  this    1.5s  elapsed    0.3 min     0.9 s/row  ETA    3.6 min
+[p4-eta] row 21/270  cube/mlp  this    1.0s  elapsed    0.3 min     0.9 s/row  ETA    3.6 min
+[p4-eta] row 22/270  cube/mlp  this    0.5s  elapsed    0.3 min     0.9 s/row  ETA    3.5 min
+[p4-eta] row 23/270  cube/mlp  this    0.5s  elapsed    0.3 min     0.8 s/row  ETA    3.5 min
+[p4-eta] row 24/270  cube/mlp  this    1.1s  elapsed    0.3 min     0.9 s/row  ETA    3.5 min
+[p4-eta] row 25/270  cube/mlp  this    0.8s  elapsed    0.4 min     0.9 s/row  ETA    3.5 min
+[p4-eta] row 26/270  cube/mlp  this    1.3s  elapsed    0.4 min     0.9 s/row  ETA    3.5 min
+[p4-eta] row 27/270  cube/mlp  this    0.5s  elapsed    0.4 min     0.9 s/row  ETA    3.5 min
+[p4-eta] row 28/270  cube/mlp  this    0.5s  elapsed    0.4 min     0.8 s/row  ETA    3.4 min
+[p4-eta] row 29/270  cube/mlp  this    1.0s  elapsed    0.4 min     0.9 s/row  ETA    3.4 min
+[p4-eta] row 30/270  cube/mlp  this    0.7s  elapsed    0.4 min     0.8 s/row  ETA    3.4 min
+[p4-eta] row 31/270  loco/linear  this    7.6s  elapsed    0.5 min     1.1 s/row  ETA    4.2 min
+[p4-eta] row 32/270  loco/linear  this    6.8s  elapsed    0.7 min     1.2 s/row  ETA    4.9 min
+[p4-eta] row 33/270  loco/linear  this    7.3s  elapsed    0.8 min     1.4 s/row  ETA    5.6 min
+[p4-eta] row 34/270  loco/linear  this    7.7s  elapsed    0.9 min     1.6 s/row  ETA    6.3 min
+[p4-eta] row 35/270  loco/linear  this    7.9s  elapsed    1.0 min     1.8 s/row  ETA    7.0 min
+[p4-eta] row 36/270  loco/linear  this    7.3s  elapsed    1.2 min     1.9 s/row  ETA    7.6 min
+[p4-eta] row 37/270  loco/linear  this    7.2s  elapsed    1.3 min     2.1 s/row  ETA    8.1 min
+[p4-eta] row 38/270  loco/linear  this    7.5s  elapsed    1.4 min     2.2 s/row  ETA    8.6 min
+[p4-eta] row 39/270  loco/linear  this    7.4s  elapsed    1.5 min     2.4 s/row  ETA    9.1 min
+[p4-eta] row 40/270  loco/linear  this    7.6s  elapsed    1.7 min     2.5 s/row  ETA    9.6 min
+[p4-eta] row 41/270  loco/hgb  this  123.0s  elapsed    3.7 min     5.4 s/row  ETA   20.7 min
+[p4-eta] row 42/270  loco/hgb  this   37.2s  elapsed    4.3 min     6.2 s/row  ETA   23.5 min
+[p4-eta] row 43/270  loco/hgb  this   63.2s  elapsed    5.4 min     7.5 s/row  ETA   28.4 min
+[p4-eta] row 44/270  loco/hgb  this  143.2s  elapsed    7.8 min    10.6 s/row  ETA   39.9 min
+[p4-eta] row 45/270  loco/hgb  this  126.4s  elapsed    9.9 min    13.2 s/row  ETA   49.4 min
+[p4-eta] row 46/270  loco/hgb  this  102.6s  elapsed   11.6 min    15.1 s/row  ETA   56.4 min
+[p4-eta] row 47/270  loco/hgb  this   40.7s  elapsed   12.3 min    15.7 s/row  ETA   58.2 min
+[p4-eta] row 48/270  loco/hgb  this   69.1s  elapsed   13.4 min    16.8 s/row  ETA   62.1 min
+[p4-eta] row 49/270  loco/hgb  this  106.6s  elapsed   15.2 min    18.6 s/row  ETA   68.5 min
+[p4-eta] row 50/270  loco/hgb  this  108.5s  elapsed   17.0 min    20.4 s/row  ETA   74.8 min
+[p4-eta] row 51/270  loco/mlp  this   77.3s  elapsed   18.3 min    21.5 s/row  ETA   78.6 min
+[p4-eta] row 52/270  loco/mlp  this   30.4s  elapsed   18.8 min    21.7 s/row  ETA   78.8 min
+[p4-eta] row 53/270  loco/mlp  this   33.7s  elapsed   19.4 min    21.9 s/row  ETA   79.3 min
+[p4-eta] row 54/270  loco/mlp  this   87.1s  elapsed   20.8 min    23.1 s/row  ETA   83.2 min
+[p4-eta] row 55/270  loco/mlp  this   60.6s  elapsed   21.8 min    23.8 s/row  ETA   85.3 min
+[p4-eta] row 56/270  loco/mlp  this   63.2s  elapsed   22.9 min    24.5 s/row  ETA   87.4 min
+[p4-eta] row 57/270  loco/mlp  this   28.5s  elapsed   23.4 min    24.6 s/row  ETA   87.3 min
+[p4-eta] row 58/270  loco/mlp  this   32.8s  elapsed   23.9 min    24.7 s/row  ETA   87.3 min
+[p4-eta] row 59/270  loco/mlp  this   64.9s  elapsed   25.0 min    25.4 s/row  ETA   89.3 min
+[p4-eta] row 60/270  loco/mlp  this   57.3s  elapsed   25.9 min    25.9 s/row  ETA   90.8 min
+[p4-eta] row 61/270  spatial_block/linear  this   49.7s  elapsed   26.8 min    26.3 s/row  ETA   91.7 min
+[p4-eta] row 62/270  spatial_block/linear  this   48.5s  elapsed   27.6 min    26.7 s/row  ETA   92.5 min
+[p4-eta] row 63/270  spatial_block/linear  this   47.8s  elapsed   28.4 min    27.0 s/row  ETA   93.2 min
+[p4-eta] row 64/270  spatial_block/linear  this   47.9s  elapsed   29.2 min    27.3 s/row  ETA   93.9 min
+[p4-eta] row 65/270  spatial_block/linear  this   48.5s  elapsed   30.0 min    27.7 s/row  ETA   94.5 min
+[p4-eta] row 66/270  spatial_block/linear  this   48.1s  elapsed   30.8 min    28.0 s/row  ETA   95.1 min
+[p4-eta] row 67/270  spatial_block/linear  this   52.9s  elapsed   31.7 min    28.4 s/row  ETA   95.9 min
+[p4-eta] row 68/270  spatial_block/linear  this   54.7s  elapsed   32.6 min    28.7 s/row  ETA   96.7 min
+[p4-eta] row 69/270  spatial_block/linear  this   53.2s  elapsed   33.5 min    29.1 s/row  ETA   97.5 min
+[p4-eta] row 70/270  spatial_block/linear  this   49.3s  elapsed   34.3 min    29.4 s/row  ETA   97.9 min
+[p4-eta] row 71/270  spatial_block/hgb  this   53.4s  elapsed   35.2 min    29.7 s/row  ETA   98.6 min
+[p4-eta] row 72/270  spatial_block/hgb  this   53.8s  elapsed   36.1 min    30.1 s/row  ETA   99.2 min
+[p4-eta] row 73/270  spatial_block/hgb  this   51.9s  elapsed   36.9 min    30.4 s/row  ETA   99.7 min
+[p4-eta] row 74/270  spatial_block/hgb  this   54.3s  elapsed   37.8 min    30.7 s/row  ETA  100.2 min
+[p4-eta] row 75/270  spatial_block/hgb  this   52.9s  elapsed   38.7 min    31.0 s/row  ETA  100.7 min
+[p4-eta] row 76/270  spatial_block/hgb  this   51.2s  elapsed   39.6 min    31.2 s/row  ETA  101.0 min
+[p4-eta] row 77/270  spatial_block/hgb  this   48.6s  elapsed   40.4 min    31.5 s/row  ETA  101.2 min
+[p4-eta] row 78/270  spatial_block/hgb  this   50.3s  elapsed   41.2 min    31.7 s/row  ETA  101.5 min
+[p4-eta] row 79/270  spatial_block/hgb  this   60.9s  elapsed   42.2 min    32.1 s/row  ETA  102.1 min
+[p4-eta] row 80/270  spatial_block/hgb  this   55.7s  elapsed   43.2 min    32.4 s/row  ETA  102.5 min
+[p4-eta] row 81/270  spatial_block/mlp  this   52.6s  elapsed   44.0 min    32.6 s/row  ETA  102.8 min
+[p4-eta] row 82/270  spatial_block/mlp  this   50.5s  elapsed   44.9 min    32.8 s/row  ETA  102.9 min
+[p4-eta] row 83/270  spatial_block/mlp  this   53.6s  elapsed   45.8 min    33.1 s/row  ETA  103.1 min
+[p4-eta] row 84/270  spatial_block/mlp  this   51.7s  elapsed   46.6 min    33.3 s/row  ETA  103.3 min
+[p4-eta] row 85/270  spatial_block/mlp  this   50.5s  elapsed   47.5 min    33.5 s/row  ETA  103.3 min
+[p4-eta] row 86/270  spatial_block/mlp  this   50.8s  elapsed   48.3 min    33.7 s/row  ETA  103.4 min
+[p4-eta] row 87/270  spatial_block/mlp  this   51.0s  elapsed   49.2 min    33.9 s/row  ETA  103.4 min
+[p4-eta] row 88/270  spatial_block/mlp  this   50.3s  elapsed   50.0 min    34.1 s/row  ETA  103.4 min
+[p4-eta] row 89/270  spatial_block/mlp  this   51.6s  elapsed   50.9 min    34.3 s/row  ETA  103.5 min
+[p4-eta] row 90/270  spatial_block/mlp  this   52.0s  elapsed   51.7 min    34.5 s/row  ETA  103.5 min
+[p4-eta] row 91/270  cube/linear  this    0.4s  elapsed   51.8 min    34.1 s/row  ETA  101.8 min
+[p4-eta] row 92/270  cube/linear  this    0.4s  elapsed   51.8 min    33.8 s/row  ETA  100.1 min
+[p4-eta] row 93/270  cube/linear  this    0.3s  elapsed   51.8 min    33.4 s/row  ETA   98.5 min
+[p4-eta] row 94/270  cube/linear  this    0.4s  elapsed   51.8 min    33.0 s/row  ETA   96.9 min
+[p4-eta] row 95/270  cube/linear  this    0.4s  elapsed   51.8 min    32.7 s/row  ETA   95.4 min
+[p4-eta] row 96/270  cube/linear  this    0.4s  elapsed   51.8 min    32.4 s/row  ETA   93.9 min
+[p4-eta] row 97/270  cube/linear  this    0.4s  elapsed   51.8 min    32.0 s/row  ETA   92.4 min
+[p4-eta] row 98/270  cube/linear  this    0.4s  elapsed   51.8 min    31.7 s/row  ETA   90.9 min
+[p4-eta] row 99/270  cube/linear  this    0.5s  elapsed   51.8 min    31.4 s/row  ETA   89.5 min
+[p4-eta] row 100/270  cube/linear  this    0.4s  elapsed   51.8 min    31.1 s/row  ETA   88.1 min
+[p4-eta] row 101/270  cube/hgb  this    3.8s  elapsed   51.9 min    30.8 s/row  ETA   86.8 min
+[p4-eta] row 102/270  cube/hgb  this    1.4s  elapsed   51.9 min    30.5 s/row  ETA   85.5 min
+[p4-eta] row 103/270  cube/hgb  this    1.9s  elapsed   51.9 min    30.3 s/row  ETA   84.2 min
+[p4-eta] row 104/270  cube/hgb  this    3.7s  elapsed   52.0 min    30.0 s/row  ETA   83.0 min
+[p4-eta] row 105/270  cube/hgb  this    3.6s  elapsed   52.1 min    29.7 s/row  ETA   81.8 min
+[p4-eta] row 106/270  cube/hgb  this    2.4s  elapsed   52.1 min    29.5 s/row  ETA   80.6 min
+[p4-eta] row 107/270  cube/hgb  this    1.2s  elapsed   52.1 min    29.2 s/row  ETA   79.4 min
+[p4-eta] row 108/270  cube/hgb  this    2.2s  elapsed   52.1 min    29.0 s/row  ETA   78.2 min
+[p4-eta] row 109/270  cube/hgb  this    2.2s  elapsed   52.2 min    28.7 s/row  ETA   77.1 min
+[p4-eta] row 110/270  cube/hgb  this    2.1s  elapsed   52.2 min    28.5 s/row  ETA   76.0 min
+[p4-eta] row 111/270  cube/mlp  this    1.2s  elapsed   52.2 min    28.2 s/row  ETA   74.8 min
+[p4-eta] row 112/270  cube/mlp  this    0.8s  elapsed   52.3 min    28.0 s/row  ETA   73.7 min
+[p4-eta] row 113/270  cube/mlp  this    0.6s  elapsed   52.3 min    27.7 s/row  ETA   72.6 min
+[p4-eta] row 114/270  cube/mlp  this    1.4s  elapsed   52.3 min    27.5 s/row  ETA   71.5 min
+[p4-eta] row 115/270  cube/mlp  this    1.2s  elapsed   52.3 min    27.3 s/row  ETA   70.5 min
+[p4-eta] row 116/270  cube/mlp  this    1.2s  elapsed   52.3 min    27.1 s/row  ETA   69.5 min
+[p4-eta] row 117/270  cube/mlp  this    0.5s  elapsed   52.3 min    26.8 s/row  ETA   68.4 min
+[p4-eta] row 118/270  cube/mlp  this    0.5s  elapsed   52.3 min    26.6 s/row  ETA   67.4 min
+[p4-eta] row 119/270  cube/mlp  this    1.0s  elapsed   52.4 min    26.4 s/row  ETA   66.4 min
+[p4-eta] row 120/270  cube/mlp  this    1.1s  elapsed   52.4 min    26.2 s/row  ETA   65.5 min
+[p4-eta] row 121/270  loco/linear  this    9.4s  elapsed   52.5 min    26.1 s/row  ETA   64.7 min
+[p4-eta] row 122/270  loco/linear  this    9.6s  elapsed   52.7 min    25.9 s/row  ETA   63.9 min
+[p4-eta] row 123/270  loco/linear  this   10.1s  elapsed   52.9 min    25.8 s/row  ETA   63.2 min
+[p4-eta] row 124/270  loco/linear  this   10.2s  elapsed   53.0 min    25.7 s/row  ETA   62.4 min
+[p4-eta] row 125/270  loco/linear  this   17.3s  elapsed   53.3 min    25.6 s/row  ETA   61.9 min
+[p4-eta] row 126/270  loco/linear  this    9.8s  elapsed   53.5 min    25.5 s/row  ETA   61.1 min
+[p4-eta] row 127/270  loco/linear  this    9.6s  elapsed   53.6 min    25.3 s/row  ETA   60.4 min
+[p4-eta] row 128/270  loco/linear  this    9.9s  elapsed   53.8 min    25.2 s/row  ETA   59.7 min
+[p4-eta] row 129/270  loco/linear  this   10.1s  elapsed   54.0 min    25.1 s/row  ETA   59.0 min
+[p4-eta] row 130/270  loco/linear  this   21.8s  elapsed   54.3 min    25.1 s/row  ETA   58.5 min
+[p4-eta] row 131/270  loco/hgb  this  172.8s  elapsed   57.2 min    26.2 s/row  ETA   60.7 min
+[p4-eta] row 132/270  loco/hgb  this   47.5s  elapsed   58.0 min    26.4 s/row  ETA   60.7 min
+[p4-eta] row 133/270  loco/hgb  this   79.6s  elapsed   59.3 min    26.8 s/row  ETA   61.1 min
+[p4-eta] row 134/270  loco/hgb  this  179.4s  elapsed   62.3 min    27.9 s/row  ETA   63.3 min
+[p4-eta] row 135/270  loco/hgb  this  178.2s  elapsed   65.3 min    29.0 s/row  ETA   65.3 min
+[p4-eta] row 136/270  loco/hgb  this  139.2s  elapsed   67.6 min    29.8 s/row  ETA   66.6 min
+[p4-eta] row 137/270  loco/hgb  this   49.4s  elapsed   68.5 min    30.0 s/row  ETA   66.5 min
+[p4-eta] row 138/270  loco/hgb  this   81.1s  elapsed   69.8 min    30.3 s/row  ETA   66.8 min
+[p4-eta] row 139/270  loco/hgb  this  155.6s  elapsed   72.4 min    31.3 s/row  ETA   68.2 min
+[p4-eta] row 140/270  loco/hgb  this  107.5s  elapsed   74.2 min    31.8 s/row  ETA   68.9 min
+[p4-eta] row 141/270  loco/mlp  this   69.9s  elapsed   75.4 min    32.1 s/row  ETA   68.9 min
+[p4-eta] row 142/270  loco/mlp  this   34.0s  elapsed   75.9 min    32.1 s/row  ETA   68.4 min
+[p4-eta] row 143/270  loco/mlp  this   37.7s  elapsed   76.6 min    32.1 s/row  ETA   68.0 min
+[p4-eta] row 144/270  loco/mlp  this   80.3s  elapsed   77.9 min    32.5 s/row  ETA   68.2 min
+[p4-eta] row 145/270  loco/mlp  this   59.9s  elapsed   78.9 min    32.6 s/row  ETA   68.0 min
+[p4-eta] row 146/270  loco/mlp  this   58.7s  elapsed   79.9 min    32.8 s/row  ETA   67.8 min
+[p4-eta] row 147/270  loco/mlp  this   33.5s  elapsed   80.4 min    32.8 s/row  ETA   67.3 min
+[p4-eta] row 148/270  loco/mlp  this   36.5s  elapsed   81.0 min    32.9 s/row  ETA   66.8 min
+[p4-eta] row 149/270  loco/mlp  this   57.8s  elapsed   82.0 min    33.0 s/row  ETA   66.6 min
+[p4-eta] row 150/270  loco/mlp  this   54.4s  elapsed   82.9 min    33.2 s/row  ETA   66.3 min
+[p4-eta] row 151/270  spatial_block/linear  this   48.6s  elapsed   83.7 min    33.3 s/row  ETA   66.0 min
+[p4-eta] row 152/270  spatial_block/linear  this   48.5s  elapsed   84.5 min    33.4 s/row  ETA   65.6 min
+[p4-eta] row 153/270  spatial_block/linear  this   47.9s  elapsed   85.3 min    33.5 s/row  ETA   65.2 min
+[p4-eta] row 154/270  spatial_block/linear  this   48.3s  elapsed   86.1 min    33.6 s/row  ETA   64.9 min
+[p4-eta] row 155/270  spatial_block/linear  this   47.8s  elapsed   86.9 min    33.6 s/row  ETA   64.5 min
+[p4-eta] row 156/270  spatial_block/linear  this   48.0s  elapsed   87.7 min    33.7 s/row  ETA   64.1 min
+[p4-eta] row 157/270  spatial_block/linear  this   48.1s  elapsed   88.5 min    33.8 s/row  ETA   63.7 min
+[p4-eta] row 158/270  spatial_block/linear  this   48.4s  elapsed   89.3 min    33.9 s/row  ETA   63.3 min
+[p4-eta] row 159/270  spatial_block/linear  this   48.2s  elapsed   90.1 min    34.0 s/row  ETA   62.9 min
+[p4-eta] row 160/270  spatial_block/linear  this   48.0s  elapsed   90.9 min    34.1 s/row  ETA   62.5 min
+[p4-eta] row 161/270  spatial_block/hgb  this   49.8s  elapsed   91.8 min    34.2 s/row  ETA   62.1 min
+[p4-eta] row 162/270  spatial_block/hgb  this   50.4s  elapsed   92.6 min    34.3 s/row  ETA   61.7 min
+[p4-eta] row 163/270  spatial_block/hgb  this   48.7s  elapsed   93.4 min    34.4 s/row  ETA   61.3 min
+[p4-eta] row 164/270  spatial_block/hgb  this   51.2s  elapsed   94.3 min    34.5 s/row  ETA   60.9 min
+[p4-eta] row 165/270  spatial_block/hgb  this   50.2s  elapsed   95.1 min    34.6 s/row  ETA   60.5 min
+[p4-eta] row 166/270  spatial_block/hgb  this   49.0s  elapsed   95.9 min    34.7 s/row  ETA   60.1 min
+[p4-eta] row 167/270  spatial_block/hgb  this   48.4s  elapsed   96.7 min    34.8 s/row  ETA   59.7 min
+[p4-eta] row 168/270  spatial_block/hgb  this   51.0s  elapsed   97.6 min    34.9 s/row  ETA   59.2 min
+[p4-eta] row 169/270  spatial_block/hgb  this   49.1s  elapsed   98.4 min    34.9 s/row  ETA   58.8 min
+[p4-eta] row 170/270  spatial_block/hgb  this   49.1s  elapsed   99.2 min    35.0 s/row  ETA   58.4 min
+[p4-eta] row 171/270  spatial_block/mlp  this   48.5s  elapsed  100.0 min    35.1 s/row  ETA   57.9 min
+[p4-eta] row 172/270  spatial_block/mlp  this   47.8s  elapsed  100.8 min    35.2 s/row  ETA   57.4 min
+[p4-eta] row 173/270  spatial_block/mlp  this   48.0s  elapsed  101.6 min    35.2 s/row  ETA   57.0 min
+[p4-eta] row 174/270  spatial_block/mlp  this   48.5s  elapsed  102.4 min    35.3 s/row  ETA   56.5 min
+[p4-eta] row 175/270  spatial_block/mlp  this   48.4s  elapsed  103.2 min    35.4 s/row  ETA   56.0 min
+[p4-eta] row 176/270  spatial_block/mlp  this   48.7s  elapsed  104.1 min    35.5 s/row  ETA   55.6 min
+[p4-eta] row 177/270  spatial_block/mlp  this   47.8s  elapsed  104.9 min    35.5 s/row  ETA   55.1 min
+[p4-eta] row 178/270  spatial_block/mlp  this   47.8s  elapsed  105.6 min    35.6 s/row  ETA   54.6 min
+[p4-eta] row 179/270  spatial_block/mlp  this   48.2s  elapsed  106.5 min    35.7 s/row  ETA   54.1 min
+[p4-eta] row 180/270  spatial_block/mlp  this   48.4s  elapsed  107.3 min    35.8 s/row  ETA   53.6 min
+[p4-eta] row 181/270  cube/linear  this    0.9s  elapsed  107.3 min    35.6 s/row  ETA   52.7 min
+[p4-eta] row 182/270  cube/linear  this    0.5s  elapsed  107.3 min    35.4 s/row  ETA   51.9 min
+[p4-eta] row 183/270  cube/linear  this    0.5s  elapsed  107.3 min    35.2 s/row  ETA   51.0 min
+[p4-eta] row 184/270  cube/linear  this    0.8s  elapsed  107.3 min    35.0 s/row  ETA   50.2 min
+[p4-eta] row 185/270  cube/linear  this    0.7s  elapsed  107.3 min    34.8 s/row  ETA   49.3 min
+[p4-eta] row 186/270  cube/linear  this    0.6s  elapsed  107.3 min    34.6 s/row  ETA   48.5 min
+[p4-eta] row 187/270  cube/linear  this    0.5s  elapsed  107.3 min    34.4 s/row  ETA   47.6 min
+[p4-eta] row 188/270  cube/linear  this    0.5s  elapsed  107.3 min    34.3 s/row  ETA   46.8 min
+[p4-eta] row 189/270  cube/linear  this    0.7s  elapsed  107.4 min    34.1 s/row  ETA   46.0 min
+[p4-eta] row 190/270  cube/linear  this    0.7s  elapsed  107.4 min    33.9 s/row  ETA   45.2 min
+[p4-eta] row 191/270  cube/hgb  this   14.3s  elapsed  107.6 min    33.8 s/row  ETA   44.5 min
+[p4-eta] row 192/270  cube/hgb  this    2.3s  elapsed  107.6 min    33.6 s/row  ETA   43.7 min
+[p4-eta] row 193/270  cube/hgb  this    6.7s  elapsed  107.8 min    33.5 s/row  ETA   43.0 min
+[p4-eta] row 194/270  cube/hgb  this   14.5s  elapsed  108.0 min    33.4 s/row  ETA   42.3 min
+[p4-eta] row 195/270  cube/hgb  this   13.0s  elapsed  108.2 min    33.3 s/row  ETA   41.6 min
+[p4-eta] row 196/270  cube/hgb  this   10.5s  elapsed  108.4 min    33.2 s/row  ETA   40.9 min
+[p4-eta] row 197/270  cube/hgb  this    2.5s  elapsed  108.4 min    33.0 s/row  ETA   40.2 min
+[p4-eta] row 198/270  cube/hgb  this    6.7s  elapsed  108.5 min    32.9 s/row  ETA   39.5 min
+[p4-eta] row 199/270  cube/hgb  this   10.2s  elapsed  108.7 min    32.8 s/row  ETA   38.8 min
+[p4-eta] row 200/270  cube/hgb  this    9.5s  elapsed  108.9 min    32.7 s/row  ETA   38.1 min
+[p4-eta] row 201/270  cube/mlp  this    9.4s  elapsed  109.0 min    32.5 s/row  ETA   37.4 min
+[p4-eta] row 202/270  cube/mlp  this    4.2s  elapsed  109.1 min    32.4 s/row  ETA   36.7 min
+[p4-eta] row 203/270  cube/mlp  this    4.7s  elapsed  109.2 min    32.3 s/row  ETA   36.0 min
+[p4-eta] row 204/270  cube/mlp  this   10.9s  elapsed  109.4 min    32.2 s/row  ETA   35.4 min
+[p4-eta] row 205/270  cube/mlp  this    6.9s  elapsed  109.5 min    32.0 s/row  ETA   34.7 min
+[p4-eta] row 206/270  cube/mlp  this    9.2s  elapsed  109.6 min    31.9 s/row  ETA   34.1 min
+[p4-eta] row 207/270  cube/mlp  this    4.6s  elapsed  109.7 min    31.8 s/row  ETA   33.4 min
+[p4-eta] row 208/270  cube/mlp  this    4.7s  elapsed  109.8 min    31.7 s/row  ETA   32.7 min
+[p4-eta] row 209/270  cube/mlp  this    8.9s  elapsed  109.9 min    31.6 s/row  ETA   32.1 min
+[p4-eta] row 210/270  cube/mlp  this    6.5s  elapsed  110.0 min    31.4 s/row  ETA   31.4 min
+[p4-eta] row 211/270  loco/linear  this   40.9s  elapsed  110.7 min    31.5 s/row  ETA   31.0 min
+[p4-eta] row 212/270  loco/linear  this   16.4s  elapsed  111.0 min    31.4 s/row  ETA   30.4 min
+[p4-eta] row 213/270  loco/linear  this   28.2s  elapsed  111.5 min    31.4 s/row  ETA   29.8 min
+[p4-eta] row 214/270  loco/linear  this   44.9s  elapsed  112.2 min    31.5 s/row  ETA   29.4 min
+[p4-eta] row 215/270  loco/linear  this   44.4s  elapsed  113.0 min    31.5 s/row  ETA   28.9 min
+[p4-eta] row 216/270  loco/linear  this   35.2s  elapsed  113.5 min    31.5 s/row  ETA   28.4 min
+[p4-eta] row 217/270  loco/linear  this   15.8s  elapsed  113.8 min    31.5 s/row  ETA   27.8 min
+[p4-eta] row 218/270  loco/linear  this   19.5s  elapsed  114.1 min    31.4 s/row  ETA   27.2 min
+[p4-eta] row 219/270  loco/linear  this   36.1s  elapsed  114.7 min    31.4 s/row  ETA   26.7 min
+[p4-eta] row 220/270  loco/linear  this   37.3s  elapsed  115.4 min    31.5 s/row  ETA   26.2 min
+[p4-eta] row 221/270  loco/hgb  this 1055.4s  elapsed  133.0 min    36.1 s/row  ETA   29.5 min
+[p4-eta] row 222/270  loco/hgb  this  152.6s  elapsed  135.5 min    36.6 s/row  ETA   29.3 min
+[p4-eta] row 223/270  loco/hgb  this  471.5s  elapsed  143.4 min    38.6 s/row  ETA   30.2 min
+[p4-eta] row 224/270  loco/hgb  this 1115.7s  elapsed  162.0 min    43.4 s/row  ETA   33.3 min
+[p4-eta] row 225/270  loco/hgb  this  942.1s  elapsed  177.7 min    47.4 s/row  ETA   35.5 min
+[p4-eta] row 226/270  loco/hgb  this  741.8s  elapsed  190.0 min    50.4 s/row  ETA   37.0 min
+[p4-eta] row 227/270  loco/hgb  this  168.2s  elapsed  192.8 min    51.0 s/row  ETA   36.5 min
+[p4-eta] row 228/270  loco/hgb  this  447.6s  elapsed  200.3 min    52.7 s/row  ETA   36.9 min
+[p4-eta] row 229/270  loco/hgb  this  800.2s  elapsed  213.6 min    56.0 s/row  ETA   38.2 min
+[p4-eta] row 230/270  loco/hgb  this  747.1s  elapsed  226.1 min    59.0 s/row  ETA   39.3 min
+[p4-eta] row 231/270  loco/mlp  this  752.0s  elapsed  238.6 min    62.0 s/row  ETA   40.3 min
+[p4-eta] row 232/270  loco/mlp  this  367.0s  elapsed  244.7 min    63.3 s/row  ETA   40.1 min
+[p4-eta] row 233/270  loco/mlp  this  401.4s  elapsed  251.4 min    64.7 s/row  ETA   39.9 min
+[p4-eta] row 234/270  loco/mlp  this  881.1s  elapsed  266.1 min    68.2 s/row  ETA   40.9 min
+[p4-eta] row 235/270  loco/mlp  this  569.8s  elapsed  275.6 min    70.4 s/row  ETA   41.0 min
+[p4-eta] row 236/270  loco/mlp  this  670.3s  elapsed  286.8 min    72.9 s/row  ETA   41.3 min
+[p4-eta] row 237/270  loco/mlp  this 1434.2s  elapsed  310.7 min    78.7 s/row  ETA   43.3 min
+[p4-eta] row 238/270  loco/mlp  this  406.1s  elapsed  317.4 min    80.0 s/row  ETA   42.7 min
+[p4-eta] row 239/270  loco/mlp  this  689.2s  elapsed  328.9 min    82.6 s/row  ETA   42.7 min
+[p4-eta] row 240/270  loco/mlp  this  487.4s  elapsed  337.1 min    84.3 s/row  ETA   42.1 min
+[p4-eta] row 241/270  spatial_block/linear  this   48.5s  elapsed  337.9 min    84.1 s/row  ETA   40.7 min
+[p4-eta] row 242/270  spatial_block/linear  this   48.3s  elapsed  338.7 min    84.0 s/row  ETA   39.2 min
+[p4-eta] row 243/270  spatial_block/linear  this   48.3s  elapsed  339.5 min    83.8 s/row  ETA   37.7 min
+[p4-eta] row 244/270  spatial_block/linear  this   48.6s  elapsed  340.3 min    83.7 s/row  ETA   36.3 min
+[p4-eta] row 245/270  spatial_block/linear  this   48.7s  elapsed  341.1 min    83.5 s/row  ETA   34.8 min
+[p4-eta] row 246/270  spatial_block/linear  this   48.3s  elapsed  341.9 min    83.4 s/row  ETA   33.4 min
+[p4-eta] row 247/270  spatial_block/linear  this   48.2s  elapsed  342.7 min    83.2 s/row  ETA   31.9 min
+[p4-eta] row 248/270  spatial_block/linear  this   47.8s  elapsed  343.5 min    83.1 s/row  ETA   30.5 min
+[p4-eta] row 249/270  spatial_block/linear  this   48.7s  elapsed  344.3 min    83.0 s/row  ETA   29.0 min
+[p4-eta] row 250/270  spatial_block/linear  this   48.7s  elapsed  345.1 min    82.8 s/row  ETA   27.6 min
+[p4-eta] row 251/270  spatial_block/hgb  this   62.7s  elapsed  346.2 min    82.8 s/row  ETA   26.2 min
+[p4-eta] row 252/270  spatial_block/hgb  this   49.9s  elapsed  347.0 min    82.6 s/row  ETA   24.8 min
+[p4-eta] row 253/270  spatial_block/hgb  this   54.6s  elapsed  347.9 min    82.5 s/row  ETA   23.4 min
+[p4-eta] row 254/270  spatial_block/hgb  this   63.2s  elapsed  349.0 min    82.4 s/row  ETA   22.0 min
+[p4-eta] row 255/270  spatial_block/hgb  this   61.9s  elapsed  350.0 min    82.4 s/row  ETA   20.6 min
+[p4-eta] row 256/270  spatial_block/hgb  this   58.7s  elapsed  351.0 min    82.3 s/row  ETA   19.2 min
+[p4-eta] row 257/270  spatial_block/hgb  this   50.2s  elapsed  351.8 min    82.1 s/row  ETA   17.8 min
+[p4-eta] row 258/270  spatial_block/hgb  this   54.3s  elapsed  352.7 min    82.0 s/row  ETA   16.4 min
+[p4-eta] row 259/270  spatial_block/hgb  this   57.9s  elapsed  353.7 min    81.9 s/row  ETA   15.0 min
+[p4-eta] row 260/270  spatial_block/hgb  this   58.1s  elapsed  354.7 min    81.8 s/row  ETA   13.6 min
+[p4-eta] row 261/270  spatial_block/mlp  this   59.4s  elapsed  355.6 min    81.8 s/row  ETA   12.3 min
+[p4-eta] row 262/270  spatial_block/mlp  this   54.0s  elapsed  356.5 min    81.7 s/row  ETA   10.9 min
+[p4-eta] row 263/270  spatial_block/mlp  this   55.3s  elapsed  357.5 min    81.6 s/row  ETA    9.5 min
+[p4-eta] row 264/270  spatial_block/mlp  this 1012.7s  elapsed  374.4 min    85.1 s/row  ETA    8.5 min
+[p4-eta] row 265/270  spatial_block/mlp  this   55.1s  elapsed  375.3 min    85.0 s/row  ETA    7.1 min
+[p4-eta] row 266/270  spatial_block/mlp  this   56.8s  elapsed  376.2 min    84.9 s/row  ETA    5.7 min
+[p4-eta] row 267/270  spatial_block/mlp  this 1023.3s  elapsed  393.3 min    88.4 s/row  ETA    4.4 min
+[p4-eta] row 268/270  spatial_block/mlp  this   54.4s  elapsed  394.2 min    88.2 s/row  ETA    2.9 min
+[p4-eta] row 269/270  spatial_block/mlp  this 1007.6s  elapsed  411.0 min    91.7 s/row  ETA    1.5 min
+[p4-eta] row 270/270  spatial_block/mlp  this  983.7s  elapsed  427.4 min    95.0 s/row  ETA    0.0 min
+
+[run] run_stage_a: 270 rows in 427.4 min on 7 workers (projected 281.2 min)
+[p4] margins attached. 14/54 weather rows are AT OR BELOW the observation-process control -- i.e. weather adds nothing there that cloud retention did not already carry
+[p4] Stage B: DEFERRED, explicitly, and NOT substituted
+[run] wrote data/scaled_32UQC/p4_extreme_results.csv; invariants run next
+[p4] results table COMPLETE: 270 rows, 1 stage(s) x 3 targets x 3 fold modes x 3 estimators x 2 feature sets x 5 model kinds
+[p4] results table COMPLETE: 270 rows, 1 stage(s) x 3 targets x 3 fold modes x 3 estimators x 2 feature sets x 5 model kinds
+[p4] Stage B: DEFERRED, explicitly, and NOT substituted
+[run] all invariants pass in memory and on the CSV
+
+--------------------------------------------------------------------------------------------
+SCREEN GEOMETRY
+--------------------------------------------------------------------------------------------
+  2 implausible frames of 6990 (0.03%); 32UNU: 3/1580 (0.19%)
+  cube_mean    -2 rows
+  cube_p90     -2 rows
+  cell_mean    -24 rows
+
+============================================================================================
+HEADLINE -- 32UQC 346 cubes, Stage A, screened, cell_mean / HGB / weather_full8
+============================================================================================
+  mode/kind                        32UQC R2  obs margin  DOY margin |   32UNU R2      obs      doy
+  cube/weather                       +0.111      +0.086      +0.096 |     +0.116   +0.120   +0.086
+  cube/observation                   +0.025      +0.000      +0.010 |     -0.004                  
+  cube/doy                           +0.015      -0.010      +0.000 |     +0.030                  
+  cube/weather_plus_observation       +0.153      +0.128      +0.138 |       +nan                  
+  cube/permutation                   -0.094      -0.119      -0.109 |       +nan                  
+                               cube weather 95% CI [+0.031, +0.191] over 5 folds, effective n 346 cubes
+  loco/weather                       +0.078      +0.056      +0.063 |     +0.096   +0.117   +0.066
+  loco/observation                   +0.021      +0.000      +0.007 |     -0.021                  
+  loco/doy                           +0.015      -0.007      +0.000 |     +0.030                  
+  loco/weather_plus_observation       +0.122      +0.101      +0.107 |       +nan                  
+  loco/permutation                   -0.102      -0.123      -0.117 |       +nan                  
+                               loco weather 95% CI [+0.037, +0.118] over 346 folds, effective n 346 cubes
+
+============================================================================================
+CONTROLS -- does weather beat day-of-year, or only echo it?
+============================================================================================
+If the DOY control sits close behind the weather rows, the ceiling reads as
+seasonal timing recovered through weather, i.e. CONFOUNDED rather than climate-driven.
+
+  target/mode/est                            weather       doy    margin  doy/weather
+  cell_mean/cube/hgb                          +0.111    +0.015    +0.096         14%
+  cell_mean/cube/linear                       +0.026    +0.005    +0.021         20%
+  cell_mean/cube/mlp                          +0.075    +0.005    +0.070          6%
+  cell_mean/loco/hgb                          +0.078    +0.015    +0.063         19%
+  cell_mean/loco/linear                       +0.020    +0.007    +0.013         33%
+  cell_mean/loco/mlp                          +0.059    +0.012    +0.047         20%
+  cube_mean/cube/hgb                          +0.231    +0.029    +0.202         13%
+  cube_mean/cube/linear                       +0.036    +0.009    +0.027         25%
+  cube_mean/cube/mlp                          +0.136    -0.015    +0.150        -11%
+  cube_mean/loco/hgb                          -0.054    +0.038    -0.092        nan%
+  cube_mean/loco/linear                       +0.039    +0.020    +0.019         52%
+  cube_mean/loco/mlp                          -0.035    -0.037    +0.002        nan%
+
+  32UNU screened reference, cell_mean/HGB: cube weather +0.116 vs doy +0.030 (margin +0.086, doy is 26% of weather); loco weather +0.096 vs doy +0.030 (margin +0.066)
+
+  weather rows whose fold-clustered interval includes zero: 25/54
+  weather rows at or below the observation control: 14/54
+  weather rows at or below the DOY control: 14/54
+  permutation control, max r2_vs_clim: -0.002   (must stay <= 0: the pipeline never invents skill)
+
+============================================================================================
+RUN COMPLETE
+============================================================================================
+tile 32UQC, 346 cubes, 6990 frames, weather block weather_full8
+artefacts: data/scaled_32UQC/p4_extreme_results.csv
+           data/scaled_32UQC/p4_extreme_run.log
+total elapsed 445.4 min
