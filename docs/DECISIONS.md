@@ -2803,4 +2803,4 @@ Four things were measured that the plan did not anticipate.
 - 32UQC stays as the paper's extreme-tile *check*, reported as a null: the
   Limits paragraph's promised follow-on has been run.
 
-**Commit.** `PENDING`
+**Commit.** `4af7edf`
