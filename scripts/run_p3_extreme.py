@@ -1,0 +1,756 @@
+"""Extreme-tile P3 on 32UQC: one invocation, caches in, tables out.
+
+WHAT THIS IS
+------------
+P3 is the forecastability probe: predict NDVI at horizon d from a frozen
+representation of the current frame plus ``[NDVI(t), weather]``, scored against
+persistence and climatology. This runs the whole nine-view table on the
+``extreme`` split's 32UQC, the same 346 cubes the 2026-08-17 P4 pilot measured
+its ceiling on, so the two tables are about the same place.
+
+The four Tier-1 corrections are load-bearing and NONE of them change here:
+nested-CV ridge penalty alongside fixed ``alpha=D``; paired per-fold
+separability with fold-clustered intervals, never two marginal CIs;
+``feature_base = [NDVI(t), weather]`` under every model row; and nine encoder
+views with the plausibility screen applied.
+
+WHY THE ENCODING IS NOT HERE
+-----------------------------
+Unlike P4, P3 READS EMBEDDINGS. Building them needs a GPU and, more absolutely,
+python >= 3.10 -- ``dinov2_vitb14`` loads torch.hub code using PEP 604 unions,
+so on the 3.9.6 dev venv two of the nine views cannot be built AT ALL. That work
+is ``notebooks/phase1_10_extreme_encoding.ipynb`` on Colab. This script imports
+no encoder and fine-tunes nothing: it reads the frozen caches under
+``data/scaled_32UQC/{embeddings,embeddings_cir,masks}``. If they are absent it
+stops and says so rather than encoding anything.
+
+THE FOUR RULES, APPLIED AUTOMATICALLY AND LOGGED EACH TIME
+-----------------------------------------------------------
+1. ROSTER. 346 cubes, the P4 set. Read from ``cache_roster.csv`` when the
+   encoding notebook wrote one, else from the ``cubes_excluded_fill`` column of
+   ``p4_extreme_results.csv``. If neither is available, or the count is not 346,
+   STOP -- a silently different roster makes the P3/P4 comparison meaningless.
+2. CACHES. Both must exist and be COMPLETE, and must cover the SAME cubes.
+   A cube in one cache and not the other silently changes which rows a paired
+   ``_cir``/``_rgb`` difference is computed over, which is the one comparison
+   this run exists to make.
+3. RUNTIME VALVE. The 32UNU run was 1540 rows in 173.7 min on 7 workers, and
+   naive scaling to this tile says ~13 h. Do not believe it: the P4 pilot
+   measured ``loco``'s growth exponent at 1.72, not 1, and its own two-point
+   projection still came in 52% under the truth. So this measures s/row PER
+   FOLD MODE at two cube counts on this tile's own rows, fits one exponent per
+   mode, and projects. Budget 12 CPU-hours.
+4. NARROWING. If the projection exceeds the budget: drop ``loco``, then
+   ``cell_mean``, then ``fixed_alpha_D``. ALL NINE ENCODER VIEWS SURVIVE EVERY
+   NARROWING -- model coverage is what this run was commissioned for, fold modes
+   and aggregations are what pay for it. A narrowed table is a SUBSET table:
+   it is written under its own name, the full-table completeness assertions are
+   NOT run on it, and every printed table says so.
+
+    .venv/bin/python -m scripts.run_p3_extreme --n-jobs 7
+"""
+
+from __future__ import annotations
+
+import argparse
+import glob
+import math
+import os
+import sys
+import time
+
+import numpy as np
+
+TILE = "32UQC"
+EXPECTED_CUBES = 346
+BUDGET_HOURS = 12.0
+CUBE_HEARTBEAT_EVERY = 25
+
+#: The two cubes the P4 pilot excluded, as a last-resort fallback when neither
+#: cache_roster.csv nor the P4 CSV is on disk. Rule 1 still asserts the count.
+EXCLUDED_FILL_FALLBACK = (
+    "32UQC_2018-01-28_2018-11-23_1337_1465_441_569_20_100_6_86.nc",
+    "32UQC_2018-01-28_2018-11-23_441_569_441_569_6_86_6_86.nc",
+)
+
+
+# --------------------------------------------------------------------------
+# visibility: a run measured in hours is polled, not watched
+# --------------------------------------------------------------------------
+class Tee:
+    """stdout to the console AND to the run log, line-buffered, both flushed."""
+
+    def __init__(self, stream, fh):
+        self.stream, self.fh = stream, fh
+
+    def write(self, s):
+        self.stream.write(s); self.stream.flush()
+        self.fh.write(s); self.fh.flush()
+        return len(s)
+
+    def flush(self):
+        self.stream.flush(); self.fh.flush()
+
+    def isatty(self):
+        return False
+
+
+_PRELUDE: list = []
+_TEE_OPEN = False
+
+
+def say(msg: str = "") -> None:
+    print(msg, flush=True)
+    if not _TEE_OPEN:
+        _PRELUDE.append(msg)
+
+
+def open_tee(path: str):
+    global _TEE_OPEN
+    fh = open(path, "a", encoding="utf-8", buffering=1)
+    for line in _PRELUDE:
+        fh.write(line + "\n")
+    sys.stdout = Tee(sys.__stdout__, fh)
+    sys.stderr = Tee(sys.__stderr__, fh)
+    _TEE_OPEN = True
+    return fh
+
+
+def banner(msg: str, char: str = "=") -> None:
+    say("\n" + char * 92)
+    say(msg)
+    say(char * 92)
+
+
+def _fmt(x, w=7, p=3):
+    return f"{x:+{w}.{p}f}" if np.isfinite(x) else " " * (w - 3) + "nan"
+
+
+class EvaluateCounter:
+    """Wraps ``p3_forecast.evaluate`` so the fitting loop reports where it is.
+
+    ``evaluate`` is called once per output row, so "row N/total" means the same
+    thing in the log as it does in the CSV. Per-mode wall clock is accumulated
+    here too -- that is what the runtime valve fits its exponent on, and taking
+    it from the same call that produces the row means the calibration and the
+    real run are measuring the identical unit of work.
+    """
+
+    def __init__(self, module, total: int, label: str = "", quiet: bool = False):
+        self.module, self.total, self.label = module, total, label
+        self.quiet = quiet
+        self.original = module.evaluate
+        self.n = 0
+        self.t0 = time.time()
+        self.per_mode: dict = {}
+        self.rows_per_mode: dict = {}
+
+    def __enter__(self):
+        counter = self
+
+        def evaluate(sources, target, rows, manifest, mode, estimator, kind,
+                     *a, **kw):
+            t = time.time()
+            out = counter.original(sources, target, rows, manifest, mode,
+                                   estimator, kind, *a, **kw)
+            dt = time.time() - t
+            counter.n += 1
+            counter.per_mode[mode] = counter.per_mode.get(mode, 0.0) + dt
+            counter.rows_per_mode[mode] = counter.rows_per_mode.get(mode, 0) + 1
+            if not counter.quiet:
+                elapsed = time.time() - counter.t0
+                per_row = elapsed / counter.n
+                eta = per_row * max(0, counter.total - counter.n)
+                say(f"[p3-eta]{counter.label} row {counter.n}/{counter.total}  "
+                    f"{mode}/{estimator}/{kind}  this {dt:6.1f}s  "
+                    f"elapsed {elapsed / 60:6.1f} min  {per_row:6.1f} s/row  "
+                    f"ETA {eta / 60:6.1f} min")
+            return out
+
+        self.module.evaluate = evaluate
+        return self
+
+    def __exit__(self, *exc):
+        self.module.evaluate = self.original
+        return False
+
+    def seconds_per_row(self) -> dict:
+        return {m: self.per_mode[m] / self.rows_per_mode[m]
+                for m in self.per_mode if self.rows_per_mode.get(m)}
+
+
+# --------------------------------------------------------------------------
+# rule 1: the roster
+# --------------------------------------------------------------------------
+def resolve_roster(out_root: str, cube_dir: str) -> tuple:
+    """The 346 cubes, and the recorded reason for every exclusion.
+
+    Three sources in preference order, because the run has to work both
+    straight after the Colab copy-down and on a fresh checkout:
+
+      1. ``cache_roster.csv`` -- written by the encoding notebook, and the only
+         source that knows about a cube DROPPED during encoding.
+      2. the ``cubes_excluded_fill`` column of ``p4_extreme_results.csv``.
+      3. the hardcoded fallback, which still has to pass the count assertion.
+    """
+    import pandas as pd
+
+    on_disk = sorted(os.path.basename(p)
+                     for p in glob.glob(os.path.join(cube_dir, "*.nc")))
+    say(f"[rule 1] {len(on_disk)} cubes on disk at {cube_dir}")
+
+    roster_csv = os.path.join(out_root, "cache_roster.csv")
+    p4_csv = os.path.join(out_root, "p4_extreme_results.csv")
+
+    if os.path.exists(roster_csv):
+        r = pd.read_csv(roster_csv)
+        assert {"cube", "in_cache"} <= set(r.columns), (
+            f"{roster_csv} has no cube/in_cache columns")
+        keep = sorted(r.loc[r.in_cache.astype(bool), "cube"])
+        excluded = r.loc[~r.in_cache.astype(bool)]
+        source = "cache_roster.csv (written by the encoding notebook)"
+        reasons = dict(zip(excluded.cube, excluded.get(
+            "reason", pd.Series([""] * len(excluded)))))
+    elif os.path.exists(p4_csv):
+        col = pd.read_csv(p4_csv, usecols=lambda c: c == "cubes_excluded_fill")
+        assert "cubes_excluded_fill" in col.columns, (
+            f"{p4_csv} has no cubes_excluded_fill column. RULE 1 STOP: the "
+            "roster cannot be reproduced, and a silently different roster "
+            "makes the P3/P4 comparison meaningless.")
+        vals = col["cubes_excluded_fill"].dropna().unique()
+        assert len(vals) == 1, (
+            f"cubes_excluded_fill is not constant across the P4 table: {vals}")
+        drop = [c for c in str(vals[0]).split(";") if c]
+        keep = [c for c in on_disk if c not in set(drop)]
+        source = "p4_extreme_results.csv:cubes_excluded_fill"
+        reasons = {c: "p4_fill_block (zero-reflectance B04/B8A no-data)"
+                   for c in drop}
+    else:
+        drop = list(EXCLUDED_FILL_FALLBACK)
+        keep = [c for c in on_disk if c not in set(drop)]
+        source = "hardcoded EXCLUDED_FILL_FALLBACK (no roster CSV on disk)"
+        reasons = {c: "p4_fill_block (zero-reflectance B04/B8A no-data)"
+                   for c in drop}
+
+    say(f"[rule 1] roster source: {source}")
+    for c, why in sorted(reasons.items()):
+        say(f"[rule 1]   excluded {c}: {why}")
+
+    missing = [c for c in keep if c not in set(on_disk)]
+    assert not missing, (
+        f"RULE 1 STOP: {len(missing)} rostered cubes are not on disk, e.g. "
+        f"{missing[:2]}. The caches and the cubes disagree.")
+
+    if len(keep) != EXPECTED_CUBES:
+        raise SystemExit(
+            f"\nRULE 1 STOP: the roster is {len(keep)} cubes, not "
+            f"{EXPECTED_CUBES}.\nP3 must run on the same cubes as the P4 pilot "
+            "or the two tables are not about the same place.\n"
+            f"Source was: {source}\n")
+    say(f"[rule 1] ROSTER = {len(keep)} cubes, matching the P4 pilot")
+    return keep, reasons, source
+
+
+# --------------------------------------------------------------------------
+# rule 2: the caches are whole, and cover the same cubes
+# --------------------------------------------------------------------------
+def assert_caches_complete(emb_dir, emb_dir_cir, mask_dir, cube_ids, encoders):
+    from encoders.pipeline import assert_embeddings_complete, audit_embeddings
+    from probes import p3_forecast as p3
+
+    want_rgb = [e for e in encoders if not p3.is_cir(e)]
+    want_cir = [e for e in encoders if p3.is_cir(e)]
+    for d, want, what in ((emb_dir, want_rgb, "RGB"),
+                          (emb_dir_cir, want_cir, "colour-infrared")):
+        if not want:
+            continue
+        missing = [(c, e) for c in sorted(cube_ids) for e in want
+                   if not os.path.exists(
+                       os.path.join(d, f"{os.path.splitext(c)[0]}__{e}.npz"))]
+        if missing:
+            raise SystemExit(
+                f"\nRULE 2 STOP: the {what} cache is missing "
+                f"{len(missing)} (cube, view) pairs, e.g. {missing[:3]}.\n"
+                f"Build it with notebooks/phase1_10_extreme_encoding.ipynb; "
+                "no probe produces it, and this script encodes nothing.\n")
+        audit = audit_embeddings(d, cube_ids=set(cube_ids), verbose=False)
+        assert_embeddings_complete(audit, set(cube_ids), tuple(want))
+        say(f"[rule 2] {what} cache complete: {len(cube_ids)} x {len(want)} "
+            f"= {len(cube_ids) * len(want)} .npz")
+
+    have_rgb = {f.split("__")[0] for f in os.listdir(emb_dir)
+                if f.endswith(".npz")}
+    have_cir = {f.split("__")[0] for f in os.listdir(emb_dir_cir)
+                if f.endswith(".npz")}
+    if have_rgb != have_cir:
+        raise SystemExit(
+            f"\nRULE 2 STOP: the two caches cover different cubes "
+            f"({len(have_rgb - have_cir)} rgb-only, "
+            f"{len(have_cir - have_rgb)} cir-only).\nEvery _cir/_rgb paired "
+            "difference would be computed over a different set on each side, "
+            "which is the one comparison this run exists to make.\n")
+    say(f"[rule 2] both caches cover the SAME {len(have_rgb)} cubes")
+
+    n_msk = len(glob.glob(os.path.join(mask_dir, "*.npz")))
+    assert n_msk >= len(cube_ids), (
+        f"RULE 2 STOP: {n_msk} masks for {len(cube_ids)} cubes; "
+        "common-masking needs one per cube.")
+    say(f"[rule 2] masks {n_msk} .npz")
+
+
+# --------------------------------------------------------------------------
+# rule 3: the two-point runtime valve
+# --------------------------------------------------------------------------
+def _manifest_for(paths, verbose=False):
+    from data.loader import load_cube
+    from encoders.manifest import build_manifest
+    return build_manifest([load_cube(p, verbose=False) for p in paths],
+                          verbose=verbose)
+
+
+def calibrate(paths, cube_dir, dirs, encoders, horizons, aggregations,
+              fold_modes, alpha_rules, k, n_jobs, screen, n_small, n_large):
+    """s/row PER FOLD MODE at two cube counts, and one exponent per mode.
+
+    Why per fold mode, and why an exponent at all. ``cube`` folds grow their
+    training set with the tile; ``loco`` grows its fold COUNT and its per-fold
+    training set together, which is why the P4 pilot measured its exponent at
+    1.72 rather than 1. A single blended s/row hides that, and a linear estimate
+    on this tile has been measured 4-6x low.
+
+    The subsets are STRIDED, not prefixes: the filenames sort by window-start
+    date, so a prefix shares a narrow slice of the season and the proxy
+    climatology is not identifiable on it.
+    """
+    from probes import p3_forecast as p3
+
+    points = {}
+    for n_cubes in (n_small, n_large):
+        stride = max(1, len(paths) // n_cubes)
+        sub = paths[::stride][:n_cubes]
+        banner(f"[rule 3] CALIBRATION POINT: {len(sub)} cubes", "-")
+        t0 = time.time()
+        manifest = _manifest_for(sub)
+        say(f"[rule 3] manifest {manifest.shape}, "
+            f"{manifest.cube_id.nunique()} cubes, {time.time() - t0:.0f}s")
+
+        with EvaluateCounter(p3, total=0, label=f"[cal{len(sub)}]",
+                             quiet=True) as counter:
+            t0 = time.time()
+            df, _ = p3.run_p3(
+                manifest, cube_dir, encoders=encoders, horizons=horizons,
+                aggregations=aggregations, fold_modes=fold_modes,
+                alpha_rules=alpha_rules, k=k, emb_dir=dirs["emb"],
+                emb_dir_cir=dirs["cir"], mask_dir=dirs["mask"],
+                plausibility_screen=screen, n_jobs=n_jobs, verbose=False)
+            wall = time.time() - t0
+        spr = counter.seconds_per_row()
+        points[len(sub)] = {"s_per_row": spr,
+                            "rows_per_mode": dict(counter.rows_per_mode),
+                            "rows": len(df), "wall": wall}
+        say(f"[rule 3] {len(sub)} cubes: {len(df)} rows, {wall / 60:.1f} min "
+            f"wall, {counter.n} evaluate() calls")
+        for m in sorted(spr):
+            say(f"[rule 3]     {m:<14} {counter.rows_per_mode[m]:>5} rows  "
+                f"{spr[m]:8.3f} s/row")
+    return points
+
+
+def project(points, n_small, n_large, n_full, budget_hours):
+    """One growth exponent per fold mode, from the two measured points."""
+    a, b = points[n_small], points[n_large]
+    ratio_cal = n_large / n_small
+    ratio_full = n_full / n_large
+
+    banner("[rule 3] PROJECTION TO THE FULL TILE", "-")
+    say(f"  two points: {n_small} and {n_large} cubes; full tile {n_full}")
+    say(f"  {'mode':<14} {'s/row@' + str(n_small):>12} "
+        f"{'s/row@' + str(n_large):>12} {'exponent':>9} "
+        f"{'s/row@' + str(n_full):>12} {'rows':>6} {'hours':>8}")
+    total_h = 0.0
+    per_mode = {}
+    for m in sorted(set(a["s_per_row"]) | set(b["s_per_row"])):
+        sa = a["s_per_row"].get(m)
+        sb = b["s_per_row"].get(m)
+        if not sa or not sb or sa <= 0 or sb <= 0:
+            continue
+        exponent = math.log(sb / sa) / math.log(ratio_cal)
+        # Rows are fixed by the GRID, not by the cube count: the same table is
+        # produced at 20 cubes and at 346. What scales is the cost of a row.
+        rows = b["rows_per_mode"].get(m, 0)
+        s_full = sb * (ratio_full ** exponent)
+        hours = rows * s_full / 3600.0
+        total_h += hours
+        per_mode[m] = {"exponent": exponent, "s_per_row_full": s_full,
+                       "rows": rows, "hours": hours}
+        say(f"  {m:<14} {sa:12.3f} {sb:12.3f} {exponent:9.2f} "
+            f"{s_full:12.2f} {rows:6d} {hours:8.2f}")
+    say(f"  {'TOTAL':<14} {'':>12} {'':>12} {'':>9} {'':>12} {'':>6} "
+        f"{total_h:8.2f}")
+    say(f"\n  budget {budget_hours:.1f} CPU-hours -> "
+        f"{'WITHIN' if total_h <= budget_hours else 'OVER'} budget")
+    say("  NOTE: this is a two-point fit. The P4 pilot's own two-point "
+        "projection came in 52% under the truth, so treat it as a floor.")
+    return total_h, per_mode
+
+
+def narrow(total_h, per_mode, fold_modes, aggregations, alpha_rules,
+           budget_hours):
+    """Rule 4's ladder. ALL NINE ENCODER VIEWS SURVIVE EVERY STEP.
+
+    Order is fixed and each step is logged: (a) drop ``loco``, 346 folds of two
+    to five rows each here, and a contingency table over such a fold is not a
+    contingency table; (b) drop ``cell_mean``, the resolution axis rather than
+    the decision axis, and 16 rows per forecast row; (c) drop
+    ``fixed_alpha_D``, keeping ``nested_cv``, which is the rule the Tier-1
+    headline is read on.
+    """
+    from probes import p3_forecast as p3
+
+    steps = []
+    fm, ag, ar = list(fold_modes), list(aggregations), list(alpha_rules)
+    est = total_h
+
+    if est <= budget_hours:
+        return tuple(fm), tuple(ag), tuple(ar), steps, est
+
+    if "loco" in fm:
+        saved = per_mode.get("loco", {}).get("hours", 0.0)
+        fm.remove("loco")
+        est -= saved
+        steps.append(f"(a) dropped fold_mode=loco (-{saved:.2f} h): 346 folds "
+                     "of two to five rows each on this tile")
+        say(f"[rule 4] {steps[-1]}; projection now {est:.2f} h")
+    if est > budget_hours and "cell_mean" in ag:
+        # cell_mean is 16 rows per forecast row: the aggregation multiplies the
+        # row COUNT, so removing it scales the estimate rather than subtracting
+        # a measured block.
+        before = est
+        est *= (len(ag) - 1) / len(ag)
+        ag.remove("cell_mean")
+        steps.append(f"(b) dropped aggregation=cell_mean "
+                     f"({before:.2f} -> {est:.2f} h): the resolution axis, not "
+                     "the decision axis")
+        say(f"[rule 4] {steps[-1]}")
+    if est > budget_hours and p3.ALPHA_RULE_FIXED in ar:
+        before = est
+        est *= 0.5
+        ar.remove(p3.ALPHA_RULE_FIXED)
+        steps.append(f"(c) dropped alpha_rule=fixed_alpha_D "
+                     f"({before:.2f} -> {est:.2f} h): nested_cv is the rule the "
+                     "Tier-1 headline is read on")
+        say(f"[rule 4] {steps[-1]}")
+
+    if est > budget_hours:
+        say(f"[rule 4] STILL over budget at {est:.2f} h after every permitted "
+            "narrowing. Proceeding anyway: the ladder is exhausted and all "
+            "nine encoder views survive by construction.")
+    return tuple(fm), tuple(ag), tuple(ar), steps, est
+
+
+# --------------------------------------------------------------------------
+# the report
+# --------------------------------------------------------------------------
+def report(df, args, roster, reasons, narrowed, dirs, gpu_note):
+    """Every headline this run was commissioned for, beside 32UNU's Tier-1."""
+    import pandas as pd
+
+    from probes import p3_forecast as p3
+
+    old = None
+    if args.published_csv and os.path.exists(args.published_csv):
+        old = pd.read_csv(args.published_csv)
+        say(f"\n[report] comparing against {args.published_csv} ({len(old)} rows)")
+    else:
+        say("\n[report] no 32UNU Tier-1 CSV on disk; the 'was' column is "
+            "omitted rather than filled with zeros")
+
+    banner("ROWS RETAINED PER HORIZON")
+    if "delta_days" in df.columns and "n_retained" in df.columns:
+        piv = (df.groupby("delta_days")["n_retained"].max()
+               .rename("rows_32UQC").to_frame())
+        if old is not None and {"delta_days", "n_retained"} <= set(old.columns):
+            piv["rows_32UNU"] = old.groupby("delta_days")["n_retained"].max()
+            piv["ratio"] = piv.rows_32UQC / piv.rows_32UNU
+        say(piv.to_string())
+
+    banner("THE HEADLINE -- cube_mean / cube folds / nested_cv / +base, "
+           "skill vs persistence")
+    if narrowed:
+        say("*** NARROWED RUN: this is a SUBSET table. " + "; ".join(narrowed))
+    # raw_features is one of the nine views but does NOT carry
+    # model_kind == "forecast": it has its own kinds. Filtering on "forecast"
+    # alone silently drops a view from the headline, which is the one thing
+    # this run was commissioned not to do.
+    VIEW_KINDS = ("forecast", "raw_features_weather")
+    q = {"aggregation": "cube_mean", "fold_mode": "cube",
+         "alpha_rule": p3.ALPHA_RULE_TUNED,
+         "feature_base": p3.FEATURE_BASE_SHARED}
+    sub = df
+    for kk, vv in q.items():
+        if kk in sub.columns:
+            sub = sub[sub[kk] == vv]
+    if "model_kind" in sub.columns:
+        sub = sub[sub.model_kind.isin(VIEW_KINDS)]
+    n_views = sub.encoder.nunique() if "encoder" in sub.columns else 0
+    say(f"  {len(sub)} rows match {q} with model_kind in {VIEW_KINDS}")
+    say(f"  {n_views} distinct encoder views present")
+    if n_views and n_views != 9:
+        say(f"  *** WARNING: {n_views} views, not 9. A view is missing from "
+            "the headline. ***")
+    cols = [c for c in ("encoder", "delta_days", "skill_vs_persistence",
+                        "paired_diff_vs_persistence",
+                        "paired_ci_lo_vs_persistence",
+                        "paired_ci_hi_vs_persistence",
+                        "separable_vs_persistence")
+            if c in sub.columns]
+    if len(sub) and cols:
+        say(sub.sort_values([c for c in ("delta_days", "encoder")
+                             if c in sub.columns])[cols].to_string(index=False))
+        if "separable_vs_persistence" in sub.columns:
+            banner("SEPARABLY BETTER / WORSE THAN PERSISTENCE, per horizon", "-")
+            say("  the same accounting the 2026-08-16 entry uses")
+            for h in sorted(df.get("delta_days", pd.Series(dtype=float))
+                            .dropna().unique()):
+                g = df[(df.delta_days == h)
+                       & df.separable_vs_persistence.notna()]
+                if not len(g):
+                    continue
+                better = int(((g.separable_vs_persistence.astype(bool))
+                              & (g.paired_diff_vs_persistence > 0)).sum())
+                worse = int(((g.separable_vs_persistence.astype(bool))
+                             & (g.paired_diff_vs_persistence < 0)).sum())
+                say(f"    {int(h):>4} d   better {better:>4}   worse {worse:>4}"
+                    f"   of {len(g):>4} rows")
+
+    banner("THE _cir VS _rgb PAIRED DIFFERENCE, all four twins")
+    say("  same weights, same frames, same read-out -- only the bands differ.")
+    tw = df
+    for kk, vv in q.items():
+        if kk in tw.columns:
+            tw = tw[tw[kk] == vv]
+    tcols = [c for c in ("encoder", "delta_days", "paired_diff_vs_rgb_twin",
+                         "paired_ci_lo_vs_rgb_twin", "paired_ci_hi_vs_rgb_twin",
+                         "separable_vs_rgb_twin") if c in tw.columns]
+    if "paired_diff_vs_rgb_twin" in tw.columns:
+        tw = tw[tw.paired_diff_vs_rgb_twin.notna()]
+        say(f"  {len(tw)} twin rows carry a paired difference")
+        if len(tw):
+            say(tw.sort_values([c for c in ("delta_days", "encoder")
+                                if c in tw.columns])[tcols]
+                .to_string(index=False))
+    else:
+        say("  no paired_diff_vs_rgb_twin column in this table -- "
+            "add_paired_separability did not attach it.")
+
+    banner("weather_only -- read against the 93% date-recoverability on this tile")
+    wo = df
+    for kk, vv in q.items():
+        if kk in wo.columns:
+            wo = wo[wo[kk] == vv]
+    if "model_kind" in wo.columns:
+        wo = wo[wo.model_kind == "weather_only"]
+    wcols = [c for c in ("delta_days", "skill_vs_persistence",
+                         "paired_diff_vs_persistence",
+                         "paired_ci_lo_vs_persistence",
+                         "paired_ci_hi_vs_persistence",
+                         "separable_vs_persistence") if c in wo.columns]
+    if len(wo) and wcols:
+        say(wo.sort_values("delta_days")[wcols].to_string(index=False))
+        say("\n  On 32UQC about 93% of a typical windowed weather feature is")
+        say("  recoverable from the DATE alone (32UNU: ~61%), because 346 cubes")
+        say("  on one orbit lattice and 47 distinct dates read an E-OBS grid too")
+        say("  coarse to separate them. Expect this row to be doing more")
+        say("  calendar-fitting here than on 32UNU.")
+    else:
+        say("  no weather_only rows in this table")
+
+    banner("PROVENANCE")
+    say(f"  tile              {TILE} (extreme split)")
+    say(f"  cubes rostered    {len(roster)}")
+    say(f"  cubes excluded    {len(reasons)}")
+    for c, why in sorted(reasons.items()):
+        say(f"                      {c}: {why}")
+    say(f"  embeddings        {dirs['emb']}")
+    say(f"  embeddings_cir    {dirs['cir']}")
+    say(f"  masks             {dirs['mask']}")
+    say(f"  encoding          {gpu_note}")
+    say(f"  narrowed          {'; '.join(narrowed) if narrowed else 'no'}")
+
+
+# --------------------------------------------------------------------------
+def main() -> None:
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap.add_argument("--tile", default=TILE)
+    ap.add_argument("--out", default=None, help="cache root; default data/scaled_<tile>")
+    ap.add_argument("--k", type=int, default=5)
+    ap.add_argument("--n-jobs", type=int, default=0)
+    ap.add_argument("--budget-hours", type=float, default=BUDGET_HOURS)
+    ap.add_argument("--cal-small", type=int, default=20)
+    ap.add_argument("--cal-large", type=int, default=40)
+    ap.add_argument("--skip-calibration", action="store_true",
+                    help="run the full grid without the valve. Only sensible "
+                         "when a previous run already measured it.")
+    ap.add_argument("--horizons", default="")
+    ap.add_argument("--aggregations", default="")
+    ap.add_argument("--fold-modes", default="")
+    ap.add_argument("--encoders", default="")
+    ap.add_argument("--no-screen", action="store_true")
+    ap.add_argument("--skip-triggers", action="store_true")
+    ap.add_argument("--csv-name", default="p3_extreme_results.csv")
+    ap.add_argument("--predictions-name", default="p3_extreme_predictions.csv")
+    ap.add_argument("--triggers-name", default="p3_extreme_triggers.csv")
+    ap.add_argument("--log-name", default="p3_extreme_run.log")
+    ap.add_argument("--published-csv",
+                    default="data/scaled_32UNU/p3_tier1_results.csv")
+    args = ap.parse_args()
+
+    out_root = args.out or os.path.join("data", f"scaled_{args.tile}")
+    cube_dir = os.path.join(out_root, "raw")
+    log_path = os.path.join(out_root, args.log_name)
+    os.makedirs(out_root, exist_ok=True)
+
+    say(f"[p3-extreme] {time.strftime('%Y-%m-%d %H:%M:%S')}")
+    say(f"[p3-extreme] tile {args.tile}, cache root {out_root}")
+
+    from probes import p3_forecast as p3
+
+    dirs = {"emb": os.path.join(out_root, "embeddings"),
+            "cir": os.path.join(out_root, p3.CIR_EMB_DIRNAME),
+            "mask": os.path.join(out_root, "masks")}
+    for d, what in ((cube_dir, "cubes"), (dirs["emb"], "RGB embeddings"),
+                    (dirs["cir"], "colour-infrared embeddings"),
+                    (dirs["mask"], "masks")):
+        if not os.path.isdir(d):
+            raise SystemExit(
+                f"\nSTOP: no {what} at {d}.\n"
+                "The caches are built by notebooks/phase1_10_extreme_encoding."
+                "ipynb on Colab (GPU + python >= 3.10); this script encodes\n"
+                "nothing and imports no encoder. Copy embeddings/, "
+                "embeddings_cir/, masks/ and cache_roster.csv down first.\n")
+
+    open_tee(log_path)
+    say(f"[p3-extreme] logging to {log_path}")
+
+    # --- rule 1 -----------------------------------------------------------
+    banner("RULE 1: THE CUBE ROSTER")
+    roster, reasons, source = resolve_roster(out_root, cube_dir)
+    paths = [os.path.join(cube_dir, c) for c in roster]
+
+    encoders = (tuple(args.encoders.split(",")) if args.encoders
+                else p3.ENCODER_VIEWS_ALL)
+    horizons = (tuple(int(x) for x in args.horizons.split(","))
+                if args.horizons else p3.HORIZONS)
+    aggregations = (tuple(args.aggregations.split(",")) if args.aggregations
+                    else p3.AGGREGATIONS)
+    fold_modes = (tuple(args.fold_modes.split(",")) if args.fold_modes
+                  else p3.FOLD_MODES)
+    alpha_rules = p3.ALPHA_RULES
+    n_jobs = args.n_jobs or max(1, (os.cpu_count() or 2) - 1)
+    screen = not args.no_screen
+
+    assert len(encoders) == 9, (
+        f"this run is nine encoder views, got {len(encoders)}: {encoders}. "
+        "Model coverage is what it was commissioned for.")
+
+    # --- rule 2 -----------------------------------------------------------
+    banner("RULE 2: BOTH CACHES ARE WHOLE AND COVER THE SAME CUBES")
+    say("[rule 2] nothing is encoded here and no encoder is imported: this "
+        "reads the frozen caches.")
+    assert_caches_complete(dirs["emb"], dirs["cir"], dirs["mask"],
+                           roster, encoders)
+    gpu_note = ("built on Colab by notebooks/phase1_10_extreme_encoding.ipynb; "
+                "this host has no CUDA and its dev venv is python 3.9.6, which "
+                "cannot build dinov2_vitb14 at all")
+
+    say(f"\n[p3-extreme] {len(encoders)} views, horizons {horizons}, "
+        f"aggregations {aggregations}, fold modes {fold_modes}, "
+        f"alpha rules {alpha_rules}")
+    say(f"[p3-extreme] n_jobs {n_jobs}, k {args.k}, "
+        f"plausibility_screen {screen}")
+
+    # --- rule 3 + 4 -------------------------------------------------------
+    narrowed = []
+    if args.skip_calibration:
+        say("\n[rule 3] SKIPPED by --skip-calibration; no projection was made.")
+    else:
+        banner("RULE 3: THE TWO-POINT RUNTIME VALVE")
+        points = calibrate(paths, cube_dir, dirs, encoders, horizons,
+                           aggregations, fold_modes, alpha_rules, args.k,
+                           n_jobs, screen, args.cal_small, args.cal_large)
+        total_h, per_mode = project(points, args.cal_small, args.cal_large,
+                                    len(paths), args.budget_hours)
+        banner("RULE 4: NARROWING, IF THE PROJECTION DEMANDS IT")
+        fold_modes, aggregations, alpha_rules, narrowed, est = narrow(
+            total_h, per_mode, fold_modes, aggregations, alpha_rules,
+            args.budget_hours)
+        if not narrowed:
+            say(f"[rule 4] projection {total_h:.2f} h is within the "
+                f"{args.budget_hours:.1f} h budget; the FULL table runs.")
+        else:
+            say(f"[rule 4] narrowed to fold_modes={fold_modes}, "
+                f"aggregations={aggregations}, alpha_rules={alpha_rules}; "
+                f"projection now {est:.2f} h")
+            say("[rule 4] ALL NINE ENCODER VIEWS SURVIVE.")
+
+    if narrowed and args.csv_name == "p3_extreme_results.csv":
+        args.csv_name = "p3_extreme_subset_results.csv"
+        say(f"[rule 4] a narrowed table is a SUBSET table: writing "
+            f"{args.csv_name}, and the full-table completeness assertions are "
+            "NOT run on it.")
+
+    # --- the run ----------------------------------------------------------
+    banner("THE FULL GRID")
+    t0 = time.time()
+    manifest = _manifest_for(paths, verbose=True)
+    from encoders.manifest import assert_strata_present, assert_weather_join
+    assert_strata_present(manifest)
+    join = assert_weather_join(manifest, cube_dir, verbose=False)
+    assert max(join["max_abs_diff"].values()) == 0.0, join
+    say(f"[p3-extreme] manifest {manifest.shape}, "
+        f"{manifest.cube_id.nunique()} cubes, {time.time() - t0:.0f}s")
+
+    pred_path = os.path.join(out_root, args.predictions_name)
+    csv_path = os.path.join(out_root, args.csv_name)
+
+    with EvaluateCounter(p3, total=0, label="") as counter:
+        t0 = time.time()
+        df, data = p3.run_p3(
+            manifest, cube_dir, encoders=encoders, horizons=horizons,
+            aggregations=aggregations, fold_modes=fold_modes,
+            alpha_rules=alpha_rules, k=args.k, emb_dir=dirs["emb"],
+            emb_dir_cir=dirs["cir"], mask_dir=dirs["mask"],
+            plausibility_screen=screen, n_jobs=n_jobs,
+            emit_predictions=True, predictions_path=pred_path,
+            log_path=log_path, verbose=True)
+        wall = time.time() - t0
+    say(f"\n[p3-extreme] {len(df)} rows in {wall / 60:.1f} min "
+        f"({wall / 3600:.2f} h) on {n_jobs} workers")
+
+    if narrowed:
+        df = df.assign(narrowed="; ".join(narrowed))
+    df = df.assign(tile=args.tile, roster_source=source,
+                   n_cubes=len(roster),
+                   cubes_excluded="; ".join(sorted(reasons)) or "")
+    df.to_csv(csv_path, index=False)
+    say(f"[p3-extreme] wrote {csv_path}")
+    say(f"[p3-extreme] wrote {pred_path}")
+
+    # --- triggers ---------------------------------------------------------
+    if not args.skip_triggers:
+        banner("TRIGGER METRICS -- same thresholds and levels as 2026-08-16")
+        from probes import p3_triggers as tg
+        preds = tg.load_predictions(pred_path)
+        tg.assert_thresholds_are_train_fitted(preds)
+        tr = tg.trigger_metrics(preds)
+        tpath = os.path.join(out_root, args.triggers_name)
+        tr.to_csv(tpath, index=False)
+        say(f"[p3-extreme] wrote {tpath}")
+        tg.print_trigger_table(tr, level="extreme_low")
+
+    report(df, args, roster, reasons, narrowed, dirs, gpu_note)
+    banner("DONE")
+
+
+if __name__ == "__main__":
+    main()

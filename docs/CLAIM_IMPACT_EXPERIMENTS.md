@@ -202,7 +202,7 @@ Verdict:
 
 Below is the shortlist I would actually consider before 2026-08-29.
 
-### 1. Trigger-oriented re-evaluation of existing P3 outputs
+### c
 
 **Hypothesis.** The current `32UNU` result becomes much more CCAI-relevant if the paper reports not just pooled `R^2`, but whether a forecast would correctly identify **stress-relevant anomalies or trigger crossings** at useful lead times.
 

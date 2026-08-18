@@ -1,9 +1,16 @@
 #!/usr/bin/env bash
 # Build the Colab upload bundle. Drag the result into
-# My Drive/NeurIPS-CCAI-2026/phase1_9/ and re-run Step 2 of the notebook.
+# My Drive/NeurIPS-CCAI-2026/<phase>/ and re-run Step 2 of the notebook.
+#
+#   ./make_zip.sh              -> phase1_10_repo.zip  (the current phase)
+#   ./make_zip.sh phase1_9     -> phase1_9_repo.zip   (an earlier one)
+#
+# The file list comes from `git ls-files`, so ANYTHING NOT COMMITTED IS NOT IN
+# THE BUNDLE. Commit first, then build, or Colab silently runs last week's code.
 set -euo pipefail
 cd "$(dirname "$0")"
-ZIP=phase1_9_repo.zip
+PHASE="${1:-phase1_10}"
+ZIP="${PHASE}_repo.zip"
 rm -f "$ZIP"
 # Everything git tracks, minus the cubes and older bundles. Deriving the list
 # from git means a new top-level package cannot be forgotten here again, which
