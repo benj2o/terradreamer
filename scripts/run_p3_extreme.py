@@ -825,6 +825,18 @@ def main() -> None:
     ap.add_argument("--fold-modes", default="")
     ap.add_argument("--encoders", default="")
     ap.add_argument("--no-screen", action="store_true")
+    ap.add_argument("--no-predictions", action="store_true",
+                    help="do not emit the per-observation predictions file. "
+                         "It changes NO number in the results table -- the "
+                         "paired columns come from payloads, not predictions "
+                         "-- but it is the bulk of the disk and I/O. Use it "
+                         "for a fold-mode top-up whose deliverable is the "
+                         "table. Implies --skip-triggers.")
+    ap.add_argument("--max-cubes", type=int, default=0,
+                    help="SMOKE TEST ONLY: strided subset of the roster, so a "
+                         "new machine can be validated in minutes. Any table "
+                         "it produces is a shape check, never a result -- the "
+                         "effective n is CUBES and this changes it.")
     ap.add_argument("--skip-triggers", action="store_true")
     ap.add_argument("--triggers-only", action="store_true",
                     help="skip the fitting entirely and score triggers + "
@@ -890,9 +902,13 @@ def main() -> None:
     n_jobs = args.n_jobs or max(1, (os.cpu_count() or 2) - 1)
     screen = not args.no_screen
 
-    assert len(encoders) == 9, (
+    # Nine views is the commission, and narrowing must never touch it. The
+    # ONLY exemption is --max-cubes, which already declares itself a shape
+    # check rather than a result.
+    assert len(encoders) == 9 or args.max_cubes, (
         f"this run is nine encoder views, got {len(encoders)}: {encoders}. "
-        "Model coverage is what it was commissioned for.")
+        "Model coverage is what it was commissioned for. (Pass --max-cubes "
+        "if this is a smoke test.)")
 
     # --- rule 2 -----------------------------------------------------------
     banner("RULE 2: BOTH CACHES ARE WHOLE AND COVER THE SAME CUBES")
@@ -911,6 +927,13 @@ def main() -> None:
     gpu_note = ("built on Colab by notebooks/phase1_10_extreme_encoding.ipynb; "
                 "this host has no CUDA and its dev venv is python 3.9.6, which "
                 "cannot build dinov2_vitb14 at all")
+
+    if args.max_cubes:
+        stride = max(1, len(roster) // args.max_cubes)
+        roster = roster[::stride][:args.max_cubes]
+        paths = [os.path.join(cube_dir, c) for c in roster]
+        say(f"\n[p3-extreme] *** SMOKE TEST: {len(roster)} cubes, STRIDED. "
+            "The effective n is CUBES, so no number below is a result. ***")
 
     say(f"\n[p3-extreme] {len(encoders)} views, horizons {horizons}, "
         f"aggregations {aggregations}, fold modes {fold_modes}, "
@@ -1022,7 +1045,8 @@ def main() -> None:
             alpha_rules=alpha_rules, k=args.k, emb_dir=dirs["emb"],
             emb_dir_cir=dirs["cir"], mask_dir=dirs["mask"],
             plausibility_screen=screen, n_jobs=n_jobs,
-            emit_predictions=True, predictions_path=pred_path,
+            emit_predictions=not args.no_predictions,
+            predictions_path=pred_path,
             log_path=log_path, verbose=True)
         wall = time.time() - t0
     say(f"\n[p3-extreme] {len(df)} rows in {wall / 60:.1f} min "
@@ -1035,11 +1059,18 @@ def main() -> None:
                    cubes_excluded="; ".join(sorted(reasons)) or "")
     df.to_csv(csv_path, index=False)
     say(f"[p3-extreme] wrote {csv_path}")
-    pred_path = _resolve_predictions(pred_path)
-    say(f"[p3-extreme] predictions at {pred_path}")
+    if args.no_predictions:
+        say("[p3-extreme] predictions NOT emitted (--no-predictions); the "
+            "results table is unaffected -- paired separability comes from "
+            "payloads, not from the predictions file")
+    else:
+        pred_path = _resolve_predictions(pred_path)
+        say(f"[p3-extreme] predictions at {pred_path}")
 
     # --- triggers ---------------------------------------------------------
-    if not args.skip_triggers:
+    if args.skip_triggers or args.no_predictions:
+        say("[p3-extreme] trigger metrics skipped (no predictions to score)")
+    else:
         _score_triggers(pred_path, out_root, args)
 
     report(df, args, roster, reasons, narrowed, dirs, gpu_note)
