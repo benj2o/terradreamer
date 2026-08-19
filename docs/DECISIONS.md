@@ -2955,5 +2955,5 @@ persistence at the trigger metric until D=100 d on stressed land, where 32UNU
 crossed at 50 d. `loco` makes that finding stronger, not weaker, because the
 strictest fold mode agrees with the other two.
 
-**Commit.** `PENDING`
+**Commit.** `68ca0c5`
 
