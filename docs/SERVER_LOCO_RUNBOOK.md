@@ -109,13 +109,13 @@ repo, `git clone git@github.com:benj2o/terradreamer.git ~/p3` is equivalent —
 everything needed is committed as of `10e425a`.
 
 ```bash
-cd "/Users/benji/Code/NeurIPS CCAI 2026" && rsync -av --exclude '.venv' --exclude '.git' --exclude 'data/' --exclude '*.zip' --exclude 'notebooks/runs' ./ YOU@lxhalle.in.tum.de:~/p3/
+cd "/Users/benji/Code/NeurIPS CCAI 2026" && rsync -av --exclude '.venv' --exclude '.git' --exclude 'data/' --exclude '*.zip' --exclude 'notebooks/runs' ./ YOU@lxhalle.cit.tum.de:~/p3/
 ```
 
 Then the data (~4 GB, this is the slow one — expect 10–40 min):
 
 ```bash
-rsync -avP data/scaled_32UQC/raw data/scaled_32UQC/embeddings data/scaled_32UQC/embeddings_cir data/scaled_32UQC/masks data/scaled_32UQC/cache_roster.csv YOU@lxhalle.in.tum.de:/var/tmp/YOU/p3/data/scaled_32UQC/
+rsync -avP data/scaled_32UQC/raw data/scaled_32UQC/embeddings data/scaled_32UQC/embeddings_cir data/scaled_32UQC/masks data/scaled_32UQC/cache_roster.csv YOU@lxhalle.cit.tum.de:/var/tmp/YOU/p3/data/scaled_32UQC/
 ```
 
 `-P` means it resumes if the connection drops. Re-run the same line to resume.
@@ -251,7 +251,7 @@ cd /var/tmp/$USER/p3/data/scaled_32UQC && tar czf ~/p3_loco_handoff.tar.gz p3_ex
 On the MAC:
 
 ```bash
-cd "/Users/benji/Code/NeurIPS CCAI 2026" && scp YOU@lxhalle.in.tum.de:~/p3_loco_handoff.tar.gz /tmp/ && tar xzf /tmp/p3_loco_handoff.tar.gz -C data/scaled_32UQC/
+cd "/Users/benji/Code/NeurIPS CCAI 2026" && scp YOU@lxhalle.cit.tum.de:~/p3_loco_handoff.tar.gz /tmp/ && tar xzf /tmp/p3_loco_handoff.tar.gz -C data/scaled_32UQC/
 ```
 
 ---
