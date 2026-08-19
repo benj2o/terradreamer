@@ -2804,3 +2804,92 @@ Four things were measured that the plan did not anticipate.
   Limits paragraph's promised follow-on has been run.
 
 **Commit.** `4af7edf`
+
+---
+
+## 2026-08-19: Extreme-tile P3 on 32UQC -- the gate was opened against a NO-GO, deliberately, and full nine-view coverage was bought by dropping fold modes
+
+**Assumed.** That the extreme-tile P3 was gated on the P4 pilot, and that the
+pilot's answer settled it. The 2026-08-17 entry recorded **NO-GO** and meant it:
+the bar was a ceiling clearly above 32UNU's +0.116/+0.096 with a growing margin
+over the observation and DOY controls, and the measurement came in at
+**+0.111 / +0.078** -- *marginally lower, not collapsed*, on a tile where **~93%
+of a typical windowed weather feature is recoverable from the DATE alone**
+(32UNU: ~61%). The pilot's own hypothesis, that stressed land raises the
+weather-attributability ceiling, was refuted by its own numbers.
+
+**Observed.** The gate was opened anyway, on different grounds, and those
+grounds are the record: the question this run answers is not "is the ceiling
+higher" but **"does the Tier-1 conclusion generalise to stressed land"** --
+which is where an early-warning claim would actually be used, and therefore
+where a null is worth as much as a positive. It is also the last experiment
+before figures and writing, and a null strengthens the paper's Limits paragraph
+rather than weakening its claim.
+
+It returned a null, and a sharper one than expected:
+
+- **No frozen encoder is separably better than persistence at the trigger
+  metric until D=100 d.** On 32UNU that crossover was at **50 d**. It survives
+  on stressed land but moves **one full horizon step later**.
+- At D=25 d, 32UNU was at parity (0 of 8 views separably worse); on 32UQC
+  **all 8 are separably worse than persistence**. Dominance is not just longer,
+  it is harder.
+- At D=5 d the hand-crafted `raw_features` is the **only** view with positive
+  skill (+0.483); every network is negative.
+- The `_cir` gain is **encoder-specific, not general**: only
+  `imagenet_vit_b16` gains consistently (+0.155 at D=100, separable at 25/50/
+  100); `dinov2_vitb14` gains nothing at any horizon.
+- `weather_only` is separably better than persistence at all four horizons and
+  **gains** relative to 32UNU at every one -- which, against the 93%
+  date-recoverability, reads as calendar fitting and is the strongest reason
+  not to treat the long-horizon numbers as weather-driven skill.
+
+**Changed.**
+
+- New `notebooks/phase1_10_extreme_encoding.ipynb`: RGB + CIR + masks for the
+  extreme tile in one pass on Colab. Three things the earlier encoding
+  notebooks get wrong for this tile and it does not: the split is `extreme`,
+  not `train`; the roster is the P4 346 with the two fill-block cubes named in
+  code (the P4 CSV is untracked and does not travel in the zip); and the
+  phase1_7 reproducibility cross-check against the 20-cube Phase 1.2 cache is
+  DROPPED rather than left to pass vacuously, because 32UQC shares no cube with
+  it. A cube that fails any of its nine views is dropped from BOTH caches and
+  the masks, never partially.
+- New `scripts/run_p3_extreme.py`: one invocation, roster -> cache audit ->
+  runtime valve -> gated full run -> triggers -> report.
+- **Four separate exclusions, and two of them were NOT pre-authorised.**
+  348 -> 346 (P4 fill block) -> 343 (encode-time plausibility: bright cloud
+  leaking through the mask at up to 4.1e-04 of valid pixels against a 1e-04
+  tolerance; **32UNU had none of these**) -> 342 (cached mask != isfinite of
+  the canonical NDVI on one cube). On that last one the cached mask reproduces
+  **bit-identically** from `cube_masks` locally, so the probe's "one of them is
+  stale" message is misdiagnosing: `cube_masks` and `cube_ndvi` genuinely
+  disagree, and it is the zero-reflectance fill block again on a cube P4's
+  61-grid-cell criterion missed. The properly correct fix remains a
+  zero-reflectance rule beside `finite_valid_mask` -- still refused here, for
+  the same reason the P4 pilot refused it: it is a shared P1/P2/P3 path that
+  every published 32UNU table reads through. Recorded so it can be overruled.
+  **P4 fitted 346; P3 fits 342. The two tables are about nearly, not exactly,
+  the same place.**
+- **The compute bargain, which is the reason this was affordable.** Rule 4
+  dropped `fold_mode=loco` and nothing else. All nine encoder views survive
+  every narrowing, by construction: **model coverage is what the run was
+  commissioned for, and fold modes and aggregations are what pay for it.** Full
+  nine-view coverage was chosen over the memo's slim five-row table because the
+  question is whether *any* frozen representation recovers forecast skill on
+  stressed land, and a subset that happened to omit the winning view would not
+  answer it. The dropped `loco` costs less than it appears: the 2026-08-16
+  32UNU trigger run also ran `cube,spatial_block` only, so the trigger tables
+  are a closer match, not a worse one.
+- **A measurement failure worth more than the compute it saved.** A second
+  calibration, run while Spotlight reindexed the freshly copied 2 GB cache,
+  measured `loco`'s growth exponent at **-2.65** and projected 0.00 h -- and
+  declared the full table affordable, moments before running `loco` at 342
+  cubes. A negative exponent is not a measurement but a corrupted one: no fold
+  mode gets cheaper per row as the tile grows. `project()` now rejects negative
+  exponents, falls back to linear growth from the worse of the two points, and
+  says so loudly. The clean run's `spatial_block` -0.52 was the same defect and
+  explains why its 1.98 h projection understated the 6.40 h actual.
+
+**Commit.** `PENDING`
+

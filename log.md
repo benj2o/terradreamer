@@ -3,6 +3,154 @@
 Running record of measurements and adopted definitions. Reverse chronological.
 Decisions and their rationale live in [docs/DECISIONS.md](docs/DECISIONS.md).
 
+## 2026-08-19: Extreme-tile P3 on 32UQC -- no frozen encoder beats persistence until 100 days on stressed land, and the crossover moves a full horizon step LATER
+
+The nine-view forecastability probe on the 2018 heat/drought tile, same four
+Tier-1 corrections, plausibility screen applied, read against the 115-cube
+32UNU Tier-1 table. Embeddings built on Colab (T4); everything below is CPU.
+
+**This is a SUBSET table.** `fold_mode=loco` was dropped by rule 4 -- see the
+compute note at the end. All nine encoder views survive; that was the point.
+
+### Roster: four separate exclusions, 348 -> 342
+
+```
+348   non-overlapping cubes, 32UQC, extreme split
+-2    P4 fill block (zero-reflectance B04/B8A), the pilot's own exclusion
+-3    encode-time plausibility: implausible valid pixels (>1.2) at
+      1.38e-04 / 1.44e-04 / 4.10e-04 of valid pixels, tolerance 1e-04
+      -- bright cloud leaking THROUGH the mask
+-1    cached mask != isfinite(canonical NDVI) on 2923 px in 1 of 21 frames
+342   fitted
+```
+
+The last two are NEW and neither was pre-authorised. The 3 encode failures are
+the frozen encoders' own guard firing; **32UNU had none of these.** The 1 mask
+mismatch is the zero-reflectance fill block again, on a cube the P4 pilot's
+61-grid-cell criterion did not catch -- and the cached mask reproduces
+BIT-IDENTICALLY from `cube_masks` locally, so nothing is stale: `cube_masks`
+and `cube_ndvi` genuinely disagree. P4 fitted 346, P3 fits 342.
+
+### Geometry
+
+```
+                        32UQC              32UNU (Tier-1)
+cubes fitted            342                115
+rows retained  D=5      2162               510      (4.2x)
+               D=25     1879               484      (3.9x)
+               D=50     1963               445      (4.4x)
+               D=100    1137               196      (5.8x)
+table rows              1232 (subset)      1540 (full)
+held-out predictions    10 289 818         173 310
+wall                    6.40 h / 7 workers 2.90 h
+rgb cache               1715 .npz, 1093 MB
+cir cache               1372 .npz, 1084 MB
+masks                   343 .npz, 2.1 MB
+```
+
+### THE HEADLINE: `cube_mean` / `cube` folds / `nested_cv` / `+base`, skill vs persistence
+
+```
+view                          D=5     D=25    D=50   D=100  |  32UNU D=5   D=100
+raw_features                +0.483  +0.633  +0.724  +0.821  |    +0.583  +0.585
+imagenet_vit_b16_cir        -0.367  +0.484  +0.711  +0.847  |    +0.071  +0.370
+dinov2_vitb14               -0.634  +0.412  +0.709  +0.844  |    -0.219  +0.483
+dinov2_vitb14_cir           -0.576  +0.430  +0.705  +0.835  |    -0.336  +0.524
+satlas_s2_swinb_mi_rgb_cir  +0.068  +0.455  +0.657  +0.838  |    -0.108  +0.292
+satlas_s2_swinb_mi_rgb      -0.040  +0.377  +0.660  +0.835  |    -0.161  +0.506
+satlas_s2_swinb_rgb_cir     -0.177  +0.461  +0.651  +0.821  |    +0.025  +0.277
+satlas_s2_swinb_rgb         -0.233  +0.372  +0.671  +0.800  |    -0.238  +0.426
+imagenet_vit_b16            -0.563  +0.370  +0.638  +0.765  |    -0.110  +0.335
+```
+
+**At D=5 the hand-crafted `raw_features` is the ONLY view with positive skill**
+(+0.483); every network is negative, two of them separably worse than
+persistence. Every view is higher than its 32UNU counterpart at D>=25 -- but so
+is persistence's own difficulty, and the comparison that matters is the paired
+one below, not the level.
+
+### Separably better / worse than persistence, all rows, per horizon
+
+```
+        32UQC (of 308)        32UNU (of 385)
+D=5     49 better 222 worse   84 better 196 worse
+D=25   150 better 105 worse   60 better 146 worse
+D=50   212 better  51 worse  203 better  98 worse
+D=100  233 better  41 worse  170 better  90 worse
+```
+
+### THE TRIGGER TABLE: Peirce skill, `extreme_low`, vs persistence
+
+```
+                    32UNU 2026-08-16          32UQC 2026-08-19
+D      persistence  best fc  sep +/-    persistence  best fc  sep +/-
+5        +0.585     +0.511   0 / 4        +0.834     +0.681   0 / 8
+25       +0.300     +0.512   0 / 0        +0.627     +0.492   0 / 8
+50       +0.102     +0.380   2 / 0        +0.223     +0.281   0 / 0
+100      +0.087     +0.342   0 / 0        +0.026     +0.236   2 / 0
+```
+
+**The crossover SURVIVES and MOVES ONE FULL HORIZON STEP LATER.** On 32UNU the
+first horizon at which any frozen view is separably better than persistence is
+**50 d**; on stressed land it is **100 d**. And persistence's dominance is not
+merely longer but harder: at D=25 32UNU was at parity (0 separably worse),
+while on 32UQC **all eight views are separably worse**. At D=100 the two that
+win are `dinov2_vitb14` (+0.21) and `satlas_s2_swinb_rgb_cir` (+0.20).
+
+Do not soften this: **for early warning at the horizons an operator would
+actually use (5-25 d), every frozen representation is separably WORSE than
+persistence on the extreme tile.**
+
+### `_cir` vs `_rgb`, paired, same folds
+
+```
+twin                         D=5     D=25    D=50   D=100    separable at
+imagenet_vit_b16_cir       +0.024  +0.047  +0.074  +0.155    25, 50, 100
+satlas_s2_swinb_rgb_cir    +0.007  +0.037  -0.020  +0.040    25, 100
+dinov2_vitb14_cir          +0.007  +0.007  -0.005  -0.016    never
+satlas_s2_swinb_mi_rgb_cir +0.013  +0.032  -0.004  +0.004    never
+```
+
+Only `imagenet_vit_b16` gains consistently from the NIR band swap; the largest
+single effect in the run is its +0.155 at D=100. DINOv2 gains nothing anywhere.
+The NIR headline is therefore **encoder-specific, not a general property**.
+
+### `weather_only` GAINS, and that is a warning not a result
+
+```
+        32UQC   32UNU
+D=5    +0.368  +0.266
+D=25   +0.491  +0.329
+D=50   +0.611  +0.318
+D=100  +0.575  +0.454
+```
+
+Separably better than persistence at ALL FOUR horizons. Read against the P4
+measurement that **~93% of a typical windowed weather feature is recoverable
+from the DATE alone on this tile** (32UNU: ~61%), this is mostly calendar
+fitting, and it is the single strongest reason not to read the D>=50 numbers
+above as evidence of weather-driven forecast skill.
+
+### Compute note -- and a measurement failure worth recording
+
+Rule 4 dropped `loco`. The clean two-point calibration (343 cubes, quiet
+machine) measured `cube` +0.71, `loco` **+1.31**, `spatial_block` -0.52,
+totalling 12.10 h against a 12 h budget, with `loco` alone 10.12 h of it.
+
+A SECOND calibration, run while Spotlight was reindexing the freshly copied
+2 GB cache, measured `loco` at 33.5 s/row at 20 cubes and 5.3 at 40 -- exponent
+**-2.65**, projecting 0.00 h, and declared the full table affordable. It was
+about to run `loco` at 342 cubes. **A negative exponent is not a measurement,
+it is a corrupted one**: no fold mode gets cheaper per row as the tile grows.
+`project()` now rejects negative exponents, falls back to linear growth from
+the worse point, and says so. Note the clean run's `spatial_block` -0.52 was
+the same defect, and it is why that run's 1.98 h projection was optimistic
+against the 6.40 h actual.
+
+Wall-clock figures from this run are contaminated by machine load and should
+not be quoted as compute costs. The scientific numbers are unaffected:
+contention changes how long a fit takes, not what it returns.
+
 ## 2026-08-17: Extreme-tile P4 pilot on 32UQC -- the ceiling does NOT rise on stressed land, and the confounding gets worse
 
 The 2018 heat/drought check the paper's Limits paragraph promises. One extreme

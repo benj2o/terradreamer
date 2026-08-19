@@ -136,9 +136,14 @@ class EvaluateCounter:
     real run are measuring the identical unit of work.
     """
 
-    def __init__(self, module, total: int, label: str = "", quiet: bool = False):
+    def __init__(self, module, total: int, label: str = "", quiet: bool = False,
+                 heartbeat_every: int = 100):
         self.module, self.total, self.label = module, total, label
+        # quiet suppresses the PER-ROW line but never all output: a calibration
+        # point that prints nothing for twenty minutes is indistinguishable
+        # from a hang, and this run is polled rather than watched.
         self.quiet = quiet
+        self.heartbeat_every = heartbeat_every
         self.original = module.evaluate
         self.n = 0
         self.t0 = time.time()
@@ -157,14 +162,26 @@ class EvaluateCounter:
             counter.n += 1
             counter.per_mode[mode] = counter.per_mode.get(mode, 0.0) + dt
             counter.rows_per_mode[mode] = counter.rows_per_mode.get(mode, 0) + 1
+            elapsed = time.time() - counter.t0
+            per_row = elapsed / counter.n
             if not counter.quiet:
-                elapsed = time.time() - counter.t0
-                per_row = elapsed / counter.n
-                eta = per_row * max(0, counter.total - counter.n)
-                say(f"[p3-eta]{counter.label} row {counter.n}/{counter.total}  "
+                if counter.total:
+                    eta = per_row * max(0, counter.total - counter.n)
+                    where = f"row {counter.n}/{counter.total}"
+                    eta_s = f"ETA {eta / 60:6.1f} min"
+                else:
+                    # no calibration ran, so there is no honest total to divide
+                    # into: report position and rate, never a made-up ETA.
+                    where = f"row {counter.n}"
+                    eta_s = "ETA n/a (no calibration)"
+                say(f"[p3-eta]{counter.label} {where}  "
                     f"{mode}/{estimator}/{kind}  this {dt:6.1f}s  "
                     f"elapsed {elapsed / 60:6.1f} min  {per_row:6.1f} s/row  "
-                    f"ETA {eta / 60:6.1f} min")
+                    f"{eta_s}")
+            elif counter.n % counter.heartbeat_every == 0:
+                say(f"[p3-cal]{counter.label} {counter.n} rows  "
+                    f"elapsed {elapsed / 60:6.1f} min  {per_row:6.2f} s/row  "
+                    f"(last {mode}/{estimator})")
             return out
 
         self.module.evaluate = evaluate
@@ -183,7 +200,20 @@ class EvaluateCounter:
 # rule 1: the roster
 # --------------------------------------------------------------------------
 def resolve_roster(out_root: str, cube_dir: str) -> tuple:
-    """The 346 cubes, and the recorded reason for every exclusion.
+    """The cubes to fit, and the recorded reason for every exclusion.
+
+    TWO DIFFERENT RULES LIVE HERE AND THEY MUST NOT BE CONFLATED.
+
+    Rule 1 governs the P4 roster: the tile's cubes minus the two the P4 pilot
+    excluded for the zero-reflectance fill block. That number must be 346, or
+    the two tables are not about the same place and nothing below is worth
+    running.
+
+    Rule 3 governs encode-time drops: a cube whose nine views could not all be
+    built is out of BOTH caches and the masks, never partial. Those drops are
+    legitimate and expected -- they are reported with count and reason, and the
+    fitted set is correspondingly smaller than 346. Asserting 346 on the FITTED
+    set would refuse exactly the outcome rule 3 exists to produce.
 
     Three sources in preference order, because the run has to work both
     straight after the Colab copy-down and on a fresh checkout:
@@ -207,10 +237,10 @@ def resolve_roster(out_root: str, cube_dir: str) -> tuple:
         assert {"cube", "in_cache"} <= set(r.columns), (
             f"{roster_csv} has no cube/in_cache columns")
         keep = sorted(r.loc[r.in_cache.astype(bool), "cube"])
-        excluded = r.loc[~r.in_cache.astype(bool)]
+        ex = r.loc[~r.in_cache.astype(bool)]
+        reasons = {c: str(w) for c, w in zip(ex.cube, ex.get(
+            "reason", pd.Series([""] * len(ex))))}
         source = "cache_roster.csv (written by the encoding notebook)"
-        reasons = dict(zip(excluded.cube, excluded.get(
-            "reason", pd.Series([""] * len(excluded)))))
     elif os.path.exists(p4_csv):
         col = pd.read_csv(p4_csv, usecols=lambda c: c == "cubes_excluded_fill")
         assert "cubes_excluded_fill" in col.columns, (
@@ -222,33 +252,57 @@ def resolve_roster(out_root: str, cube_dir: str) -> tuple:
             f"cubes_excluded_fill is not constant across the P4 table: {vals}")
         drop = [c for c in str(vals[0]).split(";") if c]
         keep = [c for c in on_disk if c not in set(drop)]
-        source = "p4_extreme_results.csv:cubes_excluded_fill"
-        reasons = {c: "p4_fill_block (zero-reflectance B04/B8A no-data)"
+        reasons = {c: "p4_fill_block: zero-reflectance B04/B8A no-data"
                    for c in drop}
+        source = "p4_extreme_results.csv:cubes_excluded_fill"
     else:
         drop = list(EXCLUDED_FILL_FALLBACK)
         keep = [c for c in on_disk if c not in set(drop)]
-        source = "hardcoded EXCLUDED_FILL_FALLBACK (no roster CSV on disk)"
-        reasons = {c: "p4_fill_block (zero-reflectance B04/B8A no-data)"
+        reasons = {c: "p4_fill_block: zero-reflectance B04/B8A no-data"
                    for c in drop}
+        source = "hardcoded EXCLUDED_FILL_FALLBACK (no roster CSV on disk)"
 
     say(f"[rule 1] roster source: {source}")
-    for c, why in sorted(reasons.items()):
-        say(f"[rule 1]   excluded {c}: {why}")
+
+    p4_excluded = {c: w for c, w in reasons.items()
+                   if w.startswith("p4_fill_block")}
+    encode_drops = {c: w for c, w in reasons.items()
+                    if not w.startswith("p4_fill_block")}
+
+    say(f"[rule 1] P4 fill-block exclusions: {len(p4_excluded)}")
+    for c in sorted(p4_excluded):
+        say(f"[rule 1]   {c}")
+
+    p4_roster = len(on_disk) - len(p4_excluded)
+    if p4_roster != EXPECTED_CUBES:
+        raise SystemExit(
+            f"\nRULE 1 STOP: the P4 roster is {p4_roster} cubes, not "
+            f"{EXPECTED_CUBES}.\nP3 must start from the same cubes as the P4 "
+            "pilot or the two tables are not about the same place.\n"
+            f"Source was: {source}\n")
+    say(f"[rule 1] P4 ROSTER = {p4_roster} cubes -- matches the pilot")
+
+    # Rule 3: encode-time drops are legitimate and are NOT a rule 1 failure.
+    if encode_drops:
+        say(f"\n[rule 3] {len(encode_drops)} cube(s) dropped at encode time, "
+            "out of BOTH caches and the masks:")
+        for c in sorted(encode_drops):
+            say(f"[rule 3]   {c}")
+            say(f"[rule 3]     {encode_drops[c][:220]}")
+        say(f"[rule 3] cubes ENCODED {p4_roster} -> cubes FITTED {len(keep)}")
+        say("[rule 3] P4 fitted 346; P3 fits "
+            f"{len(keep)}. The two tables cover nearly, but not exactly, the "
+            "same cubes -- and that is reported, not smoothed over.")
+    else:
+        say("[rule 3] no cube was dropped at encode time")
 
     missing = [c for c in keep if c not in set(on_disk)]
     assert not missing, (
         f"RULE 1 STOP: {len(missing)} rostered cubes are not on disk, e.g. "
         f"{missing[:2]}. The caches and the cubes disagree.")
 
-    if len(keep) != EXPECTED_CUBES:
-        raise SystemExit(
-            f"\nRULE 1 STOP: the roster is {len(keep)} cubes, not "
-            f"{EXPECTED_CUBES}.\nP3 must run on the same cubes as the P4 pilot "
-            "or the two tables are not about the same place.\n"
-            f"Source was: {source}\n")
-    say(f"[rule 1] ROSTER = {len(keep)} cubes, matching the P4 pilot")
-    return keep, reasons, source
+    say(f"[p3-extreme] FITTING {len(keep)} cubes")
+    return keep, reasons, source, encode_drops
 
 
 # --------------------------------------------------------------------------
@@ -296,6 +350,95 @@ def assert_caches_complete(emb_dir, emb_dir_cir, mask_dir, cube_ids, encoders):
         f"RULE 2 STOP: {n_msk} masks for {len(cube_ids)} cubes; "
         "common-masking needs one per cube.")
     say(f"[rule 2] masks {n_msk} .npz")
+
+
+# --------------------------------------------------------------------------
+# rule 2b: the cached mask must equal the finiteness of the canonical NDVI
+# --------------------------------------------------------------------------
+def _mask_ndvi_check(args) -> dict:
+    """One cube. Module-level and picklable, so it can run in a process pool."""
+    cube, cube_dir, mask_dir = args
+    try:
+        import numpy as np
+
+        from data.loader import CubeSample, cube_ndvi, load_cube
+        from encoders.frames import select_clear_frames
+        from encoders.pipeline import load_masks
+        from probes.p3_forecast import MIN_CLEAR_FRACTION
+
+        stem = os.path.splitext(cube)[0]
+        mp = os.path.join(mask_dir, f"{stem}__masks.npz")
+        if not os.path.exists(mp):
+            return {"cube": cube, "ok": False, "why": "no cached mask"}
+        s = load_cube(os.path.join(cube_dir, cube), verbose=False)
+        m = np.asarray(load_masks(mp).mask)
+        sel = select_clear_frames(s.values, s.timestamps, s.mask,
+                                  min_clear=MIN_CLEAR_FRACTION, verbose=False)
+        nd = cube_ndvi(CubeSample(values=sel.values, timestamps=sel.timestamps,
+                                  mask=sel.mask, path=s.path, bands=s.bands))
+        if m.shape != nd.shape:
+            return {"cube": cube, "ok": False,
+                    "why": f"mask {m.shape} != NDVI {nd.shape}"}
+        d = (m != np.isfinite(nd))
+        n = int(d.sum())
+        if n == 0:
+            return {"cube": cube, "ok": True, "why": ""}
+        fr = int((d.reshape(d.shape[0], -1).sum(1) > 0).sum())
+        return {"cube": cube, "ok": False,
+                "why": (f"mask != isfinite(NDVI) on {n} pixels in {fr}/"
+                        f"{d.shape[0]} frames ({n / d.size:.2e} of pixels); "
+                        "the mask calls them valid where NDVI is 0/0 -- the "
+                        "zero-reflectance fill block, same family as the two "
+                        "cubes P4 excluded")}
+    except Exception as e:                       # noqa: BLE001 -- reported
+        return {"cube": cube, "ok": False, "why": f"{type(e).__name__}: {e}"[:200]}
+
+
+def drop_mask_ndvi_mismatches(roster, cube_dir, mask_dir, n_jobs):
+    """Cubes whose cached mask disagrees with the canonical NDVI's finiteness.
+
+    WHY THIS IS A PRE-FLIGHT AND NOT AN EXCEPTION HANDLER. ``build_p3_data``
+    asserts this per cube, deep inside target construction and ~10 minutes into
+    a run, and its message says "one of them is stale". On this tile that
+    diagnosis is wrong: the cached mask reproduces bit-identically from
+    ``cube_masks`` locally, so nothing is stale -- ``cube_masks`` and
+    ``cube_ndvi`` genuinely disagree, because the mask calls a pixel valid on
+    the strength of s2_dlmask/SCL plus finite bands while NDVI is 0/0 there.
+    That is the zero-reflectance fill block the P4 pilot documented.
+
+    The properly correct fix is a zero-reflectance rule beside
+    ``finite_valid_mask``. That is a SHARED path -- P1, P2 and P3 all read
+    through it, and every published 32UNU table with it -- so moving it would
+    move numbers this run has no mandate to move. The P4 pilot made the same
+    call and recorded it so it can be overruled. This does the same: the
+    affected cubes are excluded WHOLE, named, and counted.
+    """
+    from concurrent.futures import ProcessPoolExecutor
+
+    say(f"[rule 2b] checking {len(roster)} cached masks against the canonical "
+        f"NDVI on {n_jobs} workers")
+    t0 = time.time()
+    args = [(c, cube_dir, mask_dir) for c in roster]
+    results = []
+    with ProcessPoolExecutor(max_workers=n_jobs) as ex:
+        for i, r in enumerate(ex.map(_mask_ndvi_check, args), 1):
+            results.append(r)
+            if i % CUBE_HEARTBEAT_EVERY == 0 or i == len(args):
+                el = time.time() - t0
+                bad = sum(1 for x in results if not x["ok"])
+                say(f"[rule 2b] [{i:>3}/{len(args)}] {el / 60:5.1f} min | "
+                    f"{bad} mismatched")
+    bad = {r["cube"]: r["why"] for r in results if not r["ok"]}
+    if not bad:
+        say(f"[rule 2b] all {len(roster)} masks agree with the canonical NDVI")
+        return list(roster), {}
+    say(f"[rule 2b] {len(bad)} cube(s) EXCLUDED -- mask/NDVI disagreement:")
+    for c in sorted(bad):
+        say(f"[rule 2b]   {c}")
+        say(f"[rule 2b]     {bad[c]}")
+    keep = [c for c in roster if c not in bad]
+    say(f"[rule 2b] {len(roster)} -> {len(keep)} cubes")
+    return keep, bad
 
 
 # --------------------------------------------------------------------------
@@ -369,12 +512,29 @@ def project(points, n_small, n_large, n_full, budget_hours):
         f"{'s/row@' + str(n_full):>12} {'rows':>6} {'hours':>8}")
     total_h = 0.0
     per_mode = {}
+    n_invalid = 0
     for m in sorted(set(a["s_per_row"]) | set(b["s_per_row"])):
         sa = a["s_per_row"].get(m)
         sb = b["s_per_row"].get(m)
         if not sa or not sb or sa <= 0 or sb <= 0:
             continue
         exponent = math.log(sb / sa) / math.log(ratio_cal)
+        # A NEGATIVE exponent is not a measurement, it is a corrupted one. It
+        # says a fold gets CHEAPER per row as the tile grows, which none of
+        # these modes can do: cube grows its training set, loco grows fold
+        # count and training set together, spatial_block grows both. It shows
+        # up when the two points were measured under different machine load --
+        # on 2026-08-18 a Spotlight reindex of the freshly copied 2 GB cache
+        # made the 20-cube point 5x slower than the 40-cube one and produced
+        # loco = -2.65, projecting 0.00 h for what a quiet machine had just
+        # measured at 10.12 h. Believing it would have run loco at 342 cubes.
+        # So: reject it, fall back to LINEAR growth from the WORSE of the two
+        # points, and say so loudly. Conservative on purpose -- the failure
+        # this guards against is under-narrowing into a 30-hour run.
+        invalid = exponent < 0.0
+        if invalid:
+            sb = max(sa, sb)
+            exponent = 1.0
         # Rows are fixed by the GRID, not by the cube count: the same table is
         # produced at 20 cubes and at 346. What scales is the cost of a row.
         rows = b["rows_per_mode"].get(m, 0)
@@ -383,19 +543,29 @@ def project(points, n_small, n_large, n_full, budget_hours):
         total_h += hours
         per_mode[m] = {"exponent": exponent, "s_per_row_full": s_full,
                        "rows": rows, "hours": hours}
+        flag = "  <- REJECTED (negative); linear from the worse point" if invalid else ""
         say(f"  {m:<14} {sa:12.3f} {sb:12.3f} {exponent:9.2f} "
-            f"{s_full:12.2f} {rows:6d} {hours:8.2f}")
+            f"{s_full:12.2f} {rows:6d} {hours:8.2f}{flag}")
+        if invalid:
+            n_invalid += 1
     say(f"  {'TOTAL':<14} {'':>12} {'':>12} {'':>9} {'':>12} {'':>6} "
         f"{total_h:8.2f}")
     say(f"\n  budget {budget_hours:.1f} CPU-hours -> "
         f"{'WITHIN' if total_h <= budget_hours else 'OVER'} budget")
     say("  NOTE: this is a two-point fit. The P4 pilot's own two-point "
         "projection came in 52% under the truth, so treat it as a floor.")
+    if n_invalid:
+        say(f"\n  *** {n_invalid} fold mode(s) produced a NEGATIVE exponent and "
+            "were rejected. ***")
+        say("  That means the two calibration points were measured under "
+            "different machine load, so this projection is NOT a clean read of "
+            "the algorithm. Re-run the valve on a quiet machine, or pass "
+            "--narrow with the axis a previous clean calibration justified.")
     return total_h, per_mode
 
 
 def narrow(total_h, per_mode, fold_modes, aggregations, alpha_rules,
-           budget_hours):
+           budget_hours, n_cubes=None):
     """Rule 4's ladder. ALL NINE ENCODER VIEWS SURVIVE EVERY STEP.
 
     Order is fixed and each step is logged: (a) drop ``loco``, 346 folds of two
@@ -408,18 +578,24 @@ def narrow(total_h, per_mode, fold_modes, aggregations, alpha_rules,
     from probes import p3_forecast as p3
 
     steps = []
-    fm, ag, ar = list(fold_modes), list(aggregations), list(alpha_rules)
+    fm = list(fold_modes)
+    ag = list(aggregations)
+    ar = None if alpha_rules is None else list(alpha_rules)
     est = total_h
 
+    def _out(a):
+        return None if a is None else tuple(a)
+
     if est <= budget_hours:
-        return tuple(fm), tuple(ag), tuple(ar), steps, est
+        return tuple(fm), tuple(ag), _out(ar), steps, est
 
     if "loco" in fm:
         saved = per_mode.get("loco", {}).get("hours", 0.0)
         fm.remove("loco")
         est -= saved
-        steps.append(f"(a) dropped fold_mode=loco (-{saved:.2f} h): 346 folds "
-                     "of two to five rows each on this tile")
+        steps.append(f"(a) dropped fold_mode=loco (-{saved:.2f} h): "
+                     f"{n_cubes if n_cubes else 'many'} folds of two to five "
+                     "rows each on this tile")
         say(f"[rule 4] {steps[-1]}; projection now {est:.2f} h")
     if est > budget_hours and "cell_mean" in ag:
         # cell_mean is 16 rows per forecast row: the aggregation multiplies the
@@ -432,26 +608,65 @@ def narrow(total_h, per_mode, fold_modes, aggregations, alpha_rules,
                      f"({before:.2f} -> {est:.2f} h): the resolution axis, not "
                      "the decision axis")
         say(f"[rule 4] {steps[-1]}")
-    if est > budget_hours and p3.ALPHA_RULE_FIXED in ar:
+    if est > budget_hours and (ar is None or p3.ALPHA_RULE_FIXED in ar):
         before = est
         est *= 0.5
-        ar.remove(p3.ALPHA_RULE_FIXED)
+        # ALPHA_RULE_NA must survive: it is the only rule hgb, the MLP and the
+        # unfitted rows have, and dropping it removes those rows entirely
+        # rather than narrowing the ridge.
+        ar = [p3.ALPHA_RULE_TUNED, p3.ALPHA_RULE_NA]
         steps.append(f"(c) dropped alpha_rule=fixed_alpha_D "
                      f"({before:.2f} -> {est:.2f} h): nested_cv is the rule the "
-                     "Tier-1 headline is read on")
+                     "Tier-1 headline is read on; not_a_ridge kept so hgb and "
+                     "the MLP still contribute rows")
         say(f"[rule 4] {steps[-1]}")
 
     if est > budget_hours:
         say(f"[rule 4] STILL over budget at {est:.2f} h after every permitted "
             "narrowing. Proceeding anyway: the ladder is exhausted and all "
             "nine encoder views survive by construction.")
-    return tuple(fm), tuple(ag), tuple(ar), steps, est
+    return tuple(fm), tuple(ag), _out(ar), steps, est
+
+
+def _resolve_predictions(path: str) -> str:
+    """The path ``write_predictions`` actually used.
+
+    It appends ``.gz`` when the projected size crosses its threshold and
+    returns the real path -- but ``run_p3`` does not pass that back through its
+    signature (by design: it goes to the run log and stdout). So the caller has
+    to look for both spellings, or the trigger stage dies on a missing file
+    AFTER the expensive part has already succeeded. That is exactly what
+    happened on the 2026-08-19 run: 6.4 h of fits landed, then the triggers
+    could not find a 361 MB file sitting right next to where they looked.
+    """
+    for cand in (path, path + ".gz"):
+        if os.path.exists(cand):
+            return cand
+    raise SystemExit(
+        f"\nno predictions at {path} or {path}.gz. run_p3 was asked for "
+        "emit_predictions=True; check the '[p3] wrote' line in the run log "
+        "for where they actually went.\n")
+
+
+def _score_triggers(pred_path: str, out_root: str, args) -> None:
+    """Threshold-crossing skill, same thresholds and levels as 2026-08-16."""
+    banner("TRIGGER METRICS -- same thresholds and levels as 2026-08-16")
+    from probes import p3_triggers as tg
+
+    preds = tg.load_predictions(pred_path)
+    tg.assert_thresholds_are_train_fitted(preds)
+    tr = tg.trigger_metrics(preds)
+    tpath = os.path.join(out_root, args.triggers_name)
+    tr.to_csv(tpath, index=False)
+    say(f"[p3-extreme] wrote {tpath} ({len(tr)} rows)")
+    tg.print_trigger_table(tr, level="extreme_low")
 
 
 # --------------------------------------------------------------------------
 # the report
 # --------------------------------------------------------------------------
-def report(df, args, roster, reasons, narrowed, dirs, gpu_note):
+def report(df, args, roster, reasons, narrowed, dirs, gpu_note,
+           encode_drops):
     """Every headline this run was commissioned for, beside 32UNU's Tier-1."""
     import pandas as pd
 
@@ -567,10 +782,17 @@ def report(df, args, roster, reasons, narrowed, dirs, gpu_note):
 
     banner("PROVENANCE")
     say(f"  tile              {TILE} (extreme split)")
-    say(f"  cubes rostered    {len(roster)}")
-    say(f"  cubes excluded    {len(reasons)}")
+    say(f"  cubes FITTED      {len(roster)}")
+    say(f"  cubes excluded    {len(reasons)}  "
+        f"(P4 fill-block + encode-time drops)")
     for c, why in sorted(reasons.items()):
-        say(f"                      {c}: {why}")
+        say(f"                      {c}")
+        say(f"                        {str(why)[:200]}")
+    if encode_drops:
+        say(f"  encoded vs fitted {EXPECTED_CUBES} encoded-roster -> "
+            f"{len(roster)} fitted ({len(encode_drops)} dropped by rule 3)")
+        say("                      P4 fitted 346; these two tables cover "
+            "nearly, not exactly, the same cubes.")
     say(f"  embeddings        {dirs['emb']}")
     say(f"  embeddings_cir    {dirs['cir']}")
     say(f"  masks             {dirs['mask']}")
@@ -588,6 +810,13 @@ def main() -> None:
     ap.add_argument("--budget-hours", type=float, default=BUDGET_HOURS)
     ap.add_argument("--cal-small", type=int, default=20)
     ap.add_argument("--cal-large", type=int, default=40)
+    ap.add_argument("--narrow", default="",
+                    help="apply a narrowing WITHOUT re-measuring, e.g. 'loco'. "
+                         "For use ONLY when a previous CLEAN calibration "
+                         "justified it -- the reason travels on every row and "
+                         "the table is written under the subset name.")
+    ap.add_argument("--narrow-reason", default="",
+                    help="provenance for --narrow; goes in the log and the CSV")
     ap.add_argument("--skip-calibration", action="store_true",
                     help="run the full grid without the valve. Only sensible "
                          "when a previous run already measured it.")
@@ -597,6 +826,11 @@ def main() -> None:
     ap.add_argument("--encoders", default="")
     ap.add_argument("--no-screen", action="store_true")
     ap.add_argument("--skip-triggers", action="store_true")
+    ap.add_argument("--triggers-only", action="store_true",
+                    help="skip the fitting entirely and score triggers + "
+                         "report from tables already on disk. For finishing a "
+                         "run whose fits landed but whose trigger stage did "
+                         "not -- never for producing a table.")
     ap.add_argument("--csv-name", default="p3_extreme_results.csv")
     ap.add_argument("--predictions-name", default="p3_extreme_predictions.csv")
     ap.add_argument("--triggers-name", default="p3_extreme_triggers.csv")
@@ -634,7 +868,8 @@ def main() -> None:
 
     # --- rule 1 -----------------------------------------------------------
     banner("RULE 1: THE CUBE ROSTER")
-    roster, reasons, source = resolve_roster(out_root, cube_dir)
+    roster, reasons, source, encode_drops = resolve_roster(
+        out_root, cube_dir)
     paths = [os.path.join(cube_dir, c) for c in roster]
 
     encoders = (tuple(args.encoders.split(",")) if args.encoders
@@ -645,7 +880,13 @@ def main() -> None:
                     else p3.AGGREGATIONS)
     fold_modes = (tuple(args.fold_modes.split(",")) if args.fold_modes
                   else p3.FOLD_MODES)
-    alpha_rules = p3.ALPHA_RULES
+    # None means NO narrowing: every estimator gets its natural rules
+    # (ALPHA_RULES for the ridge, ALPHA_RULE_NA for hgb / the MLP / unfitted
+    # rows). Passing p3.ALPHA_RULES explicitly is NOT the same thing -- it
+    # excludes "not_a_ridge" and leaves hgb contributing no rows at all. The
+    # published scripts/rerun_p3_tier1.py leaves it None for exactly this
+    # reason; rule 4(c) is the only thing that may narrow it.
+    alpha_rules = None
     n_jobs = args.n_jobs or max(1, (os.cpu_count() or 2) - 1)
     screen = not args.no_screen
 
@@ -659,18 +900,27 @@ def main() -> None:
         "reads the frozen caches.")
     assert_caches_complete(dirs["emb"], dirs["cir"], dirs["mask"],
                            roster, encoders)
+    banner("RULE 2b: CACHED MASKS vs THE CANONICAL NDVI")
+    roster, mask_bad = drop_mask_ndvi_mismatches(
+        roster, cube_dir, dirs["mask"], n_jobs)
+    if mask_bad:
+        reasons.update({c: f"mask_ndvi_mismatch: {w}"
+                        for c, w in mask_bad.items()})
+        paths = [os.path.join(cube_dir, c) for c in roster]
+
     gpu_note = ("built on Colab by notebooks/phase1_10_extreme_encoding.ipynb; "
                 "this host has no CUDA and its dev venv is python 3.9.6, which "
                 "cannot build dinov2_vitb14 at all")
 
     say(f"\n[p3-extreme] {len(encoders)} views, horizons {horizons}, "
         f"aggregations {aggregations}, fold modes {fold_modes}, "
-        f"alpha rules {alpha_rules}")
+        f"alpha rules {alpha_rules or 'all (unnarrowed)'}")
     say(f"[p3-extreme] n_jobs {n_jobs}, k {args.k}, "
         f"plausibility_screen {screen}")
 
     # --- rule 3 + 4 -------------------------------------------------------
     narrowed = []
+    expected_rows = 0
     if args.skip_calibration:
         say("\n[rule 3] SKIPPED by --skip-calibration; no projection was made.")
     else:
@@ -680,10 +930,14 @@ def main() -> None:
                            n_jobs, screen, args.cal_small, args.cal_large)
         total_h, per_mode = project(points, args.cal_small, args.cal_large,
                                     len(paths), args.budget_hours)
+        # The row count is fixed by the GRID, not the cube count, so the
+        # calibration's own row total is the full run's total -- before any
+        # narrowing trims it.
+        expected_rows = points[args.cal_large]["rows"]
         banner("RULE 4: NARROWING, IF THE PROJECTION DEMANDS IT")
         fold_modes, aggregations, alpha_rules, narrowed, est = narrow(
             total_h, per_mode, fold_modes, aggregations, alpha_rules,
-            args.budget_hours)
+            args.budget_hours, n_cubes=len(paths))
         if not narrowed:
             say(f"[rule 4] projection {total_h:.2f} h is within the "
                 f"{args.budget_hours:.1f} h budget; the FULL table runs.")
@@ -693,11 +947,58 @@ def main() -> None:
                 f"projection now {est:.2f} h")
             say("[rule 4] ALL NINE ENCODER VIEWS SURVIVE.")
 
+    if args.narrow:
+        banner("RULE 4: NARROWING APPLIED FROM A PREVIOUS CLEAN CALIBRATION")
+        if not args.narrow_reason:
+            raise SystemExit(
+                "\n--narrow requires --narrow-reason: a narrowing with no "
+                "recorded provenance is indistinguishable from an arbitrary "
+                "one, and it travels on every row of the table.\n")
+        for axis in [a.strip() for a in args.narrow.split(",") if a.strip()]:
+            if axis in fold_modes:
+                fold_modes = tuple(m for m in fold_modes if m != axis)
+                what = "fold_mode"
+            elif axis in aggregations:
+                aggregations = tuple(a for a in aggregations if a != axis)
+                what = "aggregation"
+            else:
+                raise SystemExit(
+                    f"\n--narrow {axis!r} matches no fold mode "
+                    f"{fold_modes} or aggregation {aggregations}\n")
+            narrowed.append(f"{what}={axis} dropped (not re-measured): "
+                            f"{args.narrow_reason}")
+            say(f"[rule 4] {narrowed[-1]}")
+        say("[rule 4] ALL NINE ENCODER VIEWS SURVIVE.")
+
     if narrowed and args.csv_name == "p3_extreme_results.csv":
         args.csv_name = "p3_extreme_subset_results.csv"
         say(f"[rule 4] a narrowed table is a SUBSET table: writing "
             f"{args.csv_name}, and the full-table completeness assertions are "
             "NOT run on it.")
+
+    # --- triggers-only: the fits already landed ---------------------------
+    if args.triggers_only:
+        import pandas as pd
+
+        banner("TRIGGERS ONLY -- reading tables already on disk")
+        cand = [os.path.join(out_root, n) for n in
+                ("p3_extreme_subset_results.csv", args.csv_name)]
+        csv_path = next((c for c in cand if os.path.exists(c)), None)
+        if csv_path is None:
+            raise SystemExit(f"\nno results table at any of {cand}\n")
+        df = pd.read_csv(csv_path)
+        say(f"[p3-extreme] read {csv_path} ({len(df)} rows)")
+        if "narrowed" in df.columns and df["narrowed"].notna().any():
+            narrowed = [str(df["narrowed"].dropna().iloc[0])]
+            say(f"[p3-extreme] this table is NARROWED: {narrowed[0][:120]}")
+        pred_path = _resolve_predictions(
+            os.path.join(out_root, args.predictions_name))
+        say(f"[p3-extreme] predictions at {pred_path}")
+        _score_triggers(pred_path, out_root, args)
+        report(df, args, roster, reasons, narrowed, dirs, gpu_note,
+               encode_drops)
+        banner("DONE")
+        return
 
     # --- the run ----------------------------------------------------------
     banner("THE FULL GRID")
@@ -713,7 +1014,7 @@ def main() -> None:
     pred_path = os.path.join(out_root, args.predictions_name)
     csv_path = os.path.join(out_root, args.csv_name)
 
-    with EvaluateCounter(p3, total=0, label="") as counter:
+    with EvaluateCounter(p3, total=expected_rows, label="") as counter:
         t0 = time.time()
         df, data = p3.run_p3(
             manifest, cube_dir, encoders=encoders, horizons=horizons,
@@ -734,19 +1035,12 @@ def main() -> None:
                    cubes_excluded="; ".join(sorted(reasons)) or "")
     df.to_csv(csv_path, index=False)
     say(f"[p3-extreme] wrote {csv_path}")
-    say(f"[p3-extreme] wrote {pred_path}")
+    pred_path = _resolve_predictions(pred_path)
+    say(f"[p3-extreme] predictions at {pred_path}")
 
     # --- triggers ---------------------------------------------------------
     if not args.skip_triggers:
-        banner("TRIGGER METRICS -- same thresholds and levels as 2026-08-16")
-        from probes import p3_triggers as tg
-        preds = tg.load_predictions(pred_path)
-        tg.assert_thresholds_are_train_fitted(preds)
-        tr = tg.trigger_metrics(preds)
-        tpath = os.path.join(out_root, args.triggers_name)
-        tr.to_csv(tpath, index=False)
-        say(f"[p3-extreme] wrote {tpath}")
-        tg.print_trigger_table(tr, level="extreme_low")
+        _score_triggers(pred_path, out_root, args)
 
     report(df, args, roster, reasons, narrowed, dirs, gpu_note)
     banner("DONE")
