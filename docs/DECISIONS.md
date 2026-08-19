@@ -2891,5 +2891,5 @@ It returned a null, and a sharper one than expected:
   says so loudly. The clean run's `spatial_block` -0.52 was the same defect and
   explains why its 1.98 h projection understated the 6.40 h actual.
 
-**Commit.** `PENDING`
+**Commit.** `d519ab3`
 
