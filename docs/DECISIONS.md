@@ -2893,3 +2893,67 @@ It returned a null, and a sharper one than expected:
 
 **Commit.** `d519ab3`
 
+
+---
+
+## 2026-08-19 (later): the extreme-tile P3 table is COMPLETE -- `loco` computed off-box, and the conclusion survives the strictest fold mode
+
+**Assumed.** That the narrowed table was the deliverable. Rule 4 dropped
+`fold_mode=loco` because it projected at 10.12 h of a 12.10 h budget on the
+Mac, and the entry above recorded the result as a SUBSET table under
+`p3_extreme_subset_results.csv`, with the honest caveat that the full-table
+completeness assertions did not apply to it.
+
+**Observed.** The narrowing was a compute constraint, not a scientific one, and
+the constraint was specific to an 8-core laptop. On TUM's lxhalle (AMD EPYC
+9554P, 64 cores, 768 GB) the same 308 rows took **116.7 min at 23.0 s/row on 64
+workers** -- against a local attempt that measured **344 s/row** and was on
+course for ~29 h. Roughly a 15x wall-clock reduction for work that needed no
+GPU and no code change beyond two flags.
+
+More importantly, `loco` does not overturn anything:
+
+- Skill reads **uniformly slightly higher** than `cube` (+0.002 to +0.170,
+  largest at D=5). Expected and uninteresting: a `loco` fold trains on 341
+  cubes against ~274 for 5-fold `cube`. The ORDERING is unchanged.
+- **The crossover is not an artefact of the fold mode.** Separably better /
+  worse than persistence runs 10/59 at D=5, 43/32 at D=25, 55/17 at D=50,
+  60/16 at D=100 -- the same shape `cube` (41/158, 109/73, 169/35, 189/33) and
+  `spatial_block` (8/64, 41/32, 43/16, 44/8) show. The headline survives
+  leave-one-cube-out, which holds out whole cubes and is the strictest of the
+  three.
+
+**Changed.**
+
+- `data/scaled_32UQC/p3_extreme_results.csv` is now the **full 1540-row grid**
+  (`cube` 924 + `loco` 308 + `spatial_block` 308), matching the 32UNU Tier-1
+  table's structure exactly. `p3_extreme_subset_results.csv` is retained as the
+  provenance of what was computed locally.
+- **The merge is guarded, not trusted.** `scripts/merge_loco.py` refuses unless
+  the halves are the same experiment: no `fold_mode` overlap, identical
+  `n_cubes`, `cubes_excluded`, `plausibility_screen` and `tile`, and matching
+  columns modulo bookkeeping. Two halves fitted on different machines days
+  apart is precisely where a silent mismatch yields rows that are internally
+  consistent and mutually incomparable. Server library versions were pinned to
+  the Mac's for the same reason.
+- `docs/SERVER_LOCO_RUNBOOK.md` and `docs/SERVER_REPLICATION_STEPS.md` record
+  the working procedure. Four things in it were learned the expensive way and
+  are called out there: `--fold-modes loco` REQUIRES `--aggregations cube_mean`
+  (the other two aggregations run only under `cube` folds and the probe aborts
+  otherwise); `--exclude 'data/'` ships the repo without its own `data` package
+  and must be `--exclude 'data/*/'`; torch IS required at fit time (via
+  `encoders.pipeline`) and must come from the CPU-only index; and the host is
+  `lxhalle.cit.tum.de`.
+- **A counting fact worth recording.** The 4 `horizon_only` rows are emitted
+  without an `evaluate()` call, so a completed `loco` run reports **304**
+  counted rows for a **308**-row table. A process that "stops at row 304" has
+  finished. This was misread as a crash mid-run before the CSV was checked.
+
+**What this does NOT change.** The scientific conclusion is the one recorded
+above and it stands unaltered: no frozen encoder is separably better than
+persistence at the trigger metric until D=100 d on stressed land, where 32UNU
+crossed at 50 d. `loco` makes that finding stronger, not weaker, because the
+strictest fold mode agrees with the other two.
+
+**Commit.** `PENDING`
+

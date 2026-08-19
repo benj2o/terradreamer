@@ -3,6 +3,69 @@
 Running record of measurements and adopted definitions. Reverse chronological.
 Decisions and their rationale live in [docs/DECISIONS.md](docs/DECISIONS.md).
 
+## 2026-08-19 (later): the `loco` top-up on lxhalle -- the table is COMPLETE at 1540 rows, and the conclusion does not depend on the fold mode
+
+The 308 `loco` rows rule 4 dropped locally, computed on TUM's lxhalle
+(AMD EPYC 9554P, 64 cores) and merged back. **The extreme-tile P3 table is no
+longer a subset.**
+
+```
+local  (Mac, 7 workers)   1232 rows  cube + spatial_block   6.40 h
+server (lxhalle, 64 wk)    308 rows  loco                   1.95 h
+merged                    1540 rows  = the full grid
+```
+
+`scripts/merge_loco.py` refused-or-passed on identity, not on trust: no
+`fold_mode` overlap, identical `n_cubes` (342), `cubes_excluded` (the same 6),
+`plausibility_screen` and `tile`. Library versions were pinned to the Mac's
+(numpy 2.0.2 / pandas 2.3.3 / sklearn 1.6.1 / scipy 1.13.1) so the two halves
+are the same experiment, not merely similar ones.
+
+### `loco` vs `cube`, `cube_mean` / `nested_cv` / `+base`, skill vs persistence
+
+```
+view                        D=5     D=25    D=50   D=100   | loco-cube at D=5
+raw_features               +0.491  +0.656  +0.728  +0.834  |  +0.008
+imagenet_vit_b16_cir       -0.259  +0.497  +0.726  +0.861  |  +0.108
+satlas_s2_swinb_mi_rgb_cir +0.180  +0.499  +0.666  +0.846  |  +0.112
+dinov2_vitb14              -0.464  +0.436  +0.717  +0.860  |  +0.170
+satlas_s2_swinb_mi_rgb     +0.078  +0.424  +0.676  +0.837  |  +0.118
+```
+
+`loco` reads **uniformly slightly higher** than `cube` (+0.002 to +0.170,
+largest at D=5). That is the expected direction and not a finding: a `loco`
+fold trains on 341 cubes against ~274 for 5-fold `cube`, so it fits marginally
+better. The ORDERING is unchanged and `raw_features` still leads at D=5.
+
+### THE ROBUSTNESS RESULT: the crossover is not an artefact of the fold mode
+
+Separably better / worse than persistence, all rows, per horizon:
+
+```
+          cube (of 228)     spatial_block (of 76)   loco (of 76)
+D=5      41 / 158           8 / 64                  10 / 59
+D=25    109 /  73          41 / 32                 43 / 32
+D=50    169 /  35          43 / 16                 55 / 17
+D=100   189 /  33          44 /  8                 60 / 16
+```
+
+**All three fold modes show the same shape**: persistence dominates at D=5,
+parity around D=25, models dominate from D=50. The headline -- that frozen
+encoders do not beat persistence at the horizons early warning would use --
+survives leave-one-cube-out, which is the strictest of the three.
+
+### Compute, measured
+
+`loco` at 342 cubes: **23.0 s/row, 304 evaluate calls, 116.7 min on 64
+workers**. Against the local projection of 10.12 h on 7 workers, that is
+consistent (~5.2x fewer worker-seconds at 9x the workers). A local attempt had
+measured **344 s/row** and was heading for ~29 h; the server did the same work
+in under two hours on a machine already at load 48.
+
+The 4 `horizon_only` rows carry no `evaluate()` call, so 304 counted rows IS
+the complete 308-row table. A run that stops at "row 304" has finished, not
+failed -- worth knowing before anyone panics at a vanished process again.
+
 ## 2026-08-19: Extreme-tile P3 on 32UQC -- no frozen encoder beats persistence until 100 days on stressed land, and the crossover moves a full horizon step LATER
 
 The nine-view forecastability probe on the 2018 heat/drought tile, same four

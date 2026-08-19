@@ -1,6 +1,10 @@
 # environments
 .venv/
 __pycache__/
+# NOT the same thing: a stray mirror of the macOS stdlib .pyc tree that
+# collected at the repo root. It was rsynced to a shared server once because
+# this line was missing.
+.pycache/
 *.pyc
 .pytest_cache/
 .ipynb_checkpoints/
