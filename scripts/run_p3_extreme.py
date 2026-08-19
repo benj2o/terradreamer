@@ -666,7 +666,7 @@ def _score_triggers(pred_path: str, out_root: str, args) -> None:
 # the report
 # --------------------------------------------------------------------------
 def report(df, args, roster, reasons, narrowed, dirs, gpu_note,
-           encode_drops):
+           encode_drops=None):
     """Every headline this run was commissioned for, beside 32UNU's Tier-1."""
     import pandas as pd
 
@@ -1073,7 +1073,8 @@ def main() -> None:
     else:
         _score_triggers(pred_path, out_root, args)
 
-    report(df, args, roster, reasons, narrowed, dirs, gpu_note)
+    report(df, args, roster, reasons, narrowed, dirs, gpu_note,
+           encode_drops)
     banner("DONE")
 
 
