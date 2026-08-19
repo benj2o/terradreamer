@@ -102,14 +102,21 @@ libraries.
 
 ## Step 3 — on the MAC: push the code and the data
 
-Code first (small, seconds). `rsync` is the default here because it needs no
+Code first (small, seconds). **`data/*/`, not `data/`.** The `data/` directory is BOTH a Python package
+(`paths.py`, `loader.py`, `ndvi.py`, `climatology.py`) and the home of the
+multi-gigabyte cubes and caches. Excluding `data/` wholesale ships the repo
+without its own package and the run dies at
+`ModuleNotFoundError: No module named 'data'`. The trailing `/*/` excludes the
+subdirectories and keeps the modules. Verified with `rsync -n`.
+
+`rsync` is the default here because it needs no
 GitHub credentials on a shared university box and it copies exactly your
 working tree. If you already have an SSH key on lxhalle that can reach the
 repo, `git clone git@github.com:benj2o/terradreamer.git ~/p3` is equivalent —
 everything needed is committed as of `10e425a`.
 
 ```bash
-cd "/Users/benji/Code/NeurIPS CCAI 2026" && rsync -av --exclude '.venv' --exclude '.git' --exclude 'data/' --exclude '*.zip' --exclude 'notebooks/runs' ./ YOU@lxhalle.cit.tum.de:~/p3/
+cd "/Users/benji/Code/NeurIPS CCAI 2026" && rsync -av --exclude '.venv' --exclude '.git' --exclude 'data/*/' --exclude '.pycache' --exclude '.pytest_cache' --exclude '__pycache__' --exclude '.DS_Store' --exclude '.claude' --exclude 'vendor' --exclude 'paper' --exclude '*.zip' --exclude 'notebooks/runs' ./ YOU@lxhalle.cit.tum.de:~/p3/
 ```
 
 Then the data (~4 GB, this is the slow one — expect 10–40 min):
