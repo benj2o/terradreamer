@@ -64,23 +64,49 @@ the 1232 you already have.
 python3 -m venv ~/p3/.venv && ~/p3/.venv/bin/pip install -q --upgrade pip
 ```
 ```bash
-~/p3/.venv/bin/pip install -q "numpy==2.0.2" "pandas==2.3.3" "scikit-learn==1.6.1" "scipy==1.13.1" joblib xarray netCDF4 zarr dask
+~/p3/.venv/bin/pip install -q "numpy==2.0.2" "pandas==2.3.3" "scikit-learn==1.6.1" "scipy==1.13.1" joblib xarray netCDF4
 ```
+
+Now `torch`, and **use this exact line** — the CPU-only index:
+
 ```bash
-~/p3/.venv/bin/python -c "import numpy,pandas,sklearn,scipy,sys;print(sys.version.split()[0],numpy.__version__,pandas.__version__,sklearn.__version__,scipy.__version__)"
+~/p3/.venv/bin/pip install -q torch --index-url https://download.pytorch.org/whl/cpu
 ```
 
-Expect: `3.12.3 2.0.2 2.3.3 1.6.1 1.13.1`. The Python minor version differing
-from the Mac's 3.9.6 is fine — the numerics live in the pinned libraries.
+**Why torch at all, when nothing is encoded?** Because
+`probes/p3_forecast.py` imports `encoders.pipeline` (for `load_masks`), and
+that module imports `torch` at the top. Nothing *uses* it during fitting, but
+the import chain needs it present. Verified empirically: without torch the
+import fails with `ModuleNotFoundError`.
 
-**Note there is no `torch` and no `satlaspretrain`.** Fitting does not import
-them. Installing them would cost gigabytes for nothing.
+**Why the CPU index?** On Linux, a plain `pip install torch` pulls the CUDA
+build and drags in ~2.5 GB of nvidia libraries. The CPU wheel is a fraction of
+that and this job has no GPU work at all.
+
+**Not installed, deliberately:** `torchvision`, `satlaspretrain-models`,
+`earthnet`, `s3fs`. The per-encoder imports are lazy — they live inside
+`build_encoder`, which fitting never calls. Verified in a clean environment
+with torchvision absent.
+
+Now prove the whole chain imports before you copy 4 GB:
+
+```bash
+cd ~/p3 && ~/p3/.venv/bin/python -c "from probes import p3_forecast, p3_triggers; from encoders.pipeline import load_masks; from data.loader import load_cube; import scripts.run_p3_extreme; import sys,numpy,pandas,sklearn,scipy; print('imports OK |', sys.version.split()[0], numpy.__version__, pandas.__version__, sklearn.__version__, scipy.__version__)"
+```
+
+Expect `imports OK | 3.12.3 2.0.2 2.3.3 1.6.1 1.13.1`. The Python minor version
+differing from the Mac's 3.9.6 is fine — the numerics live in the pinned
+libraries.
 
 ---
 
 ## Step 3 — on the MAC: push the code and the data
 
-Code first (small, seconds):
+Code first (small, seconds). `rsync` is the default here because it needs no
+GitHub credentials on a shared university box and it copies exactly your
+working tree. If you already have an SSH key on lxhalle that can reach the
+repo, `git clone git@github.com:benj2o/terradreamer.git ~/p3` is equivalent —
+everything needed is committed as of `10e425a`.
 
 ```bash
 cd "/Users/benji/Code/NeurIPS CCAI 2026" && rsync -av --exclude '.venv' --exclude '.git' --exclude 'data/' --exclude '*.zip' --exclude 'notebooks/runs' ./ YOU@lxhalle.in.tum.de:~/p3/
