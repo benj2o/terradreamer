@@ -16,12 +16,34 @@ It has four sections and stays under two pages:
 1. **What we actually claim.** Every claim the evidence supports, one line each,
    each with the artefact and the number behind it. If a claim cannot be traced
    to a row in a CSV, it is not a claim.
-2. **What we assumed, and where those assumptions moved.** This project pivoted
-   several times. Read `log.md` (reverse chronological) and `docs/DECISIONS.md`
-   (append-only, assumed/observed/changed/commit) end to end. Record where a
-   hypothesis was refuted by its own measurement, where a rule was applied that
-   had not been pre-authorised, and where a result was kept despite being
-   inconvenient. These are the paper's credibility, not its embarrassments.
+2. **The chain of reasoning, probe by probe, in the order it happened.** This
+   is the most important section and the longest. Read `log.md` (reverse
+   chronological, so read it bottom-up for the real sequence) and
+   `docs/DECISIONS.md` (append-only, assumed/observed/changed/commit) end to
+   end, then reconstruct the actual path: the toy load, P1, P2, P3, P4, the
+   scale-up to 115 cubes, the Tier-1 corrections, the trigger metrics, the
+   extreme-tile P4 pilot, the extreme-tile P3, the `loco` top-up.
+
+   For **each** stage, in chronological order, one short block:
+
+   - what question it was supposed to answer
+   - what was assumed going in
+   - what it measured
+   - what that forced to change: a definition, a control, a fold mode, a
+     baseline, the scope of a claim
+   - what it made possible or ruled out next
+
+   The point is that a reader of this file can follow how the project arrived
+   at its conclusion, and see that each step was forced by the previous one
+   rather than chosen to reach a destination. Flag specifically: where a
+   hypothesis was refuted by its own measurement, where a gate was opened
+   against a NO-GO and on what grounds, where a rule was applied that had not
+   been pre-authorised, and where an inconvenient result was kept. Those are
+   the paper's credibility, not its embarrassments.
+
+   Most of this will not appear in a four-page paper. It exists so the author
+   can pick the two or three pivots that belong in the introduction, and so no
+   reviewer can ask a question about provenance that has no answer.
 3. **What we cannot say.** Limits that a careful reviewer will find anyway.
    Write them down before they can become surprises.
 4. **Highest-leverage framing for CCAI specifically.** Given the venue is a
@@ -115,18 +137,55 @@ exclusions and their reasons, library versions, wall clocks and hardware.
 
 Three or four. Each earns its place by showing something a table cannot.
 
+**Hold these to the standard of a well-produced thesis from a strong group.**
+In a short paper the figures are read before the text and often instead of it.
+A reviewer forms a judgement about rigour from how the figures look, before
+reading a single number. Treat that as part of the argument.
+
+### What each figure must do
+
 - The reader should be able to answer the paper's central question from the
   first figure alone.
-- Show uncertainty wherever a claim rests on it.
-- Label directly on the figure. Avoid legends where a label will do.
-- No chartjunk, no 3D, no dual axes, no colour carrying information that
-  shape or position could carry. Readable in greyscale and when printed.
-- Caption states what the figure shows and what to conclude, in two sentences.
-  It does not repeat the axis labels.
+- Show uncertainty wherever a claim rests on it. A point estimate without its
+  interval is not reportable here.
+- The baseline appears in the same visual frame as the models, at the same
+  scale, so the comparison needs no arithmetic from the reader.
+
+### Craft
+
+- **Typography.** One family throughout, matching the body text. Figure text no
+  smaller than 7pt at final print size. Never let a figure font differ from the
+  paper's, and never rely on default matplotlib sizing after scaling.
+- **Layout.** Consistent panel dimensions, aligned axes across panels, uniform
+  margins. Panels that share an axis share its range and its ticks. Column
+  width fixed to the template's text width so nothing is rescaled in LaTeX.
+- **Ink.** Remove top and right spines. Thin axes, no boxes, no gridlines
+  unless a value must be read off, and then light grey and behind the data.
+  No background fill, no drop shadows, no 3D, no dual axes.
+- **Colour.** One restrained palette across every figure, colourblind-safe,
+  legible in greyscale, and never the only carrier of meaning: pair it with
+  position, shape or direct labelling. Muted over saturated. If two colours
+  suffice, do not use five.
+- **Labels.** Direct annotation on or beside the series beats a legend. If a
+  legend is unavoidable, place it inside the plot area where it costs no space
+  and add no frame. Axis labels carry units. No title inside the figure; the
+  caption is the title.
+- **Numbers.** Consistent decimal places within a panel. Do not print more
+  precision than the interval supports.
+- **Output.** Vector `.pdf` for the paper, `.png` at 300dpi for preview. No
+  raster text. Deterministic: same script, same figure.
+
+### Sanity checks before you finish
+
+Print at actual size and look at it. Then view it at 50%. Then convert to
+greyscale. A figure that survives all three is done. Also check that no two
+figures in the paper use the same encoding for different variables.
 
 Reuse `paper/make_figures.py` as a starting point for style and data loading if
-useful. All new code goes in `make_figures_v2.py`, all new images in
-`paper/figures/v2/`. Both `.pdf` and `.png`.
+useful. Define the style once as a shared block at the top of
+`make_figures_v2.py` and have every figure inherit it, so the set reads as one
+system rather than four separate plots. All new code goes in
+`make_figures_v2.py`, all new images in `paper/figures/v2/`.
 
 ---
 
