@@ -189,6 +189,29 @@ system rather than four separate plots. All new code goes in
 
 ---
 
+## Format: LaTeX
+
+The paper is LaTeX, and stays LaTeX. `paper/` already has `main.tex`, a
+`Makefile`, `refs.bib` and `appendix.tex`. Write `paper/main_v2.tex` against the
+same build so `make` picks it up.
+
+Before submission, swap the placeholder preamble for the official CCAI workshop
+template from the workshop site. The note at the top of `paper/main.tex` records
+this along with the OpenReview account lead time, which is up to two weeks.
+
+Practical points:
+- Fix figure widths to the template's `\columnwidth` or `\textwidth` and size
+  the figures correctly at generation time. Never rescale a finished PDF in
+  `\includegraphics`, since that changes the effective font size inside it.
+- `booktabs` for tables. No vertical rules.
+- Cite through `refs.bib`. No hand-typed citations.
+- Numbers in tables aligned on the decimal point.
+
+**Build it.** Run `make` and confirm a clean PDF with no errors and no overfull
+boxes on the figures. A draft that does not compile is not a draft.
+
+---
+
 ## Before you hand it back
 
 - Every number in the text appears in a CSV, and you regenerated it.
@@ -198,6 +221,10 @@ system rather than four separate plots. All new code goes in
 - The limitations section contains the objection you would raise if you were
   reviewing it.
 - Read the whole thing aloud once. Cut what sounds like performance.
+- `make` produces a PDF with no errors. Figure text is legible at print size.
+- Every figure is cited in the body at the point its claim is made, and every
+  citation points at a figure that exists.
+- `paper/main.tex` is untouched. Check with `git status`.
 
 Report: what you wrote, which claims you could not support and dropped, and the
 three weakest points a reviewer will attack.
